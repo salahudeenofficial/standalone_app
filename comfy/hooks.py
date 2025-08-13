@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 import comfy.lora
 import comfy.model_management
 import comfy.patcher_extension
-from .node_helpers import conditioning_set_values
+from . import node_helpers
 
 # #######################################################################################################
 # Hooks explanation
@@ -707,12 +707,12 @@ def conditioning_set_values_with_hooks(conditioning, values={}, append_hooks=Tru
 def set_hooks_for_conditioning(cond, hooks: HookGroup, append_hooks=True, cache: dict[tuple[HookGroup, HookGroup], HookGroup]=None):
     if hooks is None:
         return cond
-    return conditioning_set_values_with_hooks(cond, {'hooks': hooks}, append_hooks=append_hooks, cache=cache)
+    return node_helpers.conditioning_set_values_with_hooks(cond, {'hooks': hooks}, append_hooks=append_hooks, cache=cache)
 
 def set_timesteps_for_conditioning(cond, timestep_range: tuple[float,float]):
     if timestep_range is None:
         return cond
-    return conditioning_set_values(cond, {"start_percent": timestep_range[0],
+    return node_helpers.conditioning_set_values(cond, {"start_percent": timestep_range[0],
                                           "end_percent": timestep_range[1]})
 
 def set_mask_for_conditioning(cond, mask: torch.Tensor, set_cond_area: str, strength: float):
@@ -723,7 +723,7 @@ def set_mask_for_conditioning(cond, mask: torch.Tensor, set_cond_area: str, stre
         set_area_to_bounds = True
     if len(mask.shape) < 3:
         mask = mask.unsqueeze(0)
-    return conditioning_set_values(cond, {'mask': mask,
+    return node_helpers.conditioning_set_values(cond, {'mask': mask,
                                           'set_area_to_bounds': set_area_to_bounds,
                                           'mask_strength': strength})
 
@@ -777,7 +777,7 @@ def set_default_conds_and_combine(conds: list, new_conds: list,
         # first, apply lora_hook to new conditioning, if provided
         new_c = set_hooks_for_conditioning(new_c, hooks, append_hooks=append_hooks, cache=cache)
         # next, add default_cond key to cond so that during sampling, it can be identified
-        new_c = conditioning_set_values(new_c, {'default': True})
+        new_c = node_helpers.conditioning_set_values(new_c, {'default': True})
         # apply timesteps, if present
         new_c = set_timesteps_for_conditioning(cond=new_c, timestep_range=timesteps_range)
         # finally, combine with existing conditioning and store
