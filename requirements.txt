@@ -8,3 +8,14 @@ transformers>=4.20.0
 accelerate>=0.20.0
 xformers>=0.0.20 
 einops
+scipy
+tokenizers>=0.13.3
+sentencepiece
+aiohttp>=3.11.8
+yarl>=1.18.0
+pyyaml
+Pillow
+scipy
+tqdm
+psutil
+
