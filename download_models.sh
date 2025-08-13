@@ -3,6 +3,9 @@
 # Standalone App Model Downloader
 # Usage: ./download_models.sh
 
+echo "Creating model directories..."
+mkdir -p models/diffusion_models models/text_encoders models/vaes models/loras models/embeddings
+
 echo "Downloading models for standalone app..."
 
 # UNET Model
