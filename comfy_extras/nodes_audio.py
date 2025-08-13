@@ -10,7 +10,7 @@ import io
 import json
 import random
 import hashlib
-import node_helpers
+from comfy import node_helpers
 from comfy.cli_args import args
 from comfy.comfy_types import FileLocator
 

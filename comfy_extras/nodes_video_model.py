@@ -4,7 +4,7 @@ import comfy.utils
 import comfy.sd
 import folder_paths
 import comfy_extras.nodes_model_merging
-import node_helpers
+from comfy import node_helpers
 
 
 class ImageOnlyCheckpointLoader:

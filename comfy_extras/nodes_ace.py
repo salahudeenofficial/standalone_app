@@ -1,6 +1,6 @@
 import torch
 import comfy.model_management
-import node_helpers
+from comfy import node_helpers
 
 class TextEncodeAceStepAudio:
     @classmethod

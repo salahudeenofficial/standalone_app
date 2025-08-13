@@ -3,7 +3,7 @@ import comfy.model_sampling
 import comfy.latent_formats
 import nodes
 import torch
-import node_helpers
+from comfy import node_helpers
 
 
 class LCM(comfy.model_sampling.EPS):

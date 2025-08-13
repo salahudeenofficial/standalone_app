@@ -7,7 +7,7 @@ from comfy.comfy_types import IO, ComfyNodeABC, InputTypeDict
 import latent_preview
 import torch
 import comfy.utils
-import node_helpers
+from comfy import node_helpers
 
 
 class BasicScheduler:

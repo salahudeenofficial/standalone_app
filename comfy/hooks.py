@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 import comfy.lora
 import comfy.model_management
 import comfy.patcher_extension
-from . import node_helpers
 from .node_helpers import conditioning_set_values
 
 # #######################################################################################################

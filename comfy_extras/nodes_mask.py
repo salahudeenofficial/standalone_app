@@ -2,7 +2,7 @@ import numpy as np
 import scipy.ndimage
 import torch
 import comfy.utils
-import node_helpers
+from comfy import node_helpers
 import folder_paths
 import random
 

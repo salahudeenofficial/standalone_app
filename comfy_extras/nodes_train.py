@@ -17,7 +17,7 @@ import comfy.utils
 import comfy.model_management
 import comfy_extras.nodes_custom_sampler
 import folder_paths
-import node_helpers
+from comfy import node_helpers
 from comfy.cli_args import args
 from comfy.comfy_types.node_typing import IO
 from comfy.weight_adapter import adapters, adapter_maps

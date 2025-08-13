@@ -1,4 +1,4 @@
-import node_helpers
+from comfy import node_helpers
 import comfy.utils
 
 class CLIPTextEncodeFlux:

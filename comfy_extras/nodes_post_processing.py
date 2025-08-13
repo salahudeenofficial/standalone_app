@@ -6,7 +6,7 @@ import math
 
 import comfy.utils
 import comfy.model_management
-import node_helpers
+from comfy import node_helpers
 
 class Blend:
     def __init__(self):
