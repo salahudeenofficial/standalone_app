@@ -7,3 +7,4 @@ safetensors>=0.3.0
 transformers>=4.20.0
 accelerate>=0.20.0
 xformers>=0.0.20 
+einops
