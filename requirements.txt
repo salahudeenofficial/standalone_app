@@ -18,4 +18,4 @@ Pillow
 scipy
 tqdm
 psutil
-
+torchsde

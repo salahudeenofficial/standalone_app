@@ -78,5 +78,11 @@ class VAELoader:
         if not os.path.exists(vae_path):
             raise FileNotFoundError(f"VAE model not found: {vae_path}")
             
-        vae = comfy.sd.load_vae(vae_path)
+        # Load the VAE state dict using comfy.utils.load_torch_file
+        vae_state_dict = comfy.utils.load_torch_file(vae_path)
+        
+        # Create VAE instance with the loaded state dict
+        vae = comfy.sd.VAE(sd=vae_state_dict)
+        vae.throw_exception_if_invalid()
+        
         return vae 
