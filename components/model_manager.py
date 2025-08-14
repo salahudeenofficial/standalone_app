@@ -150,6 +150,24 @@ class ModelManager:
         
         self.logger.info("All models unloaded to CPU")
     
+    def force_gpu_cleanup(self) -> None:
+        """Force aggressive GPU memory cleanup"""
+        self.logger.info("Forcing aggressive GPU memory cleanup...")
+        
+        if torch.cuda.is_available():
+            # Clear all CUDA caches
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+            
+            # Force garbage collection
+            gc.collect()
+            
+            # Get memory stats after cleanup
+            allocated = torch.cuda.memory_allocated() / 1024**2
+            reserved = torch.cuda.memory_reserved() / 1024**2
+            
+            self.logger.info(f"After cleanup - Allocated: {allocated:.1f} MB, Reserved: {reserved:.1f} MB")
+    
     def _offload_models_to_cpu(self) -> None:
         """Offload models to CPU to free VRAM"""
         # Sort models by size (largest first) to prioritize offloading

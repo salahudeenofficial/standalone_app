@@ -206,6 +206,10 @@ class ReferenceVideoPipeline:
             print("5a. Offloading UNET to CPU to free VRAM for VAE encoding...")
             self.model_manager.unload_model("UNET")
             
+            # Force aggressive GPU cleanup to ensure UNET memory is freed
+            print("5a. Forcing aggressive GPU cleanup after UNET offload...")
+            self.model_manager.force_gpu_cleanup()
+            
             # Check detailed VRAM usage before VAE encoding
             print("Checking VRAM usage before VAE encoding...")
             self.memory_manager.print_detailed_vram_usage()
