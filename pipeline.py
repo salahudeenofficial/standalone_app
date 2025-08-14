@@ -510,6 +510,17 @@ class ReferenceVideoPipeline:
                     length, batch_size, strength, control_video, reference_image, processing_plan
                 )
                 
+                # Extract the actual latent tensor from the dictionary
+                if isinstance(init_latent, dict) and "samples" in init_latent:
+                    init_latent = init_latent["samples"]
+                    print(f"5a. Extracted latent tensor from dictionary: {init_latent.shape}")
+                elif isinstance(init_latent, torch.Tensor):
+                    print(f"5a. Latent tensor already extracted: {init_latent.shape}")
+                else:
+                    print(f"5a. Warning: Unexpected latent format: {type(init_latent)}")
+                    if hasattr(init_latent, 'shape'):
+                        print(f"5a. Latent shape: {init_latent.shape}")
+                
                 # OOM Checklist: Check memory after VAE encoding execution
                 self._check_memory_usage('vae_encoding_execution', expected_threshold=8000)
                 
