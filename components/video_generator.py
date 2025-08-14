@@ -300,7 +300,36 @@ class WanVaceToVideo:
         control_video_latent = torch.cat((inactive, reactive), dim=1)
         
         if reference_image is not None:
-            control_video_latent = torch.cat((reference_image, control_video_latent), dim=2)
+            # Encode reference image through VAE to get consistent latent dimensions
+            print(f"5a. Encoding reference image through VAE for consistent latent dimensions...")
+            print(f"5a. Reference image shape before VAE encoding: {reference_image.shape}")
+            
+            try:
+                # Encode reference image to get latent representation
+                reference_latent = vae.encode(reference_image[:, :, :, :3])
+                print(f"5a. Reference image encoded successfully: {reference_latent.shape}")
+                
+                # Ensure reference latent has the same format as control video latent
+                if reference_latent.dim() == 4 and control_video_latent.dim() == 5:
+                    # Convert 4D reference latent to 5D format to match control video
+                    # Add frame dimension: [batch, channels, height, width] -> [batch, 1, channels, height, width]
+                    reference_latent = reference_latent.unsqueeze(1)
+                    print(f"5a. Converted reference latent to 5D: {reference_latent.shape}")
+                
+                # Now concatenate along the appropriate dimension
+                if control_video_latent.dim() == 5:
+                    # 5D format: concatenate along frame dimension (dim=1)
+                    control_video_latent = torch.cat((reference_latent, control_video_latent), dim=1)
+                    print(f"5a. Concatenated reference and control video latents (5D): {control_video_latent.shape}")
+                else:
+                    # 4D format: concatenate along batch dimension (dim=0)
+                    control_video_latent = torch.cat((reference_latent, control_video_latent), dim=0)
+                    print(f"5a. Concatenated reference and control video latents (4D): {control_video_latent.shape}")
+                    
+            except Exception as e:
+                print(f"5a. Warning: Failed to encode reference image: {e}")
+                print(f"5a. Skipping reference image concatenation...")
+                # Continue without reference image if encoding fails
             
         # Process mask for latent space
         vae_stride = 8
@@ -315,11 +344,26 @@ class WanVaceToVideo:
         
         trim_latent = 0
         if reference_image is not None:
-            mask_pad = torch.zeros_like(mask[:, :reference_image.shape[2], :, :])
-            mask = torch.cat((mask_pad, mask), dim=1)
-            latent_length += reference_image.shape[2]
-            trim_latent = reference_image.shape[2]
+            # Since we're now using VAE-encoded reference images, we need to adjust the mask logic
+            # The reference image is now a latent with shape [batch, 1, channels, height, width] for 5D format
+            # or [batch, channels, height, width] for 4D format
             
+            if control_video_latent.dim() == 5:
+                # 5D format: reference is at index 0 in frame dimension
+                reference_frames = 1
+                print(f"5a. 5D format: reference image contributes 1 frame to mask")
+            else:
+                # 4D format: reference is at index 0 in batch dimension
+                reference_frames = 1
+                print(f"5a. 4D format: reference image contributes 1 frame to mask")
+            
+            # Create mask padding for reference image
+            mask_pad = torch.zeros_like(mask[:, :reference_frames, :, :])
+            mask = torch.cat((mask_pad, mask), dim=1)
+            latent_length += reference_frames
+            trim_latent = reference_frames
+            print(f"5a. Updated mask and latent length: mask={mask.shape}, latent_length={latent_length}, trim_latent={trim_latent}")
+        
         mask = mask.unsqueeze(0)
         
         # Set conditioning values
