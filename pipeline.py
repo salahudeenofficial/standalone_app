@@ -412,7 +412,7 @@ class ReferenceVideoPipeline:
                 # Extract single frame and downscale
                 single_frame = control_video[frame_idx:frame_idx+1]
                 single_frame = comfy.utils.common_upscale(
-                    single_frame.movedim(-1, 1), target_height, target_width, "bilinear", "center"
+                    single_frame.movedim(-1, 1), target_width, target_height, "bilinear", "center"
                 ).movedim(1, -1)
             else:
                 # Create dummy frame

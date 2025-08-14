@@ -40,14 +40,14 @@ class WanVaceToVideo:
             
             # Downscale if needed
             if force_downscale:
-                print(f"5a. Downscaling control video to {target_height}x{target_width}")
+                print(f"5a. Downscaling control video to {target_width}x{target_height}")
                 control_video = comfy.utils.common_upscale(
-                    control_video[:length].movedim(-1, 1), target_height, target_width, "bilinear", "center"
+                    control_video[:length].movedim(-1, 1), target_width, target_height, "bilinear", "center"
                 ).movedim(1, -1)
             else:
-                print(f"5a. Upscaling control video to {height}x{width}")
+                print(f"5a. Upscaling control video to {width}x{height}")
                 control_video = comfy.utils.common_upscale(
-                    control_video[:length].movedim(-1, 1), height, width, "bilinear", "center"
+                    control_video[:length].movedim(-1, 1), width, height, "bilinear", "center"
                 ).movedim(1, -1)
             
             print(f"5a. Control video shape after upscaling: {control_video.shape}")
@@ -66,14 +66,14 @@ class WanVaceToVideo:
             
             # Downscale if needed
             if force_downscale:
-                print(f"5a. Downscaling reference image to {target_height}x{target_width}")
+                print(f"5a. Downscaling reference image to {target_width}x{target_height}")
                 reference_image = comfy.utils.common_upscale(
-                    reference_image[:1].movedim(-1, 1), target_height, target_width, "bilinear", "center"
+                    reference_image[:1].movedim(-1, 1), target_width, target_height, "bilinear", "center"
                 ).movedim(1, -1)
             else:
-                print(f"5a. Upscaling reference image to {height}x{width}")
+                print(f"5a. Upscaling reference image to {width}x{height}")
                 reference_image = comfy.utils.common_upscale(
-                    reference_image[:1].movedim(-1, 1), height, width, "bilinear", "center"
+                    reference_image[:1].movedim(-1, 1), width, height, "bilinear", "center"
                 ).movedim(1, -1)
             
             print(f"5a. Reference image shape after upscaling: {reference_image.shape}")
@@ -94,9 +94,9 @@ class WanVaceToVideo:
             
             # Downscale if needed
             if force_downscale:
-                mask = comfy.utils.common_upscale(mask[:length], target_height, target_width, "bilinear", "center").movedim(1, -1)
+                mask = comfy.utils.common_upscale(mask[:length], target_width, target_height, "bilinear", "center").movedim(1, -1)
             else:
-                mask = comfy.utils.common_upscale(mask[:length], height, width, "bilinear", "center").movedim(1, -1)
+                mask = comfy.utils.common_upscale(mask[:length], width, height, "bilinear", "center").movedim(1, -1)
             
             if mask.shape[0] < length:
                 mask = torch.nn.functional.pad(
