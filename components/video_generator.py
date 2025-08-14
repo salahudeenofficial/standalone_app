@@ -20,16 +20,31 @@ class WanVaceToVideo:
     
     def encode(self, positive, negative, vae, width, height, length, batch_size, 
                strength, control_video=None, control_masks=None, reference_image=None, 
-               chunked_processor=None, chunk_size=None):
+               chunked_processor=None, chunk_size=None, force_downscale=False):
         """Encode reference image and control video to initial latents"""
+        
+        # Handle frame downscaling if needed
+        if force_downscale:
+            target_width = 256
+            target_height = 448
+            print(f"Downscaling frames from {width}x{height} to {target_width}x{target_height} to reduce memory usage")
+            width = target_width
+            height = target_height
         
         latent_length = ((length - 1) // 4) + 1
         
         # Process control video
         if control_video is not None:
-            control_video = comfy.utils.common_upscale(
-                control_video[:length].movedim(-1, 1), width, height, "bilinear", "center"
-            ).movedim(1, -1)
+            # Downscale if needed
+            if force_downscale:
+                control_video = comfy.utils.common_upscale(
+                    control_video[:length].movedim(-1, 1), target_width, target_height, "bilinear", "center"
+                ).movedim(1, -1)
+            else:
+                control_video = comfy.utils.common_upscale(
+                    control_video[:length].movedim(-1, 1), width, height, "bilinear", "center"
+                ).movedim(1, -1)
+            
             if control_video.shape[0] < length:
                 control_video = torch.nn.functional.pad(
                     control_video, (0, 0, 0, 0, 0, 0, 0, length - control_video.shape[0]), value=0.5
@@ -39,9 +54,16 @@ class WanVaceToVideo:
             
         # Process reference image
         if reference_image is not None:
-            reference_image = comfy.utils.common_upscale(
-                reference_image[:1].movedim(-1, 1), width, height, "bilinear", "center"
-            ).movedim(1, -1)
+            # Downscale if needed
+            if force_downscale:
+                reference_image = comfy.utils.common_upscale(
+                    reference_image[:1].movedim(-1, 1), target_width, target_height, "bilinear", "center"
+                ).movedim(1, -1)
+            else:
+                reference_image = comfy.utils.common_upscale(
+                    reference_image[:1].movedim(-1, 1), width, height, "bilinear", "center"
+                ).movedim(1, -1)
+            
             reference_image = vae.encode(reference_image[:, :, :, :3])
             reference_image = torch.cat([
                 reference_image, 
@@ -55,7 +77,13 @@ class WanVaceToVideo:
             mask = control_masks
             if mask.ndim == 3:
                 mask = mask.unsqueeze(1)
-            mask = comfy.utils.common_upscale(mask[:length], width, height, "bilinear", "center").movedim(1, -1)
+            
+            # Downscale if needed
+            if force_downscale:
+                mask = comfy.utils.common_upscale(mask[:length], target_width, target_height, "bilinear", "center").movedim(1, -1)
+            else:
+                mask = comfy.utils.common_upscale(mask[:length], width, height, "bilinear", "center").movedim(1, -1)
+            
             if mask.shape[0] < length:
                 mask = torch.nn.functional.pad(
                     mask, (0, 0, 0, 0, 0, 0, 0, length - mask.shape[0]), value=1.0
@@ -75,8 +103,20 @@ class WanVaceToVideo:
             for i in range(0, length, chunk_size):
                 end_idx = min(i + chunk_size, length)
                 chunk = inactive[i:end_idx, :, :, :3]
-                chunk_latent = vae.encode(chunk)
-                inactive_latents.append(chunk_latent)
+                
+                try:
+                    chunk_latent = vae.encode(chunk)
+                    inactive_latents.append(chunk_latent)
+                except torch.cuda.OutOfMemoryError:
+                    print(f"OOM encoding chunk {i//chunk_size + 1}! Processing frame by frame...")
+                    # Process frame by frame if chunk fails
+                    for j in range(i, end_idx):
+                        single_frame = inactive[j:j+1, :, :, :3]
+                        single_latent = vae.encode(single_frame)
+                        inactive_latents.append(single_latent)
+                        del single_frame
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
                 
                 # Clean up chunk to free memory
                 del chunk
@@ -91,8 +131,20 @@ class WanVaceToVideo:
             for i in range(0, length, chunk_size):
                 end_idx = min(i + chunk_size, length)
                 chunk = reactive[i:end_idx, :, :, :3]
-                chunk_latent = vae.encode(chunk)
-                reactive_latents.append(chunk_latent)
+                
+                try:
+                    chunk_latent = vae.encode(chunk)
+                    reactive_latents.append(chunk_latent)
+                except torch.cuda.OutOfMemoryError:
+                    print(f"OOM encoding chunk {i//chunk_size + 1}! Processing frame by frame...")
+                    # Process frame by frame if chunk fails
+                    for j in range(i, end_idx):
+                        single_frame = reactive[j:j+1, :, :, :3]
+                        single_latent = vae.encode(single_frame)
+                        reactive_latents.append(single_latent)
+                        del single_frame
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
                 
                 # Clean up chunk to free memory
                 del chunk

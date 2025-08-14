@@ -65,6 +65,25 @@ class ChunkedProcessor:
             'vae_decode': 1,     # Process 1 frame at a time
             'unet_process': 1    # Process 1 frame at a time
         }
+        
+        # Also override the conservative chunk sizes
+        self.conservative_chunk_sizes = {
+            'vae_encode': 1,     # Process 1 frame at a time
+            'vae_decode': 1,     # Process 1 frame at a time
+            'unet_process': 1    # Process 1 frame at a time
+        }
+    
+    def force_frame_downscaling(self, target_width: int = 256, target_height: int = 448) -> None:
+        """Force frame downscaling to reduce memory usage"""
+        self.logger.error(f"Forcing frame downscaling to {target_width}x{target_height} to reduce memory usage")
+        self.target_width = target_width
+        self.target_height = target_height
+    
+    def force_extreme_downscaling(self, target_width: int = 128, target_height: int = 224) -> None:
+        """Force extreme frame downscaling for very severe memory constraints"""
+        self.logger.error(f"Forcing extreme frame downscaling to {target_width}x{target_height} for very severe memory constraints")
+        self.target_width = target_width
+        self.target_height = target_height
     
     def get_optimal_chunk_size(self, operation: str, frame_count: int, 
                               width: int, height: int, channels: int = 3) -> int:

@@ -215,10 +215,34 @@ class ReferenceVideoPipeline:
                 self.chunked_processor.print_processing_plan(processing_plan)
                 
                 # Retry with ultra-conservative chunking
-                init_latent, trim_count = self._encode_with_chunking(
-                    video_generator, positive_cond, negative_cond, vae, width, height,
-                    length, batch_size, strength, control_video, reference_image, processing_plan
-                )
+                try:
+                    init_latent, trim_count = self._encode_with_chunking(
+                        video_generator, positive_cond, negative_cond, vae, width, height,
+                        length, batch_size, strength, control_video, reference_image, processing_plan
+                    )
+                except torch.cuda.OutOfMemoryError:
+                    print("Still OOM! Forcing frame downscaling and retrying...")
+                    # Force frame downscaling
+                    self.chunked_processor.force_frame_downscaling()
+                    
+                    # Retry with frame downscaling
+                    try:
+                        init_latent, trim_count = self._encode_with_chunking(
+                            video_generator, positive_cond, negative_cond, vae, width, height,
+                            length, batch_size, strength, control_video, reference_image, processing_plan,
+                            force_downscale=True
+                        )
+                    except torch.cuda.OutOfMemoryError:
+                        print("Still OOM even with downscaling! Forcing extreme downscaling...")
+                        # Force extreme downscaling
+                        self.chunked_processor.force_extreme_downscaling()
+                        
+                        # Retry with extreme downscaling
+                        init_latent, trim_count = self._encode_with_chunking(
+                            video_generator, positive_cond, negative_cond, vae, width, height,
+                            length, batch_size, strength, control_video, reference_image, processing_plan,
+                            force_downscale=True
+                        )
             
             # Track initial latent for cleanup
             self.memory_manager.track_tensor(init_latent, "initial_latent", cleanup_priority=1)
@@ -353,7 +377,7 @@ class ReferenceVideoPipeline:
     
     def _encode_with_chunking(self, video_generator, positive, negative, vae, width, height, 
                              length, batch_size, strength, control_video, reference_image, 
-                             processing_plan):
+                             processing_plan, force_downscale=False):
         """Encode video using chunked processing if needed"""
         
         chunk_size = processing_plan['vae_encode']['chunk_size']
@@ -362,7 +386,8 @@ class ReferenceVideoPipeline:
             # Process all frames at once
             return video_generator.encode(
                 positive, negative, vae, width, height, length, batch_size,
-                strength, control_video, None, reference_image
+                strength, control_video, None, reference_image,
+                force_downscale=force_downscale
             )
         
         # Process in chunks
@@ -373,7 +398,8 @@ class ReferenceVideoPipeline:
             positive, negative, vae, width, height, length, batch_size,
             strength, control_video, None, reference_image,
             chunked_processor=self.chunked_processor,
-            chunk_size=chunk_size
+            chunk_size=chunk_size,
+            force_downscale=force_downscale
         )
 
 def main():
