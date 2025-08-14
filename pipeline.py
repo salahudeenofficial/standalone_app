@@ -249,7 +249,11 @@ class ReferenceVideoPipeline:
             if 'vae_patcher' in locals() and hasattr(vae_patcher, 'model'):
                 print("5a. Loading VAE using ComfyUI's model management...")
                 comfy.model_management.load_models_gpu([vae_patcher])
-                vae = vae_patcher
+                
+                # CRITICAL: Keep the patcher for ComfyUI management, but use the actual model for encoding
+                print("5a. VAE patcher loaded, keeping reference for management...")
+                # Don't change vae - keep it as the original VAE object
+                # The patcher is now managed by ComfyUI
             else:
                 print("5a. Using VAE directly (no ModelPatcher available)")
             
