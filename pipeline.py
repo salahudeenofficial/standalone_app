@@ -127,7 +127,7 @@ class ReferenceVideoPipeline:
                     output_model=True
                 )
             else:
-                # Fallback to individual component loading (for backward compatibility)
+                # Load individual components and wrap them for ComfyUI management
                 print("1a. Loading individual components...")
                 from components.model_loader import UNETLoader, CLIPLoader, VAELoader
                 
@@ -138,6 +138,23 @@ class ReferenceVideoPipeline:
                 model = unet_loader.load_unet(unet_model_path, "default")
                 clip_model = clip_loader.load_clip(clip_model_path, "wan")
                 vae = vae_loader.load_vae(vae_model_path)
+                
+                # Wrap models in ModelPatcher for ComfyUI memory management
+                print("1a. Wrapping models for ComfyUI memory management...")
+                from comfy.model_patcher import ModelPatcher
+                
+                # Create ModelPatcher objects for ComfyUI to manage
+                model_patcher = ModelPatcher(model)
+                clip_patcher = ModelPatcher(clip_model)
+                vae_patcher = ModelPatcher(vae)
+                
+                # Load models to GPU using ComfyUI's system
+                comfy.model_management.load_models_gpu([model_patcher, clip_patcher, vae_patcher])
+                
+                # Keep references to the original models for our pipeline
+                model = model_patcher
+                clip_model = clip_patcher
+                vae = vae_patcher
             
             # ComfyUI automatically manages these models in memory
             print("1a. Models loaded and managed by ComfyUI")
@@ -485,11 +502,11 @@ def main():
     """Main function to run the pipeline"""
     pipeline = ReferenceVideoPipeline()
     
-    # Example usage - Updated for ComfyUI native loading
+    # Example usage - Updated for individual component loading
     output_path = pipeline.run_pipeline(
-        unet_model_path="models/checkpoints/wan_2.1_complete.safetensors",  # Main checkpoint path
-        clip_model_path="",  # Not needed when using checkpoint
-        vae_model_path="",   # Not needed when using checkpoint
+        unet_model_path="models/diffusion_models/wan_2.1_diffusion_model.safetensors",
+        clip_model_path="models/text_encoders/wan_clip_model.safetensors",
+        vae_model_path="models/vaes/wan_vae.safetensors",
         lora_path="models/loras/Wan21_CausVid_14B_T2V_lora_rank32.safetensors",
         positive_prompt="very cinematic vide",
         negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走 , extra hands, extra arms, extra legs",
