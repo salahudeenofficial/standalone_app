@@ -112,34 +112,16 @@ class ReferenceVideoPipeline:
             import comfy.sd
             import comfy.model_management
             
-            # Load the models using individual component loaders
+            # Load the models using ComfyUI's native functions
             print("1a. Loading individual components...")
-            from components.model_loader import UNETLoader, CLIPLoader, VAELoader
             
-            unet_loader = UNETLoader()
-            clip_loader = CLIPLoader()
-            vae_loader = VAELoader()
+            # Use ComfyUI's native loading functions which return ModelPatcher objects
+            model = comfy.sd.load_diffusion_model(unet_model_path)
+            clip_model = comfy.sd.load_clip([clip_model_path], clip_type=comfy.sd.CLIPType.WAN)
             
-            model = unet_loader.load_unet(unet_model_path, "default")
-            clip_model = clip_loader.load_clip(clip_model_path, "wan")
-            vae = vae_loader.load_vae(vae_model_path)
-            
-            # Wrap models in ModelPatcher for ComfyUI memory management
-            print("1a. Wrapping models for ComfyUI memory management...")
-            from comfy.model_patcher import ModelPatcher
-            
-            # Create ModelPatcher objects for ComfyUI to manage
-            model_patcher = ModelPatcher(model)
-            clip_patcher = ModelPatcher(clip_model)
-            vae_patcher = ModelPatcher(vae)
-            
-            # Load models to GPU using ComfyUI's system
-            comfy.model_management.load_models_gpu([model_patcher, clip_patcher, vae_patcher])
-            
-            # Keep references to the original models for our pipeline
-            model = model_patcher
-            clip_model = clip_patcher
-            vae = vae_patcher
+            # For VAE, we need to load the state dict first, then create VAE object
+            vae_state_dict = comfy.utils.load_torch_file(vae_model_path)
+            vae = comfy.sd.VAE(sd=vae_state_dict)
             
             # ComfyUI automatically manages these models in memory
             print("1a. Models loaded and managed by ComfyUI")
