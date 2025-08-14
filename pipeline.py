@@ -208,20 +208,26 @@ class ReferenceVideoPipeline:
             # Import ComfyUI's memory management
             import comfy.model_management
             
-            # Force free memory for VAE encoding - request 4GB to be safe
-            memory_required = 4 * 1024 * 1024 * 1024  # 4GB for VAE encoding
-            print(f"5a. Requesting {memory_required / (1024**3):.1f} GB of free VRAM...")
+            # CRITICAL: First, we need to unload UNET and CLIP to free VRAM for VAE encoding
+            print("5a. Unloading UNET and CLIP to free VRAM for VAE encoding...")
             
-            # Use ComfyUI's free_memory function to unload models
-            unloaded_models = comfy.model_management.free_memory(memory_required, comfy.model_management.get_torch_device())
-            if unloaded_models:
-                print(f"5a. ComfyUI unloaded {len(unloaded_models)} models to free VRAM")
+            # Get the current loaded models from ComfyUI
+            current_models = comfy.model_management.loaded_models()
+            print(f"5a. Currently loaded models: {[m.__class__.__name__ for m in current_models]}")
+            
+            # Force unload all models except VAE
+            print("5a. Force unloading all models to free maximum VRAM...")
+            comfy.model_management.unload_all_models()
             
             # Force aggressive CUDA cleanup
             print("5a. Forcing aggressive CUDA cleanup...")
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()
+            
+            # Now reload only VAE for encoding
+            print("5a. Reloading VAE for encoding...")
+            comfy.model_management.load_models_gpu([vae])
             
             # Check detailed VRAM usage before VAE encoding
             print("Checking VRAM usage before VAE encoding...")
@@ -308,19 +314,20 @@ class ReferenceVideoPipeline:
             # Track initial latent for cleanup
             self.memory_manager.track_tensor(init_latent, "initial_latent", cleanup_priority=1)
             
-            # After VAE encoding, use ComfyUI's memory management to free VRAM for UNET
-            print("5b. Using ComfyUI's memory management to free VRAM for UNET...")
+            # After VAE encoding, unload VAE and reload UNET for sampling
+            print("5b. Unloading VAE and reloading UNET for sampling...")
             
-            # Force free memory for UNET processing
-            memory_required = 3 * 1024 * 1024 * 1024  # 3GB for UNET
-            unloaded_models = comfy.model_management.free_memory(memory_required, comfy.model_management.get_torch_device())
-            if unloaded_models:
-                print(f"5b. ComfyUI unloaded {len(unloaded_models)} models to free VRAM for UNET")
+            # Unload all models
+            comfy.model_management.unload_all_models()
             
             # Force aggressive CUDA cleanup
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()
+            
+            # Reload UNET for sampling
+            print("5b. Reloading UNET for sampling...")
+            comfy.model_management.load_models_gpu([model])
             
             # Check VRAM status and adjust chunking strategy if needed
             if self.chunked_processor.should_adjust_strategy():
@@ -351,19 +358,20 @@ class ReferenceVideoPipeline:
             self.memory_manager.track_tensor(final_latent, "final_latent", cleanup_priority=1)
             self.memory_manager.cleanup_tensor(init_latent, "initial_latent")
             
-            # After UNET sampling, use ComfyUI's memory management to free VRAM for VAE decoding
-            print("6a. Using ComfyUI's memory management to free VRAM for VAE decoding...")
+            # After UNET sampling, unload UNET and reload VAE for decoding
+            print("6a. Unloading UNET and reloading VAE for decoding...")
             
-            # Force free memory for VAE decoding
-            memory_required = 2 * 1024 * 1024 * 1024  # 2GB for VAE decoding
-            unloaded_models = comfy.model_management.free_memory(memory_required, comfy.model_management.get_torch_device())
-            if unloaded_models:
-                print(f"6a. ComfyUI unloaded {len(unloaded_models)} models to free VRAM for VAE decoding")
+            # Unload all models
+            comfy.model_management.unload_all_models()
             
             # Force aggressive CUDA cleanup
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()
+            
+            # Reload VAE for decoding
+            print("6a. Reloading VAE for decoding...")
+            comfy.model_management.load_models_gpu([vae])
             
             # Clean up intermediate results after UNET sampling
             print("6b. Cleaning up intermediate results after UNET sampling...")
@@ -398,14 +406,11 @@ class ReferenceVideoPipeline:
             self.memory_manager.track_tensor(frames, "decoded_frames", cleanup_priority=1)
             self.memory_manager.cleanup_tensor(trimmed_latent, "trimmed_latent")
             
-            # After VAE decoding, use ComfyUI's memory management for final cleanup
-            print("8b. Using ComfyUI's memory management for final cleanup...")
+            # After VAE decoding, unload VAE for final cleanup
+            print("8b. Unloading VAE for final cleanup...")
             
-            # Force free all remaining memory
-            memory_required = 1 * 1024 * 1024 * 1024  # 1GB for cleanup
-            unloaded_models = comfy.model_management.free_memory(memory_required, comfy.model_management.get_torch_device())
-            if unloaded_models:
-                print(f"8b. ComfyUI unloaded {len(unloaded_models)} models for final cleanup")
+            # Unload all models
+            comfy.model_management.unload_all_models()
             
             # Force aggressive CUDA cleanup
             if torch.cuda.is_available():
