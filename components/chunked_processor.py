@@ -20,9 +20,9 @@ class ChunkedProcessor:
         
         # Default chunk sizes (can be adjusted based on VRAM)
         self.default_chunk_sizes = {
-            'vae_encode': 8,    # Process 8 frames at a time for VAE encoding
-            'vae_decode': 4,    # Process 4 frames at a time for VAE decoding
-            'unet_process': 16  # Process 16 frames at a time for UNET
+            'vae_encode': 4,    # Process 4 frames at a time for VAE encoding (reduced from 8)
+            'vae_decode': 2,    # Process 2 frames at a time for VAE decoding (reduced from 4)
+            'unet_process': 8   # Process 8 frames at a time for UNET (reduced from 16)
         }
         
         # Memory thresholds for dynamic chunk sizing
@@ -30,6 +30,13 @@ class ChunkedProcessor:
             'low_vram': 4.0,    # GB - use smaller chunks
             'medium_vram': 8.0,  # GB - use medium chunks
             'high_vram': 16.0    # GB - use larger chunks
+        }
+        
+        # More conservative chunk sizes for VRAM-constrained environments
+        self.conservative_chunk_sizes = {
+            'vae_encode': 2,     # Very conservative VAE encoding
+            'vae_decode': 1,     # Very conservative VAE decoding
+            'unet_process': 4    # Conservative UNET processing
         }
         
         # Advanced chunking strategies
@@ -40,6 +47,13 @@ class ChunkedProcessor:
         }
         
         self.current_strategy = 'balanced'
+    
+    def force_conservative_chunking(self) -> None:
+        """Force very conservative chunking for memory-constrained environments"""
+        self.logger.warning("Forcing conservative chunking due to memory constraints")
+        self.current_strategy = 'conservative'
+        # Override default chunk sizes with very conservative ones
+        self.default_chunk_sizes = self.conservative_chunk_sizes.copy()
     
     def get_optimal_chunk_size(self, operation: str, frame_count: int, 
                               width: int, height: int, channels: int = 3) -> int:
@@ -68,7 +82,7 @@ class ChunkedProcessor:
         
         # Calculate how many frames we can process based on available VRAM
         # Leave some buffer for other operations
-        safety_buffer = 0.3  # Use only 70% of free VRAM
+        safety_buffer = 0.5  # Use only 50% of free VRAM (more conservative)
         usable_vram_mb = free_vram_gb * 1024 * safety_buffer
         
         # Calculate optimal chunk size
@@ -151,6 +165,30 @@ class ChunkedProcessor:
         
         return False
     
+    def _check_memory_pressure(self) -> None:
+        """Check if we need to force conservative chunking due to memory pressure"""
+        try:
+            if torch.cuda.is_available():
+                allocated_vram_gb = torch.cuda.memory_allocated(0) / 1024**3
+                total_vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                utilization = (allocated_vram_gb / total_vram_gb) * 100
+                
+                # If VRAM utilization is very high, force conservative chunking
+                if utilization > 85:
+                    self.force_conservative_chunking()
+                # If we're getting close to OOM, force very conservative chunking
+                elif utilization > 95:
+                    self.logger.error("Critical VRAM usage detected! Forcing ultra-conservative chunking")
+                    self.current_strategy = 'conservative'
+                    # Use even smaller chunks
+                    self.default_chunk_sizes = {
+                        'vae_encode': 1,
+                        'vae_decode': 1,
+                        'unet_process': 2
+                    }
+        except Exception as e:
+            self.logger.warning(f"Failed to check memory pressure: {e}")
+    
     def _estimate_frame_memory_size(self, width: int, height: int, channels: int, operation: str) -> float:
         """Estimate memory usage per frame for a given operation"""
         
@@ -175,27 +213,23 @@ class ChunkedProcessor:
         
         if total_vram_gb < self.memory_thresholds['low_vram']:
             # Low VRAM - use very small chunks
-            max_sizes = {
-                'vae_encode': 4,
-                'vae_decode': 2,
-                'unet_process': 8
-            }
+            max_sizes = self.conservative_chunk_sizes
         elif total_vram_gb < self.memory_thresholds['medium_vram']:
             # Medium VRAM - use moderate chunks
             max_sizes = {
-                'vae_encode': 8,
-                'vae_decode': 4,
-                'unet_process': 16
+                'vae_encode': 6,
+                'vae_decode': 3,
+                'unet_process': 12
             }
         else:
             # High VRAM - use larger chunks
             max_sizes = {
-                'vae_encode': 16,
-                'vae_decode': 8,
-                'unet_process': 32
+                'vae_encode': 12,
+                'vae_decode': 6,
+                'unet_process': 24
             }
         
-        return max_sizes.get(operation, 8)
+        return max_sizes.get(operation, 4)
     
     def process_in_chunks(self, frames: torch.Tensor, operation: str, 
                          process_func: Callable, chunk_size: Optional[int] = None,
@@ -229,9 +263,26 @@ class ChunkedProcessor:
             self.logger.debug(f"Processing chunk {i//chunk_size + 1}/{(frame_count + chunk_size - 1)//chunk_size}: "
                             f"frames {i} to {end_idx-1}")
             
+            # Check memory pressure before processing each chunk
+            self._check_memory_pressure()
+            
             # Process this chunk
-            chunk_result = process_func(chunk, **kwargs)
-            results.append(chunk_result)
+            try:
+                chunk_result = process_func(chunk, **kwargs)
+                results.append(chunk_result)
+            except torch.cuda.OutOfMemoryError:
+                self.logger.error("OOM during chunk processing! Reducing chunk size and retrying...")
+                # Force ultra-conservative chunking
+                self.current_strategy = 'conservative'
+                self.default_chunk_sizes = {
+                    'vae_encode': 1,
+                    'vae_decode': 1,
+                    'unet_process': 1
+                }
+                # Retry with smaller chunk
+                smaller_chunk = chunk[:chunk_size//2] if chunk_size > 1 else chunk
+                chunk_result = process_func(smaller_chunk, **kwargs)
+                results.append(chunk_result)
             
             # Clean up chunk if memory manager is available
             if self.memory_manager:

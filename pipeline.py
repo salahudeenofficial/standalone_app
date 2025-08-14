@@ -47,6 +47,9 @@ class ReferenceVideoPipeline:
             model_manager=self.model_manager
         )
         
+        # Start with conservative chunking for better memory management
+        self.chunked_processor.set_chunking_strategy('conservative')
+        
     def setup_model_paths(self):
         """Setup model paths for the standalone app"""
         # Create model directories if they don't exist
@@ -92,6 +95,17 @@ class ReferenceVideoPipeline:
         
         # Check VRAM status and adjust strategy if needed
         self.chunked_processor.should_adjust_strategy()
+        
+        # Force conservative chunking if we have limited VRAM
+        try:
+            vram_status = self.chunked_processor.get_vram_status()
+            if vram_status.get('available', False):
+                total_vram_gb = vram_status.get('total_gb', 0)
+                if total_vram_gb < 12.0:  # Less than 12GB VRAM
+                    print(f"Limited VRAM detected ({total_vram_gb:.1f} GB), forcing conservative chunking")
+                    self.chunked_processor.force_conservative_chunking()
+        except Exception as e:
+            print(f"Warning: Could not check VRAM status: {e}")
         
         processing_plan = self.chunked_processor.get_processing_plan(
             frame_count=length,
