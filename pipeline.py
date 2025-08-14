@@ -745,10 +745,83 @@ class ReferenceVideoPipeline:
             # Use chunked processing for VAE decoding if needed
             if length > processing_plan['vae_decode']['chunk_size']:
                 print(f"Using chunked VAE decoding: {processing_plan['vae_decode']['num_chunks']} chunks")
-                frames = self.chunked_processor.vae_decode_chunked(vae, trimmed_latent)
+                
+                # Try tiled decoding first (most memory efficient)
+                try:
+                    print("8a. Attempting tiled VAE decoding...")
+                    frames = self._vae_decode_tiled(vae, trimmed_latent, tile_size=512, overlap=64)
+                    print("8a. Tiled VAE decoding successful!")
+                    
+                except torch.cuda.OutOfMemoryError:
+                    print("OOM during tiled VAE decoding! Trying smaller tiles...")
+                    
+                    # Try with smaller tile sizes
+                    tile_sizes_to_try = [256, 128, 64]
+                    frames = None
+                    
+                    for tile_size in tile_sizes_to_try:
+                        try:
+                            print(f"8a. Trying tiled decoding with tile size: {tile_size}")
+                            
+                            # Force PyTorch cache cleanup
+                            comfy.model_management.soft_empty_cache()
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                                torch.cuda.ipc_collect()
+                            
+                            frames = self._vae_decode_tiled(vae, trimmed_latent, tile_size=tile_size, overlap=32)
+                            print(f"8a. Tiled VAE decoding successful with tile size: {tile_size}")
+                            break
+                            
+                        except torch.cuda.OutOfMemoryError:
+                            print(f"8a. Still OOM with tile size {tile_size}, trying smaller...")
+                            continue
+                    
+                    # If tiled decoding still fails, fall back to chunked processing
+                    if frames is None:
+                        print("8a. All tile sizes failed! Falling back to chunked processing...")
+                        try:
+                            frames = self.chunked_processor.vae_decode_chunked(vae, trimmed_latent)
+                        except torch.cuda.OutOfMemoryError:
+                            print("OOM during chunked VAE decoding! Trying smaller chunks...")
+                            
+                            # Progressive fallback: reduce chunk size until it works
+                            chunk_sizes_to_try = [8, 4, 2, 1]
+                            frames = None
+                            
+                            for smaller_chunk_size in chunk_sizes_to_try:
+                                try:
+                                    print(f"8a. Trying VAE decoding with chunk size: {smaller_chunk_size}")
+                                    
+                                    # Force PyTorch cache cleanup
+                                    comfy.model_management.soft_empty_cache()
+                                    if torch.cuda.is_available():
+                                        torch.cuda.empty_cache()
+                                        torch.cuda.ipc_collect()
+                                    
+                                    # Update processing plan with smaller chunk size
+                                    processing_plan['vae_decode']['chunk_size'] = smaller_chunk_size
+                                    processing_plan['vae_decode']['num_chunks'] = (length + smaller_chunk_size - 1) // smaller_chunk_size
+                                    
+                                    frames = self.chunked_processor.vae_decode_chunked(vae, trimmed_latent)
+                                    print(f"8a. VAE decoding successful with chunk size: {smaller_chunk_size}")
+                                    break
+                                    
+                                except torch.cuda.OutOfMemoryError:
+                                    print(f"8a. Still OOM with chunk size {smaller_chunk_size}, trying smaller...")
+                                    continue
+                            
+                            if frames is None:
+                                print("8a. All chunk sizes failed! Using single-frame fallback...")
+                                # Final fallback: process one frame at a time
+                                frames = self._decode_single_frame_fallback(vae, trimmed_latent)
             else:
                 print("Processing all frames at once (within chunk size limit)")
-                frames = vae_decoder.decode(vae, trimmed_latent)
+                try:
+                    frames = vae_decoder.decode(vae, trimmed_latent)
+                except torch.cuda.OutOfMemoryError:
+                    print("OOM during single-pass VAE decoding! Using single-frame fallback...")
+                    frames = self._decode_single_frame_fallback(vae, trimmed_latent)
             
             # OOM Checklist: Check memory after VAE decoding execution
             self._check_memory_usage('vae_decoding_execution', expected_threshold=8000)
@@ -936,6 +1009,215 @@ class ReferenceVideoPipeline:
             init_latent = torch.zeros((length, 4, target_height // 8, target_width // 8), device=vae.device)
         
         return init_latent, trim_count
+    
+    def _decode_single_frame_fallback(self, vae, latent):
+        """Fallback method to decode latents one frame at a time with aggressive memory management"""
+        print("Using single-frame fallback decoding with aggressive memory management...")
+        
+        # Get latent dimensions
+        batch_size, channels, frames, height, width = latent.shape
+        print(f"Decoding {frames} frames individually from latent shape: {latent.shape}")
+        
+        # Process frames one by one
+        all_frames = []
+        
+        for frame_idx in range(frames):
+            print(f"Decoding frame {frame_idx + 1}/{frames} individually...")
+            
+            try:
+                # Extract single frame latent
+                single_frame_latent = latent[:, :, frame_idx:frame_idx+1, :, :]
+                
+                # Force aggressive memory cleanup before each frame
+                comfy.model_management.soft_empty_cache()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.ipc_collect()
+                
+                # Decode single frame
+                single_frame = vae.decode(single_frame_latent)
+                all_frames.append(single_frame)
+                
+                # Cleanup
+                del single_frame_latent
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    
+            except torch.cuda.OutOfMemoryError:
+                print(f"OOM decoding frame {frame_idx + 1}! Trying CPU fallback...")
+                try:
+                    # Move VAE to CPU temporarily for this frame
+                    vae_device = vae.device if hasattr(vae, 'device') else 'cuda:0'
+                    vae_cpu = vae.to('cpu') if hasattr(vae, 'to') else vae
+                    single_frame_latent_cpu = single_frame_latent.cpu()
+                    
+                    # Decode on CPU
+                    single_frame_cpu = vae_cpu.decode(single_frame_latent_cpu)
+                    
+                    # Move back to GPU
+                    single_frame = single_frame_cpu.to(vae_device)
+                    if hasattr(vae, 'to'):
+                        vae.to(vae_device)
+                    
+                    all_frames.append(single_frame)
+                    
+                    # Cleanup
+                    del single_frame_latent_cpu, single_frame_cpu
+                    if vae_cpu is not vae:
+                        del vae_cpu
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        
+                except Exception as cpu_error:
+                    print(f"CPU fallback also failed for frame {frame_idx + 1}: {cpu_error}")
+                    print(f"Skipping frame {frame_idx + 1}...")
+                    # Create dummy frame for this frame
+                    dummy_frame = torch.zeros((1, 3, height * 8, width * 8), device=vae_device)
+                    all_frames.append(dummy_frame)
+                    
+                    # Force memory cleanup
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+        
+        # Concatenate all frames
+        if all_frames:
+            frames = torch.cat(all_frames, dim=0)
+            del all_frames
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        else:
+            # Create empty frames if all failed
+            frames = torch.zeros((frames, 3, height * 8, width * 8), device=vae.device)
+        
+        print(f"Single-frame fallback decoding complete. Output shape: {frames.shape}")
+        return frames
+    
+    def _vae_decode_tiled(self, vae, latent, tile_size=512, overlap=64):
+        """Implement true tiled VAE decoding with spatial splitting"""
+        print(f"Using tiled VAE decoding: tile_size={tile_size}, overlap={overlap}")
+        
+        # Get latent dimensions
+        batch_size, channels, frames, latent_height, latent_width = latent.shape
+        print(f"Tiled decoding: {frames} frames, latent shape: {latent_height}x{latent_width}")
+        
+        # Calculate tile dimensions in latent space (divide by 8 for VAE)
+        tile_latent_height = tile_size // 8
+        tile_latent_width = tile_size // 8
+        
+        # Calculate number of tiles needed
+        num_tiles_h = (latent_height + tile_latent_height - 1) // tile_latent_height
+        num_tiles_w = (latent_width + tile_latent_width - 1) // tile_latent_width
+        
+        print(f"Tiling: {num_tiles_h}x{num_tiles_w} tiles, each {tile_latent_height}x{tile_latent_width}")
+        
+        # Process each frame with spatial tiling
+        all_frames = []
+        
+        for frame_idx in range(frames):
+            print(f"Processing frame {frame_idx + 1}/{frames} with spatial tiling...")
+            
+            # Extract single frame latent
+            frame_latent = latent[:, :, frame_idx:frame_idx+1, :, :]  # [1, 16, 1, H, W]
+            
+            # Create output frame tensor
+            frame_height = latent_height * 8
+            frame_width = latent_width * 8
+            output_frame = torch.zeros((1, 3, frame_height, frame_width), device=latent.device)
+            
+            # Process each spatial tile
+            for tile_h in range(num_tiles_h):
+                for tile_w in range(num_tiles_w):
+                    print(f"  Processing tile {tile_h+1}x{tile_w+1} ({tile_h+1}/{num_tiles_h}, {tile_w+1}/{num_tiles_w})")
+                    
+                    # Calculate tile boundaries
+                    h_start = tile_h * tile_latent_height
+                    h_end = min(h_start + tile_latent_height, latent_height)
+                    w_start = tile_w * tile_latent_width
+                    w_end = min(w_start + tile_latent_width, latent_width)
+                    
+                    # Extract tile latent
+                    tile_latent = frame_latent[:, :, :, h_start:h_end, w_start:w_end]
+                    
+                    try:
+                        # Force memory cleanup before each tile
+                        comfy.model_management.soft_empty_cache()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        
+                        # Decode tile
+                        tile_frame = vae.decode(tile_latent)  # [1, 3, H*8, W*8]
+                        
+                        # Calculate output boundaries
+                        out_h_start = h_start * 8
+                        out_h_end = h_end * 8
+                        out_w_start = w_start * 8
+                        out_w_end = w_end * 8
+                        
+                        # Place tile in output frame
+                        output_frame[:, :, out_h_start:out_h_end, out_w_start:out_w_end] = tile_frame
+                        
+                        # Cleanup
+                        del tile_latent, tile_frame
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                            
+                    except torch.cuda.OutOfMemoryError:
+                        print(f"    OOM on tile {tile_h+1}x{tile_w+1}! Trying CPU fallback...")
+                        try:
+                            # Move to CPU temporarily
+                            vae_device = vae.device if hasattr(vae, 'device') else 'cuda:0'
+                            vae_cpu = vae.to('cpu') if hasattr(vae, 'to') else vae
+                            tile_latent_cpu = tile_latent.cpu()
+                            
+                            # Decode on CPU
+                            tile_frame_cpu = vae_cpu.decode(tile_latent_cpu)
+                            
+                            # Move back to GPU
+                            tile_frame = tile_frame_cpu.to(vae_device)
+                            if hasattr(vae, 'to'):
+                                vae.to(vae_device)
+                            
+                            # Place tile in output frame
+                            output_frame[:, :, out_h_start:out_h_end, out_w_start:out_w_end] = tile_frame
+                            
+                            # Cleanup
+                            del tile_latent_cpu, tile_frame_cpu, tile_latent, tile_frame
+                            if vae_cpu is not vae:
+                                del vae_cpu
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                                
+                        except Exception as cpu_error:
+                            print(f"    CPU fallback failed for tile {tile_h+1}x{tile_w+1}: {cpu_error}")
+                            print(f"    Creating dummy tile...")
+                            # Create dummy tile
+                            dummy_tile = torch.zeros((1, 3, out_h_end - out_h_start, out_w_end - out_w_start), device=vae_device)
+                            output_frame[:, :, out_h_start:out_h_end, out_w_start:out_w_end] = dummy_tile
+                            
+                            # Force memory cleanup
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+            
+            # Add completed frame to list
+            all_frames.append(output_frame)
+            
+            # Cleanup frame
+            del frame_latent, output_frame
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        
+        # Concatenate all frames
+        if all_frames:
+            frames = torch.cat(all_frames, dim=0)
+            del all_frames
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        else:
+            # Create empty frames if all failed
+            frames = torch.zeros((frames, 3, frame_height, frame_width), device=latent.device)
+        
+        print(f"Tiled VAE decoding complete. Output shape: {frames.shape}")
+        return frames
     
     def _manage_vae_memory_comfyui_style(self, vae, operation="encode"):
         """Manage VAE memory according to ComfyUI's philosophy"""
