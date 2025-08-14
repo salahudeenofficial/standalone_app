@@ -83,15 +83,21 @@ class MemoryManager:
     def cleanup_tensors_by_priority(self, max_priority: int = 1) -> None:
         """Clean up tensors up to a certain priority level"""
         tensors_to_cleanup = []
+        tensor_ids_to_remove = []
         
+        # First pass: collect tensors to cleanup and IDs to remove
         for tensor_id, info in self.tracked_tensors.items():
             if info['cleanup_priority'] <= max_priority:
                 # Get the actual tensor if it still exists
                 tensor = info['tensor']()
                 if tensor is not None:
                     tensors_to_cleanup.append((tensor, info['name']))
-                # Remove from tracking regardless
-                del self.tracked_tensors[tensor_id]
+                # Mark for removal
+                tensor_ids_to_remove.append(tensor_id)
+        
+        # Second pass: remove from tracking
+        for tensor_id in tensor_ids_to_remove:
+            del self.tracked_tensors[tensor_id]
         
         # Clean up the tensors
         for tensor, name in tensors_to_cleanup:
@@ -114,12 +120,20 @@ class MemoryManager:
         
         # Clean up all tracked tensors except those we want to keep
         tensors_to_cleanup = []
+        tensor_ids_to_remove = []
+        
+        # First pass: collect tensors to cleanup and IDs to remove
         for tensor_id, info in self.tracked_tensors.items():
             if info['name'] not in keep_tensors:
                 tensor = info['tensor']()
                 if tensor is not None:
                     tensors_to_cleanup.append((tensor, info['name']))
-                del self.tracked_tensors[tensor_id]
+                # Mark for removal
+                tensor_ids_to_remove.append(tensor_id)
+        
+        # Second pass: remove from tracking
+        for tensor_id in tensor_ids_to_remove:
+            del self.tracked_tensors[tensor_id]
         
         # Clean up the tensors
         for tensor, name in tensors_to_cleanup:
@@ -168,6 +182,8 @@ class MemoryManager:
         
         # Clean up tensors until we're under threshold
         cleaned_size = 0
+        tensor_ids_to_remove = []
+        
         for tensor_id, priority, size_mb, name in tensors_by_priority:
             if priority > 1:  # Don't auto-cleanup high-priority tensors
                 stats = self.get_memory_stats()
@@ -177,11 +193,41 @@ class MemoryManager:
                 # Clean up this tensor
                 tensor = self.tracked_tensors[tensor_id]['tensor']()
                 if tensor is not None:
-                    self.cleanup_tensor(tensor, name)
+                    # Use a safer cleanup method that doesn't modify tracked_tensors during iteration
+                    self._safe_cleanup_tensor(tensor, name, tensor_id)
                     cleaned_size += size_mb
+                    tensor_ids_to_remove.append(tensor_id)
+        
+        # Remove cleaned tensors from tracking
+        for tensor_id in tensor_ids_to_remove:
+            if tensor_id in self.tracked_tensors:
+                del self.tracked_tensors[tensor_id]
         
         if cleaned_size > 0:
             self.logger.info(f"Auto-cleanup completed: freed {cleaned_size:.2f} MB")
+    
+    def _safe_cleanup_tensor(self, tensor: torch.Tensor, name: str, tensor_id: int) -> None:
+        """Safely cleanup a tensor without modifying tracked_tensors during iteration"""
+        # Log cleanup
+        size_mb = self._get_tensor_size_mb(tensor)
+        self.logger.info(f"Cleaning up tensor {name}: {tensor.shape} ({size_mb:.2f} MB)")
+        
+        # Move to CPU first if on GPU to free VRAM immediately
+        if tensor.device.type == 'cuda':
+            try:
+                tensor.cpu()
+            except:
+                pass
+        
+        # Delete the tensor
+        del tensor
+        
+        # Force garbage collection for immediate cleanup
+        gc.collect()
+        
+        # Clear CUDA cache if available
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
     
     def _run_cleanup_callbacks(self) -> None:
         """Run all registered cleanup callbacks"""
