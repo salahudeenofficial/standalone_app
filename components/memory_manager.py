@@ -407,3 +407,48 @@ class MemoryManager:
                 except Exception as e:
                     self.logger.warning(f"Failed to get timing for cleanup point {step_name}: {e}")
                 break 
+    
+    def print_detailed_vram_usage(self) -> None:
+        """Print detailed VRAM usage including untracked tensors"""
+        print("\n=== Detailed VRAM Usage Analysis ===")
+        
+        if torch.cuda.is_available():
+            # Get PyTorch memory info
+            allocated = torch.cuda.memory_allocated() / 1024**2
+            reserved = torch.cuda.memory_reserved() / 1024**2
+            
+            # Get system VRAM info
+            try:
+                total_vram = torch.cuda.get_device_properties(0).total_memory / 1024**2
+                free_vram = torch.cuda.memory_reserved(0) - torch.cuda.memory_allocated(0)
+                free_vram = free_vram / 1024**2
+            except:
+                total_vram = "unknown"
+                free_vram = "unknown"
+            
+            print(f"Total VRAM: {total_vram:.1f} MB")
+            print(f"PyTorch allocated: {allocated:.1f} MB")
+            print(f"PyTorch reserved: {reserved:.1f} MB")
+            print(f"Free VRAM: {free_vram:.1f} MB")
+            
+            # Check for large tensors in GPU memory
+            print("\nLarge tensors in GPU memory:")
+            large_tensors = []
+            
+            # This is a bit hacky but can help identify memory hogs
+            for obj in gc.get_objects():
+                if isinstance(obj, torch.Tensor) and obj.device.type == 'cuda':
+                    size_mb = obj.numel() * obj.element_size() / 1024**2
+                    if size_mb > 10.0:  # Only show tensors > 10MB
+                        large_tensors.append((obj, size_mb))
+            
+            # Sort by size
+            large_tensors.sort(key=lambda x: x[1], reverse=True)
+            
+            for tensor, size_mb in large_tensors[:20]:  # Show top 20
+                print(f"  {tensor.shape} on {tensor.device} ({size_mb:.1f} MB)")
+                
+        else:
+            print("CUDA not available")
+        
+        print("=====================================\n") 

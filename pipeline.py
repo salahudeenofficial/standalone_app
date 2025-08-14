@@ -142,6 +142,10 @@ class ReferenceVideoPipeline:
             # Print current memory status
             self.model_manager.print_status()
             
+            # Check detailed VRAM usage after model loading
+            print("Checking VRAM usage after model loading...")
+            self.memory_manager.print_detailed_vram_usage()
+            
             # Mark model loading complete
             self.memory_manager.mark_cleanup_point_complete("model_loading")
             
@@ -197,6 +201,10 @@ class ReferenceVideoPipeline:
             
             # VAE encoding step - keep VAE on GPU
             print("5a. VAE encoding...")
+            
+            # Check detailed VRAM usage before VAE encoding
+            print("Checking VRAM usage before VAE encoding...")
+            self.memory_manager.print_detailed_vram_usage()
             
             # Use chunked processing for VAE encoding
             try:
@@ -437,15 +445,38 @@ class ReferenceVideoPipeline:
                     torch.cuda.empty_cache()
                     
             except torch.cuda.OutOfMemoryError:
-                print(f"OOM on frame {frame_idx + 1}! Skipping frame...")
-                trim_count += 1
-                # Create dummy latent for this frame
-                dummy_latent = torch.zeros((1, 4, target_height // 8, target_width // 8), device=vae.device)
-                all_latents.append(dummy_latent)
-                
-                # Force memory cleanup
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                print(f"OOM on frame {frame_idx + 1}! Trying CPU fallback...")
+                try:
+                    # Move VAE to CPU temporarily for this frame
+                    vae_cpu = vae.cpu()
+                    single_frame_cpu = single_frame.cpu()
+                    
+                    # Encode on CPU
+                    single_latent_cpu = vae_cpu.encode(single_frame_cpu[:, :, :, :3])
+                    
+                    # Move back to GPU
+                    single_latent = single_latent_cpu.to(vae.device)
+                    vae.to(vae.device)
+                    
+                    all_latents.append(single_latent)
+                    
+                    # Cleanup
+                    del single_frame_cpu, single_latent_cpu, vae_cpu
+                    del single_frame
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        
+                except Exception as cpu_error:
+                    print(f"CPU fallback also failed for frame {frame_idx + 1}: {cpu_error}")
+                    print(f"Skipping frame {frame_idx + 1}...")
+                    trim_count += 1
+                    # Create dummy latent for this frame
+                    dummy_latent = torch.zeros((1, 4, target_height // 8, target_width // 8), device=vae.device)
+                    all_latents.append(dummy_latent)
+                    
+                    # Force memory cleanup
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
         
         # Concatenate all latents
         if all_latents:

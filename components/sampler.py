@@ -21,11 +21,13 @@ class KSampler:
                sampler_name, scheduler, denoise=1.0):
         """Sample using the provided parameters"""
         
+        # Get device from model
+        device = next(model.parameters()).device
+        
         # Get sampler and scheduler
-        sampler = comfy.samplers.KSampler(model, steps, sampler_name, scheduler, cfg, denoise)
+        sampler = comfy.samplers.KSampler(model, steps, device, sampler_name, scheduler, denoise)
         
         # Sample the latent
-        samples = sampler.sample(model, seed, steps, cfg, sampler_name, scheduler, 
-                               positive, negative, latent_image, denoise=denoise)
+        samples = sampler.sample(None, positive, negative, cfg, latent_image=latent_image, seed=seed)
         
         return samples 
