@@ -215,15 +215,25 @@ class ReferenceVideoPipeline:
             current_models = comfy.model_management.loaded_models()
             print(f"5a. Currently loaded models: {[m.__class__.__name__ for m in current_models]}")
             
-            # CRITICAL: Instead of manually moving models, let ComfyUI handle it
-            # We need to create proper ModelPatcher objects that ComfyUI can manage
-            print("5a. Creating proper ModelPatcher objects for ComfyUI management...")
+            # CRITICAL: Use the existing ModelPatcher that's already inside our VAE object
+            print("5a. Using existing ModelPatcher from VAE object...")
             
-            # Import the necessary ComfyUI components
-            from comfy.model_patcher import ModelPatcher
-            
-            # Create ModelPatcher for VAE
-            vae_patcher = ModelPatcher(vae, comfy.model_management.get_torch_device(), torch.device("cpu"))
+            # Check if our VAE already has a ModelPatcher
+            if hasattr(vae, 'patcher'):
+                print("5a. VAE has existing ModelPatcher, using it...")
+                vae_patcher = vae.patcher
+            else:
+                print("5a. VAE doesn't have ModelPatcher, checking structure...")
+                print(f"5a. VAE type: {type(vae)}")
+                print(f"5a. VAE attributes: {[attr for attr in dir(vae) if not attr.startswith('_')]}")
+                
+                # Try to find the actual PyTorch model
+                if hasattr(vae, 'first_stage_model'):
+                    print("5a. Found first_stage_model, this is the actual PyTorch module")
+                    # Use the first_stage_model directly
+                    vae = vae.first_stage_model
+                else:
+                    print("5a. VAE structure unknown, proceeding with original object")
             
             # Force unload all ComfyUI-tracked models
             print("5a. Force unloading all ComfyUI-tracked models...")
@@ -235,12 +245,13 @@ class ReferenceVideoPipeline:
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()
             
-            # Now load only VAE using ComfyUI's system
-            print("5a. Loading VAE using ComfyUI's model management...")
-            comfy.model_management.load_models_gpu([vae_patcher])
-            
-            # Update our vae reference to use the patcher
-            vae = vae_patcher
+            # Now load only VAE using ComfyUI's system (if we have a patcher)
+            if 'vae_patcher' in locals() and hasattr(vae_patcher, 'model'):
+                print("5a. Loading VAE using ComfyUI's model management...")
+                comfy.model_management.load_models_gpu([vae_patcher])
+                vae = vae_patcher
+            else:
+                print("5a. Using VAE directly (no ModelPatcher available)")
             
             # Check detailed VRAM usage before VAE encoding
             print("Checking VRAM usage before VAE encoding...")
