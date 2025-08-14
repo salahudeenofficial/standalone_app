@@ -365,7 +365,7 @@ class ReferenceVideoPipeline:
             # For now, create a dummy video tensor
             # In a real implementation, you'd use torchvision.io.read_video or similar
             print(f"Loading video from: {video_path}")
-            # Create dummy video tensor (37 frames, 832x480, 3 channels)
+            # Create dummy video tensor (37 frames, height=832, width=480, 3 channels)
             dummy_video = torch.ones((37, 832, 480, 3)) * 0.5
             print(f"Created dummy video tensor: {dummy_video.shape}")
             return dummy_video
@@ -383,8 +383,8 @@ class ReferenceVideoPipeline:
             # For now, create a dummy image tensor
             # In a real implementation, you'd use PIL or torchvision
             print(f"Loading image from: {image_path}")
-            # Create dummy image tensor (832x480, 3 channels)
-            dummy_image = torch.ones((832, 480, 3)) * 0.5
+            # Create dummy image tensor (1 frame, height=832, width=480, 3 channels)
+            dummy_image = torch.ones((1, 832, 480, 3)) * 0.5
             print(f"Created dummy image tensor: {dummy_image.shape}")
             return dummy_image
         except Exception as e:
@@ -412,7 +412,7 @@ class ReferenceVideoPipeline:
                 # Extract single frame and downscale
                 single_frame = control_video[frame_idx:frame_idx+1]
                 single_frame = comfy.utils.common_upscale(
-                    single_frame.movedim(-1, 1), target_width, target_height, "bilinear", "center"
+                    single_frame.movedim(-1, 1), target_height, target_width, "bilinear", "center"
                 ).movedim(1, -1)
             else:
                 # Create dummy frame

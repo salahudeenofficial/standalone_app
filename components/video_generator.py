@@ -35,15 +35,22 @@ class WanVaceToVideo:
         
         # Process control video
         if control_video is not None:
+            # Debug: Show tensor shapes
+            print(f"5a. Control video shape before processing: {control_video.shape}")
+            
             # Downscale if needed
             if force_downscale:
+                print(f"5a. Downscaling control video to {target_height}x{target_width}")
                 control_video = comfy.utils.common_upscale(
                     control_video[:length].movedim(-1, 1), target_height, target_width, "bilinear", "center"
                 ).movedim(1, -1)
             else:
+                print(f"5a. Upscaling control video to {height}x{width}")
                 control_video = comfy.utils.common_upscale(
                     control_video[:length].movedim(-1, 1), height, width, "bilinear", "center"
                 ).movedim(1, -1)
+            
+            print(f"5a. Control video shape after upscaling: {control_video.shape}")
             
             if control_video.shape[0] < length:
                 control_video = torch.nn.functional.pad(
@@ -54,15 +61,22 @@ class WanVaceToVideo:
             
         # Process reference image
         if reference_image is not None:
+            # Debug: Show tensor shapes
+            print(f"5a. Reference image shape before processing: {reference_image.shape}")
+            
             # Downscale if needed
             if force_downscale:
+                print(f"5a. Downscaling reference image to {target_height}x{target_width}")
                 reference_image = comfy.utils.common_upscale(
                     reference_image[:1].movedim(-1, 1), target_height, target_width, "bilinear", "center"
                 ).movedim(1, -1)
             else:
+                print(f"5a. Upscaling reference image to {height}x{width}")
                 reference_image = comfy.utils.common_upscale(
                     reference_image[:1].movedim(-1, 1), height, width, "bilinear", "center"
                 ).movedim(1, -1)
+            
+            print(f"5a. Reference image shape after upscaling: {reference_image.shape}")
             
             reference_image = vae.encode(reference_image[:, :, :, :3])
             reference_image = torch.cat([
