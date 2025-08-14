@@ -40,9 +40,10 @@ class ReferenceVideoPipeline:
     def setup_model_paths(self):
         """Setup model paths for the standalone app"""
         # Create model directories if they don't exist
-        os.makedirs(f"{self.models_dir}/diffusion_models", exist_ok=True)
-        os.makedirs(f"{self.models_dir}/text_encoders", exist_ok=True)
-        os.makedirs(f"{self.models_dir}/vaes", exist_ok=True)
+        os.makedirs(f"{self.models_dir}/checkpoints", exist_ok=True)  # For complete checkpoint files
+        os.makedirs(f"{self.models_dir}/diffusion_models", exist_ok=True)  # For individual components (fallback)
+        os.makedirs(f"{self.models_dir}/text_encoders", exist_ok=True)     # For individual components (fallback)
+        os.makedirs(f"{self.models_dir}/vaes", exist_ok=True)             # For individual components (fallback)
         os.makedirs(f"{self.models_dir}/loras", exist_ok=True)
         
         # Set environment variables for model paths
@@ -114,12 +115,29 @@ class ReferenceVideoPipeline:
             
             # Load the checkpoint using ComfyUI's native loader
             print("1a. Loading checkpoint with ComfyUI...")
-            model, clip_model, vae = comfy.sd.load_checkpoint_guess_config(
-                ckpt_path=unet_model_path,  # Use UNET path as checkpoint
-                output_vae=True,
-                output_clip=True,
-                output_model=True
-            )
+            
+            # Check if we have a complete checkpoint or need to load individual components
+            if unet_model_path and unet_model_path.endswith('.safetensors') and 'checkpoint' in unet_model_path:
+                # Load complete checkpoint
+                print("1a. Loading complete checkpoint file...")
+                model, clip_model, vae = comfy.sd.load_checkpoint_guess_config(
+                    ckpt_path=unet_model_path,
+                    output_vae=True,
+                    output_clip=True,
+                    output_model=True
+                )
+            else:
+                # Fallback to individual component loading (for backward compatibility)
+                print("1a. Loading individual components...")
+                from components.model_loader import UNETLoader, CLIPLoader, VAELoader
+                
+                unet_loader = UNETLoader()
+                clip_loader = CLIPLoader()
+                vae_loader = VAELoader()
+                
+                model = unet_loader.load_unet(unet_model_path, "default")
+                clip_model = clip_loader.load_clip(clip_model_path, "wan")
+                vae = vae_loader.load_vae(vae_model_path)
             
             # ComfyUI automatically manages these models in memory
             print("1a. Models loaded and managed by ComfyUI")
@@ -467,12 +485,12 @@ def main():
     """Main function to run the pipeline"""
     pipeline = ReferenceVideoPipeline()
     
-    # Example usage
+    # Example usage - Updated for ComfyUI native loading
     output_path = pipeline.run_pipeline(
-        unet_model_path="wan_2.1_diffusion_model.safetensors",
-        clip_model_path="wan_clip_model.safetensors",
-        vae_model_path="wan_vae.safetensors",
-        lora_path="Wan21_CausVid_14B_T2V_lora_rank32.safetensors",
+        unet_model_path="models/checkpoints/wan_2.1_complete.safetensors",  # Main checkpoint path
+        clip_model_path="",  # Not needed when using checkpoint
+        vae_model_path="",   # Not needed when using checkpoint
+        lora_path="models/loras/Wan21_CausVid_14B_T2V_lora_rank32.safetensors",
         positive_prompt="very cinematic vide",
         negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走 , extra hands, extra arms, extra legs",
         control_video_path="safu.mp4",
