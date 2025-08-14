@@ -227,7 +227,11 @@ class ReferenceVideoPipeline:
             
             # Now reload only VAE for encoding
             print("5a. Reloading VAE for encoding...")
-            comfy.model_management.load_models_gpu([vae])
+            
+            # Create ModelPatcher for VAE (ComfyUI expects this)
+            from comfy.model_patcher import ModelPatcher
+            vae_patcher = ModelPatcher(vae, comfy.model_management.get_torch_device(), torch.device("cpu"))
+            comfy.model_management.load_models_gpu([vae_patcher])
             
             # Check detailed VRAM usage before VAE encoding
             print("Checking VRAM usage before VAE encoding...")
@@ -327,7 +331,11 @@ class ReferenceVideoPipeline:
             
             # Reload UNET for sampling
             print("5b. Reloading UNET for sampling...")
-            comfy.model_management.load_models_gpu([model])
+            
+            # Create ModelPatcher for UNET (ComfyUI expects this)
+            from comfy.model_patcher import ModelPatcher
+            unet_patcher = ModelPatcher(model, comfy.model_management.get_torch_device(), torch.device("cpu"))
+            comfy.model_management.load_models_gpu([unet_patcher])
             
             # Check VRAM status and adjust chunking strategy if needed
             if self.chunked_processor.should_adjust_strategy():
@@ -371,7 +379,11 @@ class ReferenceVideoPipeline:
             
             # Reload VAE for decoding
             print("6a. Reloading VAE for decoding...")
-            comfy.model_management.load_models_gpu([vae])
+            
+            # Create ModelPatcher for VAE (ComfyUI expects this)
+            from comfy.model_patcher import ModelPatcher
+            vae_patcher = ModelPatcher(vae, comfy.model_management.get_torch_device(), torch.device("cpu"))
+            comfy.model_management.load_models_gpu([vae_patcher])
             
             # Clean up intermediate results after UNET sampling
             print("6b. Cleaning up intermediate results after UNET sampling...")
