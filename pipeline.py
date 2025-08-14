@@ -687,7 +687,14 @@ class ReferenceVideoPipeline:
             # 7. Trim Video Latent
             print("7. Trimming video latent...")
             trim_processor = TrimVideoLatent()
-            trimmed_latent = trim_processor.op(final_latent, trim_count)
+            
+            # Wrap the latent tensor in the dictionary format expected by TrimVideoLatent
+            latent_dict = {"samples": final_latent}
+            trimmed_latent_dict = trim_processor.op(latent_dict, trim_count)
+            
+            # Extract the trimmed tensor from the dictionary
+            trimmed_latent = trimmed_latent_dict["samples"]
+            print(f"7a. Trimmed latent shape: {trimmed_latent.shape}")
             
             # ComfyUI automatically manages intermediate results
             
