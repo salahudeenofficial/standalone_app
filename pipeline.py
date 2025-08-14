@@ -40,11 +40,10 @@ class ReferenceVideoPipeline:
     def setup_model_paths(self):
         """Setup model paths for the standalone app"""
         # Create model directories if they don't exist
-        os.makedirs(f"{self.models_dir}/checkpoints", exist_ok=True)  # For complete checkpoint files
-        os.makedirs(f"{self.models_dir}/diffusion_models", exist_ok=True)  # For individual components (fallback)
-        os.makedirs(f"{self.models_dir}/text_encoders", exist_ok=True)     # For individual components (fallback)
-        os.makedirs(f"{self.models_dir}/vaes", exist_ok=True)             # For individual components (fallback)
-        os.makedirs(f"{self.models_dir}/loras", exist_ok=True)
+        os.makedirs(f"{self.models_dir}/diffusion_models", exist_ok=True)  # For UNET models
+        os.makedirs(f"{self.models_dir}/text_encoders", exist_ok=True)     # For CLIP models
+        os.makedirs(f"{self.models_dir}/vaes", exist_ok=True)             # For VAE models
+        os.makedirs(f"{self.models_dir}/loras", exist_ok=True)            # For LoRA models
         
         # Set environment variables for model paths
         os.environ["COMFY_MODEL_PATH"] = self.models_dir
@@ -113,48 +112,34 @@ class ReferenceVideoPipeline:
             import comfy.sd
             import comfy.model_management
             
-            # Load the checkpoint using ComfyUI's native loader
-            print("1a. Loading checkpoint with ComfyUI...")
+            # Load the models using individual component loaders
+            print("1a. Loading individual components...")
+            from components.model_loader import UNETLoader, CLIPLoader, VAELoader
             
-            # Check if we have a complete checkpoint or need to load individual components
-            if unet_model_path and unet_model_path.endswith('.safetensors') and 'checkpoint' in unet_model_path:
-                # Load complete checkpoint
-                print("1a. Loading complete checkpoint file...")
-                model, clip_model, vae = comfy.sd.load_checkpoint_guess_config(
-                    ckpt_path=unet_model_path,
-                    output_vae=True,
-                    output_clip=True,
-                    output_model=True
-                )
-            else:
-                # Load individual components and wrap them for ComfyUI management
-                print("1a. Loading individual components...")
-                from components.model_loader import UNETLoader, CLIPLoader, VAELoader
-                
-                unet_loader = UNETLoader()
-                clip_loader = CLIPLoader()
-                vae_loader = VAELoader()
-                
-                model = unet_loader.load_unet(unet_model_path, "default")
-                clip_model = clip_loader.load_clip(clip_model_path, "wan")
-                vae = vae_loader.load_vae(vae_model_path)
-                
-                # Wrap models in ModelPatcher for ComfyUI memory management
-                print("1a. Wrapping models for ComfyUI memory management...")
-                from comfy.model_patcher import ModelPatcher
-                
-                # Create ModelPatcher objects for ComfyUI to manage
-                model_patcher = ModelPatcher(model)
-                clip_patcher = ModelPatcher(clip_model)
-                vae_patcher = ModelPatcher(vae)
-                
-                # Load models to GPU using ComfyUI's system
-                comfy.model_management.load_models_gpu([model_patcher, clip_patcher, vae_patcher])
-                
-                # Keep references to the original models for our pipeline
-                model = model_patcher
-                clip_model = clip_patcher
-                vae = vae_patcher
+            unet_loader = UNETLoader()
+            clip_loader = CLIPLoader()
+            vae_loader = VAELoader()
+            
+            model = unet_loader.load_unet(unet_model_path, "default")
+            clip_model = clip_loader.load_clip(clip_model_path, "wan")
+            vae = vae_loader.load_vae(vae_model_path)
+            
+            # Wrap models in ModelPatcher for ComfyUI memory management
+            print("1a. Wrapping models for ComfyUI memory management...")
+            from comfy.model_patcher import ModelPatcher
+            
+            # Create ModelPatcher objects for ComfyUI to manage
+            model_patcher = ModelPatcher(model)
+            clip_patcher = ModelPatcher(clip_model)
+            vae_patcher = ModelPatcher(vae)
+            
+            # Load models to GPU using ComfyUI's system
+            comfy.model_management.load_models_gpu([model_patcher, clip_patcher, vae_patcher])
+            
+            # Keep references to the original models for our pipeline
+            model = model_patcher
+            clip_model = clip_patcher
+            vae = vae_patcher
             
             # ComfyUI automatically manages these models in memory
             print("1a. Models loaded and managed by ComfyUI")
@@ -504,10 +489,10 @@ def main():
     
     # Example usage - Updated for individual component loading
     output_path = pipeline.run_pipeline(
-        unet_model_path="models/diffusion_models/wan_2.1_diffusion_model.safetensors",
-        clip_model_path="models/text_encoders/wan_clip_model.safetensors",
-        vae_model_path="models/vaes/wan_vae.safetensors",
-        lora_path="models/loras/Wan21_CausVid_14B_T2V_lora_rank32.safetensors",
+        unet_model_path="wan_2.1_diffusion_model.safetensors",
+        clip_model_path="wan_clip_model.safetensors",
+        vae_model_path="wan_vae.safetensors",
+        lora_path="Wan21_CausVid_14B_T2V_lora_rank32.safetensors",
         positive_prompt="very cinematic vide",
         negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走 , extra hands, extra arms, extra legs",
         control_video_path="safu.mp4",
