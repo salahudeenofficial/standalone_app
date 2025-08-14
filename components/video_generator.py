@@ -124,6 +124,7 @@ class WanVaceToVideo:
                 try:
                     chunk_latent = vae.encode(chunk)
                     print(f"5a. Chunk {i//chunk_size + 1} encoded successfully: {chunk_latent.shape}")
+                    print(f"5a. Chunk {i//chunk_size + 1} latent dimensions: {chunk_latent.dim()}")
                     inactive_latents.append(chunk_latent)
                 except torch.cuda.OutOfMemoryError:
                     print(f"OOM encoding chunk {i//chunk_size + 1}! Processing frame by frame...")
@@ -163,24 +164,42 @@ class WanVaceToVideo:
             
             # Verify all latents have consistent shapes before concatenating
             if inactive_latents:
-                expected_shape = inactive_latents[0].shape[1:]  # Skip batch dimension
-                print(f"Expected latent shape: {expected_shape}")
-                
-                # Validate and fix any mismatched latents
-                for i, latent in enumerate(inactive_latents):
-                    if latent.shape[1:] != expected_shape:
-                        print(f"Fixing latent {i} shape: {latent.shape} -> {expected_shape}")
-                        # Resize or pad to match expected shape
-                        if latent.shape[1:] == (4, height // 8, width // 8):
-                            # Same dimensions, just different batch size
-                            pass
-                        else:
-                            # Different dimensions, create dummy latent
+                # Handle both 4D and 5D latent formats
+                first_latent = inactive_latents[0]
+                if first_latent.dim() == 5:
+                    # 5D format: [batch, frames, channels, height, width]
+                    expected_shape = first_latent.shape[2:]  # Skip batch and frames dimensions
+                    print(f"Expected 5D latent shape: {expected_shape}")
+                    
+                    # Validate and fix any mismatched latents
+                    for i, latent in enumerate(inactive_latents):
+                        if latent.shape[2:] != expected_shape:
+                            print(f"Fixing 5D latent {i} shape: {latent.shape} -> {expected_shape}")
+                            # Create dummy latent with correct shape
+                            inactive_latents[i] = torch.zeros((latent.shape[0], latent.shape[1], 4, height // 8, width // 8), 
+                                                            device=latent.device, dtype=latent.dtype)
+                else:
+                    # 4D format: [batch, channels, height, width]
+                    expected_shape = first_latent.shape[1:]  # Skip batch dimension
+                    print(f"Expected 4D latent shape: {expected_shape}")
+                    
+                    # Validate and fix any mismatched latents
+                    for i, latent in enumerate(inactive_latents):
+                        if latent.shape[1:] != expected_shape:
+                            print(f"Fixing 4D latent {i} shape: {latent.shape} -> {expected_shape}")
+                            # Create dummy latent with correct shape
                             inactive_latents[i] = torch.zeros((latent.shape[0], 4, height // 8, width // 8), 
                                                             device=latent.device, dtype=latent.dtype)
             
-            inactive = torch.cat(inactive_latents, dim=0)
-            print(f"5a. Concatenated inactive latents: {inactive.shape}")
+            # Concatenate along the appropriate dimension
+            if inactive_latents and inactive_latents[0].dim() == 5:
+                # 5D format: concatenate along frame dimension (dim=1)
+                inactive = torch.cat(inactive_latents, dim=1)
+                print(f"5a. Concatenated 5D inactive latents: {inactive.shape}")
+            else:
+                # 4D format: concatenate along batch dimension (dim=0)
+                inactive = torch.cat(inactive_latents, dim=0)
+                print(f"5a. Concatenated 4D inactive latents: {inactive.shape}")
             del inactive_latents
             
             # Encode reactive frames in chunks
@@ -195,6 +214,7 @@ class WanVaceToVideo:
                 try:
                     chunk_latent = vae.encode(chunk)
                     print(f"5a. Reactive chunk {i//chunk_size + 1} encoded successfully: {chunk_latent.shape}")
+                    print(f"5a. Reactive chunk {i//chunk_size + 1} latent dimensions: {chunk_latent.dim()}")
                     reactive_latents.append(chunk_latent)
                 except torch.cuda.OutOfMemoryError:
                     print(f"OOM encoding reactive chunk {i//chunk_size + 1}! Processing frame by frame...")
@@ -234,24 +254,42 @@ class WanVaceToVideo:
             
             # Verify all reactive latents have consistent shapes before concatenating
             if reactive_latents:
-                expected_shape = reactive_latents[0].shape[1:]  # Skip batch dimension
-                print(f"Expected reactive latent shape: {expected_shape}")
-                
-                # Validate and fix any mismatched latents
-                for i, latent in enumerate(reactive_latents):
-                    if latent.shape[1:] != expected_shape:
-                        print(f"Fixing reactive latent {i} shape: {latent.shape} -> {expected_shape}")
-                        # Resize or pad to match expected shape
-                        if latent.shape[1:] == (4, height // 8, width // 8):
-                            # Same dimensions, just different batch size
-                            pass
-                        else:
-                            # Different dimensions, create dummy latent
+                # Handle both 4D and 5D latent formats
+                first_latent = reactive_latents[0]
+                if first_latent.dim() == 5:
+                    # 5D format: [batch, frames, channels, height, width]
+                    expected_shape = first_latent.shape[2:]  # Skip batch and frames dimensions
+                    print(f"Expected 5D reactive latent shape: {expected_shape}")
+                    
+                    # Validate and fix any mismatched latents
+                    for i, latent in enumerate(reactive_latents):
+                        if latent.shape[2:] != expected_shape:
+                            print(f"Fixing 5D reactive latent {i} shape: {latent.shape} -> {expected_shape}")
+                            # Create dummy latent with correct shape
+                            reactive_latents[i] = torch.zeros((latent.shape[0], latent.shape[1], 4, height // 8, width // 8), 
+                                                            device=latent.device, dtype=latent.dtype)
+                else:
+                    # 4D format: [batch, channels, height, width]
+                    expected_shape = first_latent.shape[1:]  # Skip batch dimension
+                    print(f"Expected 4D reactive latent shape: {expected_shape}")
+                    
+                    # Validate and fix any mismatched latents
+                    for i, latent in enumerate(reactive_latents):
+                        if latent.shape[1:] != expected_shape:
+                            print(f"Fixing 4D reactive latent {i} shape: {latent.shape} -> {expected_shape}")
+                            # Create dummy latent with correct shape
                             reactive_latents[i] = torch.zeros((latent.shape[0], 4, height // 8, width // 8), 
                                                             device=latent.device, dtype=latent.dtype)
             
-            reactive = torch.cat(reactive_latents, dim=0)
-            print(f"5a. Concatenated reactive latents: {reactive.shape}")
+            # Concatenate along the appropriate dimension
+            if reactive_latents and reactive_latents[0].dim() == 5:
+                # 5D format: concatenate along frame dimension (dim=1)
+                reactive = torch.cat(reactive_latents, dim=1)
+                print(f"5a. Concatenated 5D reactive latents: {reactive.shape}")
+            else:
+                # 4D format: concatenate along batch dimension (dim=0)
+                reactive = torch.cat(reactive_latents, dim=0)
+                print(f"5a. Concatenated 4D reactive latents: {reactive.shape}")
             del reactive_latents
             
         else:
