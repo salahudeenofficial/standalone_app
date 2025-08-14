@@ -27,6 +27,19 @@ from components.video_export import VideoExporter
 from components.chunked_processor import ChunkedProcessor
 
 class ReferenceVideoPipeline:
+    """
+    Standalone Reference Image + Control Video to Output Video Pipeline
+    
+    Memory Management Philosophy (following ComfyUI):
+    - UNET models: Managed by ComfyUI's ModelPatcher system (automatic GPU/CPU swapping)
+    - VAE models: Follow ComfyUI's vae_device() strategy (built-in memory management)
+    - CLIP models: Manual management (PyTorch .to() operations)
+    
+    This approach ensures:
+    1. Heavy models (UNET) get sophisticated memory management
+    2. VAE models follow ComfyUI's proven device placement strategy
+    3. Light models (CLIP) use simple, reliable manual management
+    """
     def __init__(self, models_dir="models"):
         """Initialize the pipeline with model directory"""
         self.models_dir = models_dir
@@ -37,6 +50,152 @@ class ReferenceVideoPipeline:
         
         # Start with conservative chunking for better memory management
         self.chunked_processor.set_chunking_strategy('conservative')
+        
+        # Initialize OOM debugging checklist
+        self.oom_checklist = {
+            'baseline_memory': None,
+            'model_loading': None,
+            'strategic_placement': None,
+            'lora_application': None,
+            'text_encoding': None,
+            'model_sampling': None,
+            'vae_encoding_prep': None,
+            'vae_encoding_execution': None,
+            'unet_sampling_prep': None,
+            'unet_sampling_execution': None,
+            'vae_decoding_prep': None,
+            'vae_decoding_execution': None,
+            'final_cleanup': None
+        }
+        
+        # Memory thresholds for each phase
+        self.memory_thresholds = {
+            'baseline': 100,           # MB - should be very low
+            'model_loading': 15000,    # MB - UNET + CLIP + VAE loaded
+            'strategic_placement': 15000,  # MB - models placed strategically
+            'lora_application': 16000, # MB - LoRA applied
+            'text_encoding': 8000,     # MB - UNET offloaded, CLIP in GPU
+            'model_sampling': 12000,   # MB - UNET loaded for patching
+            'vae_encoding_prep': 2000, # MB - UNET offloaded, VAE optimized
+            'vae_encoding_execution': 8000, # MB - VAE encoding in progress
+            'unet_sampling_prep': 3000, # MB - UNET loaded, VAE in CPU
+            'unet_sampling_execution': 15000, # MB - UNET sampling in progress
+            'vae_decoding_prep': 2000, # MB - UNET offloaded, VAE optimized
+            'vae_decoding_execution': 8000,  # MB - VAE decoding in progress
+            'final_cleanup': 100       # MB - back to baseline
+        }
+    
+    def _check_memory_usage(self, phase_name, expected_threshold=None):
+        """Check memory usage and update OOM checklist"""
+        if not torch.cuda.is_available():
+            return True
+            
+        allocated = torch.cuda.memory_allocated() / 1024**2
+        reserved = torch.cuda.memory_reserved() / 1024**2
+        
+        # Update checklist
+        self.oom_checklist[phase_name] = {
+            'allocated_mb': allocated,
+            'reserved_mb': reserved,
+            'timestamp': phase_name,
+            'status': 'PASS' if expected_threshold is None else ('PASS' if allocated <= expected_threshold else 'FAIL')
+        }
+        
+        # Get threshold for this phase
+        threshold = expected_threshold or self.memory_thresholds.get(phase_name, 0)
+        
+        print(f"🔍 {phase_name.upper()} MEMORY CHECK:")
+        print(f"   Allocated: {allocated:.1f} MB")
+        print(f"   Reserved: {reserved:.1f} MB")
+        print(f"   Threshold: {threshold:.1f} MB")
+        print(f"   Status: {self.oom_checklist[phase_name]['status']}")
+        
+        if allocated > threshold:
+            print(f"   ⚠️  WARNING: Memory usage ({allocated:.1f} MB) exceeds threshold ({threshold:.1f} MB)")
+            print(f"   💡 This phase may be at risk of OOM errors")
+        
+        return allocated <= threshold
+    
+    def _print_oom_checklist(self):
+        """Print the complete OOM debugging checklist"""
+        print("\n" + "="*80)
+        print("🚨 OOM DEBUGGING CHECKLIST")
+        print("="*80)
+        
+        for phase, data in self.oom_checklist.items():
+            if data is None:
+                print(f"❌ {phase}: NOT EXECUTED")
+                continue
+                
+            status_icon = "✅" if data['status'] == 'PASS' else "❌"
+            print(f"{status_icon} {phase}:")
+            print(f"   Allocated: {data['allocated_mb']:.1f} MB")
+            print(f"   Reserved: {data['reserved_mb']:.1f} MB")
+            print(f"   Status: {data['status']}")
+        
+        print("="*80)
+        
+        # Summary analysis
+        failed_phases = [phase for phase, data in self.oom_checklist.items() 
+                        if data is not None and data['status'] == 'FAIL']
+        
+        if failed_phases:
+            print(f"🚨 PROBLEM PHASES: {', '.join(failed_phases)}")
+            print("💡 These phases exceeded memory thresholds and may cause OOM errors")
+        else:
+            print("✅ ALL PHASES PASSED MEMORY THRESHOLDS")
+        
+        print("="*80)
+    
+    def _check_model_placement(self, phase_name, expected_models):
+        """Check that models are in the expected devices"""
+        print(f"🔍 {phase_name.upper()} MODEL PLACEMENT CHECK:")
+        
+        model_status = {}
+        
+        # Check UNET placement
+        if 'unet' in expected_models:
+            try:
+                unet_device = getattr(self, 'model', None)
+                if unet_device and hasattr(unet_device, 'device'):
+                    model_status['unet'] = str(unet_device.device)
+                    print(f"   UNET: {model_status['unet']}")
+                else:
+                    model_status['unet'] = 'UNKNOWN'
+                    print(f"   UNET: {model_status['unet']} (not accessible)")
+            except Exception as e:
+                model_status['unet'] = f'ERROR: {e}'
+                print(f"   UNET: {model_status['unet']}")
+        
+        # Check VAE placement
+        if 'vae' in expected_models:
+            try:
+                vae_device = getattr(self, 'vae', None)
+                if vae_device and hasattr(vae_device, 'device'):
+                    model_status['vae'] = str(vae_device.device)
+                    print(f"   VAE: {model_status['vae']}")
+                else:
+                    model_status['vae'] = 'UNKNOWN'
+                    print(f"   VAE: {model_status['vae']} (not accessible)")
+            except Exception as e:
+                model_status['vae'] = f'ERROR: {e}'
+                print(f"   VAE: {model_status['vae']}")
+        
+        # Check CLIP placement
+        if 'clip' in expected_models:
+            try:
+                clip_device = getattr(self, 'clip_model', None)
+                if clip_device and hasattr(clip_device, 'device'):
+                    model_status['clip'] = str(clip_device.device)
+                    print(f"   CLIP: {model_status['clip']}")
+                else:
+                    model_status['clip'] = 'UNKNOWN'
+                    print(f"   CLIP: {model_status['clip']} (not accessible)")
+            except Exception as e:
+                model_status['clip'] = f'ERROR: {e}'
+                print(f"   CLIP: {model_status['clip']}")
+        
+        return model_status
         
     def setup_model_paths(self):
         """Setup model paths for the standalone app"""
@@ -79,7 +238,9 @@ class ReferenceVideoPipeline:
         """
         print("Starting Reference Video Pipeline...")
         
-
+        # Establish baseline memory state for OOM debugging
+        print("🔍 ESTABLISHING BASELINE MEMORY STATE...")
+        self._check_memory_usage('baseline_memory', expected_threshold=100)
         
         # Generate chunked processing plan
         print("Generating chunked processing plan...")
@@ -149,13 +310,42 @@ class ReferenceVideoPipeline:
             vae_state_dict = comfy.utils.load_torch_file(vae_model_path)
             vae = comfy.sd.VAE(sd=vae_state_dict)
             
+            # Apply ComfyUI's VAE memory management philosophy
+            print("1a. Applying ComfyUI's VAE memory management philosophy...")
+            
+            # Get VAE device preferences from ComfyUI
+            vae_target_device = comfy.model_management.vae_device()
+            vae_offload_device = comfy.model_management.vae_offload_device()
+            vae_target_dtype = comfy.model_management.vae_dtype(vae_target_device, vae.working_dtypes)
+            
+            print(f"1a. VAE device strategy: Target={vae_target_device}, Offload={vae_offload_device}, Dtype={vae_target_dtype}")
+            
+            # Place VAE in the appropriate device based on ComfyUI's strategy
+            if vae_target_device.type == 'cuda':
+                vae = vae.to(vae_target_device).to(vae_target_dtype)
+                print("1a. VAE placed in GPU with optimized dtype")
+            else:
+                vae = vae.to(vae_target_device).to(vae_target_dtype)
+                print("1a. VAE placed in CPU with optimized dtype")
+            
             # ComfyUI automatically manages these models in memory
             print("1a. Models loaded and managed by ComfyUI")
             
-            # Strategic model placement: UNET/CLIP in GPU, VAE in CPU initially
-            print("1a. Implementing strategic model placement...")
-            comfy.model_management.load_models_gpu([model, clip_model])  # Keep UNET/CLIP in GPU
-            # VAE stays in CPU until needed for encoding
+            # OOM Checklist: Check memory after model loading
+            self._check_memory_usage('model_loading', expected_threshold=15000)
+            
+            # Strategic model placement: Follow ComfyUI's philosophy
+            print("1a. Implementing strategic model placement following ComfyUI philosophy...")
+            comfy.model_management.load_models_gpu([model])  # UNET managed by ComfyUI
+            
+            # VAE placement follows ComfyUI's vae_device() strategy (already set above)
+            # CLIP placement: Keep in GPU initially for text encoding efficiency
+            if hasattr(clip_model, 'to'):
+                clip_device = comfy.model_management.get_torch_device()
+                clip_model = clip_model.to(clip_device)
+                print(f"1a. CLIP placed in {clip_device} for text encoding efficiency")
+            
+            print("1a. Memory strategy: UNET (ComfyUI managed), VAE (ComfyUI strategy), CLIP (manual)")
             
             # Check VRAM usage after strategic placement
             print("Checking VRAM usage after strategic model placement...")
@@ -164,7 +354,11 @@ class ReferenceVideoPipeline:
                 reserved = torch.cuda.memory_reserved() / 1024**2
                 print(f"PyTorch allocated: {allocated:.1f} MB")
                 print(f"PyTorch reserved: {reserved:.1f} MB")
-                print(f"Models in GPU: UNET + CLIP (VAE in CPU)")
+                print(f"Models in GPU: UNET (ComfyUI managed), VAE ({vae_target_device}), CLIP (manual)")
+            
+            # OOM Checklist: Check memory after strategic placement
+            self._check_memory_usage('strategic_placement', expected_threshold=15000)
+            self._check_model_placement('strategic_placement', ['unet', 'vae', 'clip'])
             
             # 2. Apply LoRA if specified
             if lora_path:
@@ -179,9 +373,13 @@ class ReferenceVideoPipeline:
                 
                 # Strategic memory management: Offload UNET to CPU after LoRA (not needed for text encoding)
                 print("2a. Offloading UNET to CPU (not needed for text encoding)...")
-                comfy.model_management.unload_all_models()  # Unload all
-                comfy.model_management.load_models_gpu([clip_model])  # Only CLIP in GPU for text encoding
-                print("2a. Memory optimized: CLIP in GPU, UNET/VAE in CPU")
+                comfy.model_management.unload_all_models()  # Unload UNET (managed by ComfyUI)
+                # CLIP remains in GPU (manual management), VAE in CPU
+                print("2a. Memory optimized: CLIP in GPU (manual), UNET in CPU (ComfyUI), VAE in CPU")
+                
+                # OOM Checklist: Check memory after LoRA application
+                self._check_memory_usage('lora_application', expected_threshold=16000)
+                self._check_model_placement('lora_application', ['unet', 'vae', 'clip'])
             
             # 3. Encode Prompts
             print("3. Encoding text prompts...")
@@ -193,8 +391,16 @@ class ReferenceVideoPipeline:
             
             # Strategic memory management: Offload CLIP to CPU after text encoding (not needed for VAE)
             print("3a. Text encoding complete, offloading CLIP to CPU...")
-            comfy.model_management.unload_all_models()  # All models to CPU
+            comfy.model_management.unload_all_models()  # Unload UNET (managed by ComfyUI)
+            # Manually move CLIP to CPU since it's not managed by ComfyUI
+            if hasattr(clip_model, 'to'):
+                clip_model = clip_model.to('cpu')
+                print("3a. CLIP moved to CPU manually")
             print("3a. Memory optimized: All models in CPU, ready for VAE encoding")
+            
+            # OOM Checklist: Check memory after text encoding
+            self._check_memory_usage('text_encoding', expected_threshold=8000)
+            self._check_model_placement('text_encoding', ['unet', 'vae', 'clip'])
             
             # Check VRAM availability for VAE encoding
             if torch.cuda.is_available():
@@ -218,8 +424,13 @@ class ReferenceVideoPipeline:
             
             # Strategic memory management: Offload UNET back to CPU after patching
             print("4a. Offloading patched UNET to CPU (not needed for VAE encoding)...")
-            comfy.model_management.unload_all_models()  # All models back to CPU
+            comfy.model_management.unload_all_models()  # UNET back to CPU (managed by ComfyUI)
+            # CLIP and VAE remain in CPU (manual management)
             print("4a. Memory optimized: All models in CPU, maximum VRAM for VAE encoding")
+            
+            # OOM Checklist: Check memory after ModelSamplingSD3
+            self._check_memory_usage('model_sampling', expected_threshold=12000)
+            self._check_model_placement('model_sampling', ['unet', 'vae', 'clip'])
             
             # 5. Generate Initial Latents
             print("5. Generating initial latents...")
@@ -229,33 +440,35 @@ class ReferenceVideoPipeline:
             control_video = self.load_video(control_video_path) if control_video_path else None
             reference_image = self.load_image(reference_image_path) if reference_image_path else None
             
-            # VAE encoding step - implement proper model offloading
+            # VAE encoding step - implement ComfyUI's VAE memory management philosophy
             print("5a. VAE encoding...")
             
-            # Force all models to CPU to free VRAM for VAE encoding
-            print("5a. Offloading all models to CPU to free VRAM...")
-            import comfy.model_management
+            # Follow ComfyUI's VAE memory management philosophy
+            print("5a. Following ComfyUI's VAE memory management philosophy...")
             
-            # Unload all models from GPU
-            print("5a. Unloading all models from GPU...")
-            comfy.model_management.unload_all_models()
+            # Only offload UNET (managed by ComfyUI) - VAE stays where ComfyUI placed it
+            print("5a. Offloading UNET to CPU (managed by ComfyUI)...")
+            comfy.model_management.unload_all_models()  # Only affects UNET
             
-            # Force PyTorch cache cleanup
+            # Manage VAE memory according to ComfyUI's philosophy
+            vae = self._manage_vae_memory_comfyui_style(vae, operation="encode")
+            
+            # Force PyTorch cache cleanup for VAE operations
             comfy.model_management.soft_empty_cache()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()
             
-            # Check VRAM usage after offloading
-            print("Checking VRAM usage after model offloading...")
+            # Check VRAM usage after UNET offloading
+            print("Checking VRAM usage after UNET offloading...")
             if torch.cuda.is_available():
                 allocated = torch.cuda.memory_allocated() / 1024**2
                 reserved = torch.cuda.memory_reserved() / 1024**2
                 print(f"PyTorch allocated: {allocated:.1f} MB")
                 print(f"PyTorch reserved: {reserved:.1f} MB")
             
-            # Now VAE encoding should have plenty of VRAM
-            print("5a. Models offloaded to CPU, VAE encoding should proceed...")
+            # Now VAE encoding should proceed with ComfyUI's memory strategy
+            print("5a. VAE encoding ready with ComfyUI's memory strategy...")
             
             # Strategic chunk size optimization based on available VRAM
             print("5a. Optimizing chunk sizes based on available VRAM...")
@@ -283,27 +496,19 @@ class ReferenceVideoPipeline:
                 processing_plan['vae_encode']['num_chunks'] = (length + optimal_chunk_size - 1) // optimal_chunk_size
                 print(f"5a. Updated processing plan: {processing_plan['vae_encode']['num_chunks']} chunks of size {optimal_chunk_size}")
             
-            # Verify that models are actually offloaded
-            print("5a. Verifying model offloading...")
-            if torch.cuda.is_available():
-                allocated = torch.cuda.memory_allocated() / 1024**2
-                reserved = torch.cuda.memory_reserved() / 1024**2
-                print(f"VRAM after offloading - Allocated: {allocated:.1f} MB, Reserved: {reserved:.1f} MB")
-                
-                # If we still have high VRAM usage, force more aggressive cleanup
-                if allocated > 1000:  # More than 1GB still allocated
-                    print("5a. High VRAM usage detected, forcing additional cleanup...")
-                    torch.cuda.empty_cache()
-                    torch.cuda.ipc_collect()
-                    allocated = torch.cuda.memory_allocated() / 1024**2
-                    reserved = torch.cuda.memory_reserved() / 1024**2
-                    print(f"VRAM after additional cleanup - Allocated: {allocated:.1f} MB, Reserved: {reserved:.1f} MB")
+            # OOM Checklist: Check memory after VAE encoding preparation
+            self._check_memory_usage('vae_encoding_prep', expected_threshold=2000)
+            self._check_model_placement('vae_encoding_prep', ['unet', 'vae', 'clip'])
             
             try:
                 init_latent, trim_count = self._encode_with_chunking(
                     video_generator, positive_cond, negative_cond, vae, width, height,
                     length, batch_size, strength, control_video, reference_image, processing_plan
                 )
+                
+                # OOM Checklist: Check memory after VAE encoding execution
+                self._check_memory_usage('vae_encoding_execution', expected_threshold=8000)
+                
             except torch.cuda.OutOfMemoryError:
                 print("OOM during VAE encoding! Forcing ultra-conservative chunking and retrying...")
                 self.chunked_processor.force_ultra_conservative_chunking()
@@ -411,6 +616,10 @@ class ReferenceVideoPipeline:
             comfy.model_management.load_models_gpu([model])
             print("6a. Memory optimized: UNET in GPU, VAE/CLIP in CPU")
             
+            # OOM Checklist: Check memory after UNET sampling preparation
+            self._check_memory_usage('unet_sampling_prep', expected_threshold=3000)
+            self._check_model_placement('unet_sampling_prep', ['unet', 'vae', 'clip'])
+            
             # Optimize batch size for UNET sampling based on available VRAM
             print("6a. Optimizing batch size for UNET sampling...")
             if torch.cuda.is_available():
@@ -447,6 +656,10 @@ class ReferenceVideoPipeline:
                 denoise=denoise
             )
             
+            # OOM Checklist: Check memory after UNET sampling execution
+            self._check_memory_usage('unet_sampling_execution', expected_threshold=15000)
+            self._check_model_placement('unet_sampling_execution', ['unet', 'vae', 'clip'])
+            
             # After UNET sampling, let ComfyUI handle memory management
             print("6a. UNET sampling complete, ComfyUI managing memory...")
             
@@ -463,11 +676,18 @@ class ReferenceVideoPipeline:
             # 8. Decode Frames
             print("8. Decoding frames...")
             
-            # Strategic memory management: Offload UNET to CPU, load VAE to GPU for decoding
-            print("8a. Optimizing memory for VAE decoding...")
-            comfy.model_management.unload_all_models()  # Offload UNET
-            comfy.model_management.load_models_gpu([vae])  # Load VAE for decoding
-            print("8a. Memory optimized: VAE in GPU, UNET/CLIP in CPU")
+            # Strategic memory management: Follow ComfyUI's VAE philosophy
+            print("8a. Following ComfyUI's VAE memory management philosophy...")
+            comfy.model_management.unload_all_models()  # Offload UNET (managed by ComfyUI)
+            
+            # Manage VAE memory according to ComfyUI's philosophy for decoding
+            vae = self._manage_vae_memory_comfyui_style(vae, operation="decode")
+            
+            print("8a. Memory optimized: VAE follows ComfyUI strategy, UNET/CLIP in CPU")
+            
+            # OOM Checklist: Check memory after VAE decoding preparation
+            self._check_memory_usage('vae_decoding_prep', expected_threshold=2000)
+            self._check_model_placement('vae_decoding_prep', ['unet', 'vae', 'clip'])
             
             # Optimize chunk size for VAE decoding based on available VRAM
             print("8a. Optimizing chunk size for VAE decoding...")
@@ -505,6 +725,10 @@ class ReferenceVideoPipeline:
                 print("Processing all frames at once (within chunk size limit)")
                 frames = vae_decoder.decode(vae, trimmed_latent)
             
+            # OOM Checklist: Check memory after VAE decoding execution
+            self._check_memory_usage('vae_decoding_execution', expected_threshold=8000)
+            self._check_model_placement('vae_decoding_execution', ['unet', 'vae', 'clip'])
+            
             # ComfyUI automatically manages intermediate results
             print("8b. VAE decoding complete, ComfyUI managing memory...")
             
@@ -523,7 +747,10 @@ class ReferenceVideoPipeline:
             
             # Offload all models to CPU
             print("Final cleanup: Offloading all models to CPU...")
-            comfy.model_management.unload_all_models()
+            comfy.model_management.unload_all_models()  # Offload UNET (managed by ComfyUI)
+            
+            # Manage VAE memory according to ComfyUI's philosophy for idle state
+            vae = self._manage_vae_memory_comfyui_style(vae, operation="idle")
             
             # Force PyTorch cache cleanup
             print("Final cleanup: Cleaning up PyTorch cache...")
@@ -531,6 +758,13 @@ class ReferenceVideoPipeline:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()
+            
+            # OOM Checklist: Check memory after final cleanup
+            self._check_memory_usage('final_cleanup', expected_threshold=100)
+            self._check_model_placement('final_cleanup', ['unet', 'vae', 'clip'])
+            
+            # Print complete OOM debugging checklist
+            self._print_oom_checklist()
             
             # Verify final memory state
             print("Final cleanup: Verifying memory state...")
@@ -677,6 +911,35 @@ class ReferenceVideoPipeline:
             init_latent = torch.zeros((length, 4, target_height // 8, target_width // 8), device=vae.device)
         
         return init_latent, trim_count
+    
+    def _manage_vae_memory_comfyui_style(self, vae, operation="encode"):
+        """Manage VAE memory according to ComfyUI's philosophy"""
+        print(f"5a. Managing VAE memory for {operation} operation (ComfyUI style)...")
+        
+        # Get ComfyUI's VAE device preferences
+        vae_target_device = comfy.model_management.vae_device()
+        vae_offload_device = comfy.model_management.vae_offload_device()
+        vae_target_dtype = comfy.model_management.vae_dtype(vae_target_device, vae.working_dtypes)
+        
+        print(f"5a. ComfyUI VAE strategy: Target={vae_target_device}, Offload={vae_offload_device}, Dtype={vae_target_dtype}")
+        
+        # Check if VAE needs to be moved to target device
+        if vae.device != vae_target_device:
+            print(f"5a. Moving VAE from {vae.device} to {vae_target_device}")
+            vae = vae.to(vae_target_device)
+        
+        # Apply optimal dtype if different
+        if vae.dtype != vae_target_dtype:
+            print(f"5a. Converting VAE from {vae.dtype} to {vae_target_dtype}")
+            vae = vae.to(vae_target_dtype)
+        
+        # Check if VAE should be offloaded based on ComfyUI's strategy
+        if operation == "idle" and vae_offload_device != vae_target_device:
+            print(f"5a. Offloading VAE to {vae_offload_device} (ComfyUI strategy)")
+            vae = vae.to(vae_offload_device)
+        
+        print(f"5a. VAE memory management complete: Device={vae.device}, Dtype={vae.dtype}")
+        return vae
     
     def _encode_ultra_aggressive_fallback(self, video_generator, positive, negative, vae, width, height, 
                                         length, batch_size, strength, control_video, reference_image):
