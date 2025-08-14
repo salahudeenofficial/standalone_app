@@ -20,23 +20,60 @@ class MemoryManager:
         self.auto_cleanup_threshold_mb = auto_cleanup_threshold_mb  # Auto-cleanup when total tracked size exceeds this
         self.cleanup_callbacks = []  # Callbacks to run during cleanup
         
-    def track_tensor(self, tensor: torch.Tensor, name: str, cleanup_priority: int = 1) -> None:
-        """Track a tensor for potential cleanup"""
+    def track_tensor(self, tensor, name: str, cleanup_priority: int = 1) -> None:
+        """Track a tensor or other object for potential cleanup"""
         if tensor is None:
             return
-            
-        tensor_id = id(tensor)
-        self.tracked_tensors[tensor_id] = {
-            'tensor': weakref.ref(tensor),
-            'name': name,
-            'shape': tensor.shape,
-            'dtype': tensor.dtype,
-            'device': tensor.device,
-            'cleanup_priority': cleanup_priority,
-            'size_mb': self._get_tensor_size_mb(tensor)
-        }
         
-        self.logger.debug(f"Tracking tensor {name}: {tensor.shape} on {tensor.device} ({self.tracked_tensors[tensor_id]['size_mb']:.2f} MB)")
+        # Handle different types of objects
+        if isinstance(tensor, torch.Tensor):
+            # It's a PyTorch tensor
+            tensor_id = id(tensor)
+            self.tracked_tensors[tensor_id] = {
+                'tensor': weakref.ref(tensor),
+                'name': name,
+                'type': 'tensor',
+                'shape': tensor.shape,
+                'dtype': tensor.dtype,
+                'device': tensor.device,
+                'cleanup_priority': cleanup_priority,
+                'size_mb': self._get_tensor_size_mb(tensor)
+            }
+            
+            self.logger.debug(f"Tracking tensor {name}: {tensor.shape} on {tensor.device} ({self.tracked_tensors[tensor_id]['size_mb']:.2f} MB)")
+        elif isinstance(tensor, list):
+            # It's a list - track each item individually if they're tensors
+            self.logger.debug(f"Tracking list {name} with {len(tensor)} items")
+            for i, item in enumerate(tensor):
+                if isinstance(item, torch.Tensor):
+                    item_name = f"{name}[{i}]"
+                    self.track_tensor(item, item_name, cleanup_priority)
+        elif isinstance(tensor, (tuple, set)):
+            # Handle other iterable types
+            self.logger.debug(f"Tracking {type(tensor).__name__} {name} with {len(tensor)} items")
+            for i, item in enumerate(tensor):
+                if isinstance(item, torch.Tensor):
+                    item_name = f"{name}[{i}]"
+                    self.track_tensor(item, item_name, cleanup_priority)
+        else:
+            # It's some other type - try to create a weak reference
+            try:
+                tensor_id = id(tensor)
+                self.tracked_tensors[tensor_id] = {
+                    'tensor': weakref.ref(tensor),
+                    'name': name,
+                    'type': type(tensor).__name__,
+                    'shape': getattr(tensor, 'shape', 'unknown'),
+                    'dtype': getattr(tensor, 'dtype', 'unknown'),
+                    'device': getattr(tensor, 'device', 'unknown'),
+                    'cleanup_priority': cleanup_priority,
+                    'size_mb': self._get_tensor_size_mb(tensor)
+                }
+                
+                self.logger.debug(f"Tracking object {name} of type {type(tensor).__name__}")
+            except Exception as e:
+                self.logger.warning(f"Could not track object {name} of type {type(tensor).__name__}: {e}")
+                return
         
         # Check if we need to auto-cleanup
         self._check_auto_cleanup()
@@ -45,8 +82,8 @@ class MemoryManager:
         """Add a callback function to run during cleanup"""
         self.cleanup_callbacks.append(callback_func)
     
-    def cleanup_tensor(self, tensor: torch.Tensor, name: str = "unknown") -> None:
-        """Explicitly cleanup a specific tensor"""
+    def cleanup_tensor(self, tensor, name: str = "unknown") -> None:
+        """Explicitly cleanup a specific tensor or object"""
         if tensor is None:
             return
             
@@ -54,16 +91,26 @@ class MemoryManager:
         
         # Log cleanup
         size_mb = self._get_tensor_size_mb(tensor)
-        self.logger.info(f"Cleaning up tensor {name}: {tensor.shape} ({size_mb:.2f} MB)")
+        if isinstance(tensor, torch.Tensor):
+            self.logger.info(f"Cleaning up tensor {name}: {tensor.shape} ({size_mb:.2f} MB)")
+        else:
+            self.logger.info(f"Cleaning up object {name} of type {type(tensor).__name__} ({size_mb:.2f} MB)")
         
-        # Move to CPU first if on GPU to free VRAM immediately
-        if tensor.device.type == 'cuda':
-            try:
-                tensor.cpu()
-            except:
-                pass
+        # Handle different types of objects
+        if isinstance(tensor, torch.Tensor):
+            # Move to CPU first if on GPU to free VRAM immediately
+            if tensor.device.type == 'cuda':
+                try:
+                    tensor.cpu()
+                except:
+                    pass
+        elif isinstance(tensor, (list, tuple, set)):
+            # For iterables, cleanup each tensor item
+            for item in tensor:
+                if isinstance(item, torch.Tensor):
+                    self.cleanup_tensor(item, f"{name}_item")
         
-        # Delete the tensor
+        # Delete the object
         del tensor
         
         # Remove from tracking
@@ -206,20 +253,30 @@ class MemoryManager:
         if cleaned_size > 0:
             self.logger.info(f"Auto-cleanup completed: freed {cleaned_size:.2f} MB")
     
-    def _safe_cleanup_tensor(self, tensor: torch.Tensor, name: str, tensor_id: int) -> None:
+    def _safe_cleanup_tensor(self, tensor, name: str, tensor_id: int) -> None:
         """Safely cleanup a tensor without modifying tracked_tensors during iteration"""
         # Log cleanup
         size_mb = self._get_tensor_size_mb(tensor)
-        self.logger.info(f"Cleaning up tensor {name}: {tensor.shape} ({size_mb:.2f} MB)")
+        if isinstance(tensor, torch.Tensor):
+            self.logger.info(f"Cleaning up tensor {name}: {tensor.shape} ({size_mb:.2f} MB)")
+        else:
+            self.logger.info(f"Cleaning up object {name} of type {type(tensor).__name__} ({size_mb:.2f} MB)")
         
-        # Move to CPU first if on GPU to free VRAM immediately
-        if tensor.device.type == 'cuda':
-            try:
-                tensor.cpu()
-            except:
-                pass
+        # Handle different types of objects
+        if isinstance(tensor, torch.Tensor):
+            # Move to CPU first if on GPU to free VRAM immediately
+            if tensor.device.type == 'cuda':
+                try:
+                    tensor.cpu()
+                except:
+                    pass
+        elif isinstance(tensor, (list, tuple, set)):
+            # For iterables, cleanup each tensor item
+            for item in tensor:
+                if isinstance(item, torch.Tensor):
+                    self._safe_cleanup_tensor(item, f"{name}_item", id(item))
         
-        # Delete the tensor
+        # Delete the object
         del tensor
         
         # Force garbage collection for immediate cleanup
@@ -237,18 +294,42 @@ class MemoryManager:
             except Exception as e:
                 self.logger.warning(f"Cleanup callback failed: {e}")
     
-    def _get_tensor_size_mb(self, tensor: torch.Tensor) -> float:
+    def _get_tensor_size_mb(self, tensor) -> float:
         """Calculate tensor size in MB"""
         if tensor is None:
             return 0.0
         
         try:
-            # Get element size in bytes
-            element_size = tensor.element_size()
-            # Calculate total size
-            total_elements = tensor.numel()
-            total_size_bytes = total_elements * element_size
-            return total_size_bytes / (1024 * 1024)  # Convert to MB
+            if isinstance(tensor, torch.Tensor):
+                # Get element size in bytes
+                element_size = tensor.element_size()
+                # Calculate total size
+                total_elements = tensor.numel()
+                total_size_bytes = total_elements * element_size
+                return total_size_bytes / (1024 * 1024)  # Convert to MB
+            elif isinstance(tensor, list):
+                # For lists, sum the size of all tensor items
+                total_size = 0.0
+                for item in tensor:
+                    if isinstance(item, torch.Tensor):
+                        total_size += self._get_tensor_size_mb(item)
+                return total_size
+            elif isinstance(tensor, (tuple, set)):
+                # For other iterables, sum the size of all tensor items
+                total_size = 0.0
+                for item in tensor:
+                    if isinstance(item, torch.Tensor):
+                        total_size += self._get_tensor_size_mb(item)
+                return total_size
+            else:
+                # For other objects, try to estimate size
+                try:
+                    # Try to get size using sys.getsizeof
+                    import sys
+                    size_bytes = sys.getsizeof(tensor)
+                    return size_bytes / (1024 * 1024)  # Convert to MB
+                except:
+                    return 0.0
         except:
             return 0.0
     
@@ -264,10 +345,20 @@ class MemoryManager:
             tensor = info['tensor']()
             if tensor is not None:
                 stats['total_tracked_size_mb'] += info['size_mb']
+                
+                # Handle different types of objects
+                if info.get('type') == 'tensor':
+                    shape = info.get('shape', 'unknown')
+                    device = str(info.get('device', 'unknown'))
+                else:
+                    shape = info.get('shape', 'unknown')
+                    device = str(info.get('device', 'unknown'))
+                
                 stats['tensor_details'].append({
                     'name': info['name'],
-                    'shape': info['shape'],
-                    'device': str(info['device']),
+                    'type': info.get('type', 'unknown'),
+                    'shape': shape,
+                    'device': device,
                     'size_mb': info['size_mb'],
                     'priority': info['cleanup_priority']
                 })
@@ -282,9 +373,9 @@ class MemoryManager:
         self.logger.info(f"Total Tracked Size: {stats['total_tracked_size_mb']:.2f} MB")
         
         if stats['tensor_details']:
-            self.logger.info("Tensor Details:")
+            self.logger.info("Object Details:")
             for tensor_info in stats['tensor_details']:
-                self.logger.info(f"  {tensor_info['name']}: {tensor_info['shape']} on {tensor_info['device']} ({tensor_info['size_mb']:.2f} MB, priority {tensor_info['priority']})")
+                self.logger.info(f"  {tensor_info['name']}: {tensor_info['type']} {tensor_info['shape']} on {tensor_info['device']} ({tensor_info['size_mb']:.2f} MB, priority {tensor_info['priority']})")
         
         self.logger.info("==========================")
     
