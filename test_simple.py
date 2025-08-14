@@ -42,6 +42,7 @@ def test_memory_manager():
     print("\nTesting MemoryManager basic functionality...")
     
     try:
+        from components.memory_manager import MemoryManager
         memory_manager = MemoryManager()
         print("✓ MemoryManager created successfully")
         
@@ -63,6 +64,7 @@ def test_model_manager():
     print("\nTesting ModelManager basic functionality...")
     
     try:
+        from components.model_manager import ModelManager
         model_manager = ModelManager()
         print("✓ ModelManager created successfully")
         
@@ -80,6 +82,7 @@ def test_chunked_processor():
     print("\nTesting ChunkedProcessor basic functionality...")
     
     try:
+        from components.chunked_processor import ChunkedProcessor
         chunked_processor = ChunkedProcessor()
         print("✓ ChunkedProcessor created successfully")
         
