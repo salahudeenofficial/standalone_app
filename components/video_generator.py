@@ -38,11 +38,11 @@ class WanVaceToVideo:
             # Downscale if needed
             if force_downscale:
                 control_video = comfy.utils.common_upscale(
-                    control_video[:length].movedim(-1, 1), target_width, target_height, "bilinear", "center"
+                    control_video[:length].movedim(-1, 1), target_height, target_width, "bilinear", "center"
                 ).movedim(1, -1)
             else:
                 control_video = comfy.utils.common_upscale(
-                    control_video[:length].movedim(-1, 1), width, height, "bilinear", "center"
+                    control_video[:length].movedim(-1, 1), height, width, "bilinear", "center"
                 ).movedim(1, -1)
             
             if control_video.shape[0] < length:
@@ -57,11 +57,11 @@ class WanVaceToVideo:
             # Downscale if needed
             if force_downscale:
                 reference_image = comfy.utils.common_upscale(
-                    reference_image[:1].movedim(-1, 1), target_width, target_height, "bilinear", "center"
+                    reference_image[:1].movedim(-1, 1), target_height, target_width, "bilinear", "center"
                 ).movedim(1, -1)
             else:
                 reference_image = comfy.utils.common_upscale(
-                    reference_image[:1].movedim(-1, 1), width, height, "bilinear", "center"
+                    reference_image[:1].movedim(-1, 1), height, width, "bilinear", "center"
                 ).movedim(1, -1)
             
             reference_image = vae.encode(reference_image[:, :, :, :3])
@@ -80,9 +80,9 @@ class WanVaceToVideo:
             
             # Downscale if needed
             if force_downscale:
-                mask = comfy.utils.common_upscale(mask[:length], target_width, target_height, "bilinear", "center").movedim(1, -1)
+                mask = comfy.utils.common_upscale(mask[:length], target_height, target_width, "bilinear", "center").movedim(1, -1)
             else:
-                mask = comfy.utils.common_upscale(mask[:length], width, height, "bilinear", "center").movedim(1, -1)
+                mask = comfy.utils.common_upscale(mask[:length], height, width, "bilinear", "center").movedim(1, -1)
             
             if mask.shape[0] < length:
                 mask = torch.nn.functional.pad(
