@@ -208,15 +208,24 @@ class ReferenceVideoPipeline:
             # Import ComfyUI's memory management
             import comfy.model_management
             
-            # CRITICAL: First, we need to unload UNET and CLIP to free VRAM for VAE encoding
-            print("5a. Unloading UNET and CLIP to free VRAM for VAE encoding...")
+            # CRITICAL: First, we need to move our models to CPU to free VRAM for VAE encoding
+            print("5a. Moving models to CPU to free VRAM for VAE encoding...")
             
             # Get the current loaded models from ComfyUI
             current_models = comfy.model_management.loaded_models()
             print(f"5a. Currently loaded models: {[m.__class__.__name__ for m in current_models]}")
             
-            # Force unload all models except VAE
-            print("5a. Force unloading all models to free maximum VRAM...")
+            # CRITICAL: Move our VAE to CPU to free its GPU memory
+            print("5a. Moving VAE to CPU to free GPU memory...")
+            if hasattr(vae, 'to'):
+                vae_cpu = vae.to('cpu')
+                print("5a. VAE moved to CPU successfully")
+            else:
+                print("5a. VAE doesn't have .to() method, trying alternative approach")
+                vae_cpu = vae
+            
+            # Force unload all ComfyUI-tracked models
+            print("5a. Force unloading all ComfyUI-tracked models...")
             comfy.model_management.unload_all_models()
             
             # Force aggressive CUDA cleanup
@@ -225,12 +234,14 @@ class ReferenceVideoPipeline:
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()
             
-            # Now reload only VAE for encoding
-            print("5a. Reloading VAE for encoding...")
-            
-            # Since our models are already loaded, we don't need to reload them
-            # Just ensure they're on the right device
-            print("5a. VAE is already loaded and ready for encoding...")
+            # Now move VAE back to GPU for encoding
+            print("5a. Moving VAE back to GPU for encoding...")
+            if hasattr(vae_cpu, 'to'):
+                vae = vae_cpu.to(comfy.model_management.get_torch_device())
+                print("5a. VAE moved back to GPU successfully")
+            else:
+                print("5a. VAE doesn't have .to() method, using original")
+                vae = vae_cpu
             
             # Check detailed VRAM usage before VAE encoding
             print("Checking VRAM usage before VAE encoding...")
