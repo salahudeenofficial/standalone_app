@@ -290,21 +290,29 @@ class MemoryManager:
     
     def add_cleanup_point(self, step_name: str, description: str) -> None:
         """Add a cleanup point for monitoring"""
+        timestamp = None
+        try:
+            if torch.cuda.is_available():
+                timestamp = torch.cuda.Event()
+                timestamp.record()
+        except Exception as e:
+            self.logger.warning(f"Failed to create CUDA event for {step_name}: {e}")
+        
         self.cleanup_points.append({
             'step': step_name,
             'description': description,
-            'timestamp': torch.cuda.Event() if torch.cuda.is_available() else None
+            'timestamp': timestamp
         })
-        
-        if torch.cuda.is_available():
-            self.cleanup_points[-1]['timestamp'].record()
     
     def mark_cleanup_point_complete(self, step_name: str) -> None:
         """Mark a cleanup point as complete and log timing"""
         for point in self.cleanup_points:
             if point['step'] == step_name and point['timestamp'] is not None:
-                if torch.cuda.is_available():
-                    point['timestamp'].synchronize()
-                    elapsed_ms = point['timestamp'].elapsed_time(point['timestamp'])
-                    self.logger.info(f"Cleanup point {step_name} completed in {elapsed_ms:.2f} ms")
+                try:
+                    if torch.cuda.is_available():
+                        point['timestamp'].synchronize()
+                        elapsed_ms = point['timestamp'].elapsed_time(point['timestamp'])
+                        self.logger.info(f"Cleanup point {step_name} completed in {elapsed_ms:.2f} ms")
+                except Exception as e:
+                    self.logger.warning(f"Failed to get timing for cleanup point {step_name}: {e}")
                 break 

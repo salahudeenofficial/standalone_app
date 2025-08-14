@@ -49,9 +49,15 @@ class ChunkedProcessor:
             return frame_count  # No GPU, process all at once
         
         # Get available VRAM
-        total_vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
-        allocated_vram_gb = torch.cuda.memory_allocated(0) / 1024**3
-        free_vram_gb = total_vram_gb - allocated_vram_gb
+        try:
+            total_vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            allocated_vram_gb = torch.cuda.memory_allocated(0) / 1024**3
+            free_vram_gb = total_vram_gb - allocated_vram_gb
+        except Exception as e:
+            self.logger.warning(f"Failed to get VRAM info: {e}")
+            total_vram_gb = 8.0  # Default fallback
+            allocated_vram_gb = 0.0
+            free_vram_gb = 8.0
         
         self.logger.info(f"VRAM Status - Total: {total_vram_gb:.2f} GB, "
                         f"Allocated: {allocated_vram_gb:.2f} GB, "
@@ -102,19 +108,26 @@ class ChunkedProcessor:
         if not torch.cuda.is_available():
             return {'available': False}
         
-        total_vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
-        allocated_vram_gb = torch.cuda.memory_allocated(0) / 1024**3
-        reserved_vram_gb = torch.cuda.memory_reserved(0) / 1024**3
-        free_vram_gb = total_vram_gb - allocated_vram_gb
-        
-        return {
-            'available': True,
-            'total_gb': total_vram_gb,
-            'allocated_gb': allocated_vram_gb,
-            'reserved_gb': reserved_vram_gb,
-            'free_gb': free_vram_gb,
-            'utilization_percent': (allocated_vram_gb / total_vram_gb) * 100
-        }
+        try:
+            total_vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            allocated_vram_gb = torch.cuda.memory_allocated(0) / 1024**3
+            reserved_vram_gb = torch.cuda.memory_reserved(0) / 1024**3
+            free_vram_gb = total_vram_gb - allocated_vram_gb
+            
+            return {
+                'available': True,
+                'total_gb': total_vram_gb,
+                'allocated_gb': allocated_vram_gb,
+                'reserved_gb': reserved_vram_gb,
+                'free_gb': free_vram_gb,
+                'utilization_percent': (allocated_vram_gb / total_vram_gb) * 100
+            }
+        except Exception as e:
+            self.logger.warning(f"Failed to get VRAM status: {e}")
+            return {
+                'available': False,
+                'error': str(e)
+            }
     
     def should_adjust_strategy(self) -> bool:
         """Determine if we should adjust the chunking strategy based on VRAM pressure"""

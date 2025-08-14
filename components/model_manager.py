@@ -25,8 +25,13 @@ class ModelManager:
         
         # Get VRAM info
         if torch.cuda.is_available():
-            self.total_vram = torch.cuda.get_device_properties(0).total_memory
-            self.logger.info(f"Total VRAM: {self.total_vram / 1024**3:.2f} GB")
+            try:
+                self.total_vram = torch.cuda.get_device_properties(0).total_memory
+                self.logger.info(f"Total VRAM: {self.total_vram / 1024**3:.2f} GB")
+            except Exception as e:
+                self.logger.warning(f"Failed to get CUDA device properties: {e}")
+                self.total_vram = 0
+                self.logger.info("CUDA available but device properties failed, using CPU only")
         else:
             self.total_vram = 0
             self.logger.info("CUDA not available, using CPU only")
@@ -34,20 +39,28 @@ class ModelManager:
     def get_vram_usage(self) -> float:
         """Get current VRAM usage in GB"""
         if not torch.cuda.is_available():
-            return 0.0
+            return 0.0, 0.0
         
-        allocated = torch.cuda.memory_allocated(0)
-        reserved = torch.cuda.memory_reserved(0)
-        return allocated / 1024**3, reserved / 1024**3
+        try:
+            allocated = torch.cuda.memory_allocated(0)
+            reserved = torch.cuda.memory_reserved(0)
+            return allocated / 1024**3, reserved / 1024**3
+        except Exception as e:
+            self.logger.warning(f"Failed to get VRAM usage: {e}")
+            return 0.0, 0.0
     
     def get_free_vram(self) -> float:
         """Get free VRAM in GB"""
         if not torch.cuda.is_available():
             return 0.0
         
-        allocated = torch.cuda.memory_allocated(0)
-        total = torch.cuda.get_device_properties(0).total_memory
-        return (total - allocated) / 1024**3
+        try:
+            allocated = torch.cuda.memory_allocated(0)
+            total = torch.cuda.get_device_properties(0).total_memory
+            return (total - allocated) / 1024**3
+        except Exception as e:
+            self.logger.warning(f"Failed to get free VRAM: {e}")
+            return 0.0
     
     def should_offload(self, model_size_gb: float = 0.0) -> bool:
         """Determine if we should offload models to CPU"""
@@ -81,7 +94,9 @@ class ModelManager:
                 self.logger.info(f"Loaded {model_name} to GPU")
             else:
                 # Handle models that might not have .to() method
-                self.logger.warning(f"Model {model_name} doesn't have .to() method")
+                self.logger.info(f"Model {model_name} doesn't have .to() method - assuming it's already on correct device")
+                # For models without .to() method, we assume they're already on the correct device
+                # This is common with some ComfyUI model types
             
             # Track the loaded model
             self.loaded_models[model_name] = {
@@ -94,7 +109,10 @@ class ModelManager:
             self.logger.error(f"Failed to load {model_name} to GPU: {e}")
             # Fallback to CPU
             if hasattr(model, 'to'):
-                model.to(self.cpu_device)
+                try:
+                    model.to(self.cpu_device)
+                except:
+                    self.logger.warning(f"Could not move {model_name} to CPU either")
     
     def unload_model(self, model_name: str) -> None:
         """Unload a specific model to CPU"""
@@ -111,6 +129,11 @@ class ModelManager:
                 
                 # Update tracking
                 self.loaded_models[model_name]['device'] = self.cpu_device
+            else:
+                # For models without .to() method, we can't move them
+                self.logger.info(f"Model {model_name} doesn't have .to() method - cannot move to CPU")
+                # Update tracking to indicate it's still on GPU
+                self.loaded_models[model_name]['device'] = self.device
                 
         except Exception as e:
             self.logger.error(f"Failed to unload {model_name} to CPU: {e}")
