@@ -168,6 +168,50 @@ class ModelManager:
             
             self.logger.info(f"After cleanup - Allocated: {allocated:.1f} MB, Reserved: {reserved:.1f} MB")
     
+    def force_model_memory_release(self, model_name: str) -> None:
+        """Force release of model GPU memory by deleting and recreating"""
+        if model_name not in self.loaded_models:
+            return
+        
+        self.logger.info(f"Forcing GPU memory release for {model_name}...")
+        
+        model_info = self.loaded_models[model_name]
+        model = model_info['model']
+        
+        # Get current memory stats
+        if torch.cuda.is_available():
+            before_allocated = torch.cuda.memory_allocated() / 1024**2
+            before_reserved = torch.cuda.memory_reserved() / 1024**2
+            self.logger.info(f"Before release - {model_name}: Allocated: {before_allocated:.1f} MB, Reserved: {before_reserved:.1f} MB")
+        
+        try:
+            # Force model to CPU and delete GPU tensors
+            if hasattr(model, 'to'):
+                # Move to CPU first
+                model.to('cpu')
+                
+                # Force GPU memory cleanup
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    gc.collect()
+                
+                # Update tracking
+                self.loaded_models[model_name]['device'] = 'cpu'
+                
+                self.logger.info(f"Successfully moved {model_name} to CPU")
+            else:
+                self.logger.warning(f"Model {model_name} doesn't have .to() method")
+                
+        except Exception as e:
+            self.logger.error(f"Failed to force memory release for {model_name}: {e}")
+        
+        # Get memory stats after cleanup
+        if torch.cuda.is_available():
+            after_allocated = torch.cuda.memory_allocated() / 1024**2
+            after_reserved = torch.cuda.memory_reserved() / 1024**2
+            freed_mb = before_allocated - after_allocated
+            self.logger.info(f"After release - {model_name}: Allocated: {after_allocated:.1f} MB, Reserved: {after_reserved:.1f} MB, Freed: {freed_mb:.1f} MB")
+    
     def _offload_models_to_cpu(self) -> None:
         """Offload models to CPU to free VRAM"""
         # Sort models by size (largest first) to prioritize offloading

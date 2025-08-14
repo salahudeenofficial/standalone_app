@@ -202,17 +202,20 @@ class ReferenceVideoPipeline:
             # VAE encoding step - keep VAE on GPU
             print("5a. VAE encoding...")
             
-            # CRITICAL: Offload UNET to CPU BEFORE VAE encoding to free up massive VRAM
-            print("5a. Offloading UNET to CPU to free VRAM for VAE encoding...")
-            self.model_manager.unload_model("UNET")
+            # CRITICAL: Use ComfyUI's native memory management to free VRAM
+            print("5a. Using ComfyUI's native memory management to free VRAM...")
             
-            # CRITICAL: Also offload VAE to CPU to free up massive VRAM
-            print("5a. Offloading VAE to CPU to free VRAM for VAE encoding...")
-            self.model_manager.unload_model("VAE")
+            # Import ComfyUI's memory management
+            import comfy.model_management
             
-            # Force aggressive GPU cleanup to ensure model memory is freed
-            print("5a. Forcing aggressive GPU cleanup after model offload...")
-            self.model_manager.force_gpu_cleanup()
+            # Force free memory for VAE encoding
+            memory_required = 2 * 1024 * 1024 * 1024  # 2GB for VAE encoding
+            print(f"5a. Requesting {memory_required / (1024**3):.1f} GB of free VRAM...")
+            
+            # Use ComfyUI's free_memory function
+            unloaded_models = comfy.model_management.free_memory(memory_required, comfy.model_management.get_torch_device())
+            if unloaded_models:
+                print(f"5a. ComfyUI unloaded {len(unloaded_models)} models to free VRAM")
             
             # Check detailed VRAM usage before VAE encoding
             print("Checking VRAM usage before VAE encoding...")
