@@ -1,0 +1,42 @@
+# Development and testing requirements for the standalone app
+# Install with: pip install -r requirements-dev.txt
+
+# Core requirements
+-r requirements.txt
+
+# Development tools
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
+isort>=5.12.0
+
+# Memory profiling and monitoring
+memory-profiler>=0.60.0
+psutil>=5.9.0
+GPUtil>=1.4.0
+
+# GPU monitoring (optional)
+nvidia-ml-py3>=7.352.0
+
+# Performance profiling
+line-profiler>=4.0.0
+py-spy>=0.3.14
+
+# Jupyter notebook support (for development)
+jupyter>=1.0.0
+ipykernel>=6.0.0
+
+# Documentation
+sphinx>=6.0.0
+sphinx-rtd-theme>=1.2.0
+
+# Code quality
+pre-commit>=3.0.0
+bandit>=1.7.0
+
+# Testing utilities
+factory-boy>=3.2.0
+faker>=18.0.0 

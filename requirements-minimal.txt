@@ -1,0 +1,19 @@
+# Minimal requirements for production deployment
+# Install with: pip install -r requirements-minimal.txt
+
+# Core PyTorch (essential for all ML operations)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Essential scientific computing
+numpy>=1.21.0
+
+# Model loading
+safetensors>=0.3.0
+
+# Image processing (if needed for input/output)
+Pillow>=8.0.0
+
+# Note: This minimal version includes only the absolutely essential dependencies
+# For full functionality, use requirements.txt instead
+# For development, use requirements-dev.txt 
