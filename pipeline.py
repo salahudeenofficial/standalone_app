@@ -39,14 +39,18 @@ class ReferenceVideoPipeline:
         
     def setup_model_paths(self):
         """Setup model paths for the standalone app"""
+        # Get the script directory for absolute paths
+        script_dir = Path(__file__).parent
+        models_dir = script_dir / self.models_dir
+        
         # Create model directories if they don't exist
-        os.makedirs(f"{self.models_dir}/diffusion_models", exist_ok=True)  # For UNET models
-        os.makedirs(f"{self.models_dir}/text_encoders", exist_ok=True)     # For CLIP models
-        os.makedirs(f"{self.models_dir}/vaes", exist_ok=True)             # For VAE models
-        os.makedirs(f"{self.models_dir}/loras", exist_ok=True)            # For LoRA models
+        os.makedirs(models_dir / "diffusion_models", exist_ok=True)  # For UNET models
+        os.makedirs(models_dir / "text_encoders", exist_ok=True)     # For CLIP models
+        os.makedirs(models_dir / "vaes", exist_ok=True)             # For VAE models
+        os.makedirs(models_dir / "loras", exist_ok=True)            # For LoRA models
         
         # Set environment variables for model paths
-        os.environ["COMFY_MODEL_PATH"] = self.models_dir
+        os.environ["COMFY_MODEL_PATH"] = str(models_dir)
         
     def run_pipeline(self, 
                     unet_model_path,
@@ -114,6 +118,20 @@ class ReferenceVideoPipeline:
             
             # Load the models using ComfyUI's native functions
             print("1a. Loading individual components...")
+            
+            # Debug: Show the actual paths being used
+            print(f"1a. Current working directory: {os.getcwd()}")
+            print(f"1a. UNET path: {unet_model_path}")
+            print(f"1a. CLIP path: {clip_model_path}")
+            print(f"1a. VAE path: {vae_model_path}")
+            print(f"1a. LoRA path: {lora_path}")
+            
+            # Check if files exist
+            print(f"1a. UNET file exists: {os.path.exists(unet_model_path)}")
+            print(f"1a. CLIP file exists: {os.path.exists(clip_model_path)}")
+            print(f"1a. VAE file exists: {os.path.exists(vae_model_path)}")
+            if lora_path:
+                print(f"1a. LoRA file exists: {os.path.exists(lora_path)}")
             
             # Use ComfyUI's native loading functions which return ModelPatcher objects
             model = comfy.sd.load_diffusion_model(unet_model_path)
@@ -339,15 +357,39 @@ class ReferenceVideoPipeline:
     
     def load_video(self, video_path):
         """Load control video from path"""
-        # Implementation for video loading
-        # This would use torchvision or similar to load video frames
-        pass
+        if not video_path or not os.path.exists(video_path):
+            print(f"Warning: Video file not found: {video_path}")
+            return None
+            
+        try:
+            # For now, create a dummy video tensor
+            # In a real implementation, you'd use torchvision.io.read_video or similar
+            print(f"Loading video from: {video_path}")
+            # Create dummy video tensor (37 frames, 832x480, 3 channels)
+            dummy_video = torch.ones((37, 832, 480, 3)) * 0.5
+            print(f"Created dummy video tensor: {dummy_video.shape}")
+            return dummy_video
+        except Exception as e:
+            print(f"Error loading video: {e}")
+            return None
     
     def load_image(self, image_path):
         """Load reference image from path"""
-        # Implementation for image loading
-        # This would use PIL or torchvision to load image
-        pass
+        if not image_path or not os.path.exists(image_path):
+            print(f"Warning: Image file not found: {image_path}")
+            return None
+            
+        try:
+            # For now, create a dummy image tensor
+            # In a real implementation, you'd use PIL or torchvision
+            print(f"Loading image from: {image_path}")
+            # Create dummy image tensor (832x480, 3 channels)
+            dummy_image = torch.ones((832, 480, 3)) * 0.5
+            print(f"Created dummy image tensor: {dummy_image.shape}")
+            return dummy_image
+        except Exception as e:
+            print(f"Error loading image: {e}")
+            return None
     
     def _encode_single_frame_fallback(self, video_generator, positive, negative, vae, width, height, 
                                     length, batch_size, strength, control_video, reference_image):
@@ -469,16 +511,17 @@ def main():
     """Main function to run the pipeline"""
     pipeline = ReferenceVideoPipeline()
     
-    # Example usage - Updated for individual component loading
+    # Example usage - Updated for individual component loading with absolute paths
+    script_dir = Path(__file__).parent
     output_path = pipeline.run_pipeline(
-        unet_model_path="models/diffusion_models/wan_2.1_diffusion_model.safetensors",
-        clip_model_path="models/text_encoders/wan_clip_model.safetensors",
-        vae_model_path="models/vaes/wan_vae.safetensors",
-        lora_path="models/loras/Wan21_CausVid_14B_T2V_lora_rank32.safetensors",
+        unet_model_path=str(script_dir / "models/diffusion_models/wan_2.1_diffusion_model.safetensors"),
+        clip_model_path=str(script_dir / "models/text_encoders/wan_clip_model.safetensors"),
+        vae_model_path=str(script_dir / "models/vaes/wan_vae.safetensors"),
+        lora_path=str(script_dir / "models/loras/Wan21_CausVid_14B_T2V_lora_rank32.safetensors"),
         positive_prompt="very cinematic vide",
         negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走 , extra hands, extra arms, extra legs",
-        control_video_path="safu.mp4",
-        reference_image_path="safu.jpg",
+        control_video_path=str(script_dir / "safu.mp4"),
+        reference_image_path=str(script_dir / "safu.jpg"),
         width=480,
         height=832,
         length=37,
