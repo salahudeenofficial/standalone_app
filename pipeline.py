@@ -320,13 +320,10 @@ class ReferenceVideoPipeline:
             
             print(f"1a. VAE device strategy: Target={vae_target_device}, Offload={vae_offload_device}, Dtype={vae_target_dtype}")
             
-            # Place VAE in the appropriate device based on ComfyUI's strategy
-            if vae_target_device.type == 'cuda':
-                vae = vae.to(vae_target_device).to(vae_target_dtype)
-                print("1a. VAE placed in GPU with optimized dtype")
-            else:
-                vae = vae.to(vae_target_device).to(vae_target_dtype)
-                print("1a. VAE placed in CPU with optimized dtype")
+            # ComfyUI creates a ModelPatcher for VAE memory management
+            # The VAE object itself doesn't have .to() methods, but the ModelPatcher does
+            print(f"1a. VAE ModelPatcher created: Device={vae.device}, Dtype={vae.vae_dtype}")
+            print(f"1a. VAE can be managed by ComfyUI through its ModelPatcher")
             
             # ComfyUI automatically manages these models in memory
             print("1a. Models loaded and managed by ComfyUI")
@@ -338,14 +335,20 @@ class ReferenceVideoPipeline:
             print("1a. Implementing strategic model placement following ComfyUI philosophy...")
             comfy.model_management.load_models_gpu([model])  # UNET managed by ComfyUI
             
-            # VAE placement follows ComfyUI's vae_device() strategy (already set above)
+            # VAE also has a ModelPatcher and can be managed by ComfyUI
+            if hasattr(vae, 'patcher'):
+                comfy.model_management.load_models_gpu([vae.patcher])  # VAE managed by ComfyUI
+                print("1a. VAE ModelPatcher loaded to GPU by ComfyUI")
+            else:
+                print("1a. Warning: VAE ModelPatcher not found - VAE memory management may not work")
+            
             # CLIP placement: Keep in GPU initially for text encoding efficiency
             if hasattr(clip_model, 'to'):
                 clip_device = comfy.model_management.get_torch_device()
                 clip_model = clip_model.to(clip_device)
                 print(f"1a. CLIP placed in {clip_device} for text encoding efficiency")
             
-            print("1a. Memory strategy: UNET (ComfyUI managed), VAE (ComfyUI strategy), CLIP (manual)")
+            print("1a. Memory strategy: UNET + VAE (ComfyUI managed), CLIP (manual)")
             
             # Check VRAM usage after strategic placement
             print("Checking VRAM usage after strategic model placement...")
@@ -354,7 +357,7 @@ class ReferenceVideoPipeline:
                 reserved = torch.cuda.memory_reserved() / 1024**2
                 print(f"PyTorch allocated: {allocated:.1f} MB")
                 print(f"PyTorch reserved: {reserved:.1f} MB")
-                print(f"Models in GPU: UNET (ComfyUI managed), VAE ({vae_target_device}), CLIP (manual)")
+                print(f"Models in GPU: UNET + VAE (ComfyUI managed), CLIP (manual)")
             
             # OOM Checklist: Check memory after strategic placement
             self._check_memory_usage('strategic_placement', expected_threshold=15000)
@@ -373,9 +376,9 @@ class ReferenceVideoPipeline:
                 
                 # Strategic memory management: Offload UNET to CPU after LoRA (not needed for text encoding)
                 print("2a. Offloading UNET to CPU (not needed for text encoding)...")
-                comfy.model_management.unload_all_models()  # Unload UNET (managed by ComfyUI)
-                # CLIP remains in GPU (manual management), VAE in CPU
-                print("2a. Memory optimized: CLIP in GPU (manual), UNET in CPU (ComfyUI), VAE in CPU")
+                comfy.model_management.unload_all_models()  # Unload UNET and VAE (managed by ComfyUI)
+                # CLIP remains in GPU (manual management), VAE follows ComfyUI's offload strategy
+                print("2a. Memory optimized: CLIP in GPU (manual), UNET/VAE in CPU (ComfyUI managed)")
                 
                 # OOM Checklist: Check memory after LoRA application
                 self._check_memory_usage('lora_application', expected_threshold=16000)
@@ -923,22 +926,31 @@ class ReferenceVideoPipeline:
         
         print(f"5a. ComfyUI VAE strategy: Target={vae_target_device}, Offload={vae_offload_device}, Dtype={vae_target_dtype}")
         
-        # Check if VAE needs to be moved to target device
+        # Check current VAE configuration
+        print(f"5a. Current VAE config: Device={vae.device}, Dtype={vae.vae_dtype}")
+        
+        # ComfyUI manages VAE memory through the ModelPatcher (vae.patcher)
+        # We don't need to manually move the VAE object - ComfyUI handles this
+        if hasattr(vae, 'patcher'):
+            print(f"5a. VAE ModelPatcher available: {vae.patcher}")
+            print(f"5a. VAE memory management handled by ComfyUI through ModelPatcher")
+        else:
+            print(f"5a. Warning: VAE ModelPatcher not found - memory management may not work correctly")
+        
+        # Verify device and dtype configuration
         if vae.device != vae_target_device:
-            print(f"5a. Moving VAE from {vae.device} to {vae_target_device}")
-            vae = vae.to(vae_target_device)
+            print(f"5a. VAE device mismatch: Current={vae.device}, Expected={vae_target_device}")
+            print(f"5a. This may indicate a configuration issue")
+        else:
+            print(f"5a. VAE device placement correct: {vae.device}")
         
-        # Apply optimal dtype if different
-        if vae.dtype != vae_target_dtype:
-            print(f"5a. Converting VAE from {vae.dtype} to {vae_target_dtype}")
-            vae = vae.to(vae_target_dtype)
+        if vae.vae_dtype != vae_target_dtype:
+            print(f"5a. VAE dtype mismatch: Current={vae.vae_dtype}, Expected={vae_target_dtype}")
+            print(f"5a. This may indicate a configuration issue")
+        else:
+            print(f"5a. VAE dtype configuration correct: {vae.vae_dtype}")
         
-        # Check if VAE should be offloaded based on ComfyUI's strategy
-        if operation == "idle" and vae_offload_device != vae_target_device:
-            print(f"5a. Offloading VAE to {vae_offload_device} (ComfyUI strategy)")
-            vae = vae.to(vae_offload_device)
-        
-        print(f"5a. VAE memory management complete: Device={vae.device}, Dtype={vae.dtype}")
+        print(f"5a. VAE memory management complete: Device={vae.device}, Dtype={vae.vae_dtype}")
         return vae
     
     def _encode_ultra_aggressive_fallback(self, video_generator, positive, negative, vae, width, height, 
