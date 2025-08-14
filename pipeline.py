@@ -12,6 +12,9 @@ from pathlib import Path
 # Add the current directory to Python path
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Add ComfyUI path for utilities
+sys.path.insert(0, str(Path(__file__).parent / "comfy"))
+
 from components.model_loader import UNETLoader, CLIPLoader, VAELoader
 from components.lora_loader import LoraLoader
 from components.text_encoder import CLIPTextEncode
@@ -225,6 +228,15 @@ class ReferenceVideoPipeline:
                     # Force frame downscaling
                     self.chunked_processor.force_frame_downscaling()
                     
+                    # Regenerate processing plan with downscaled dimensions
+                    processing_plan = self.chunked_processor.get_processing_plan(
+                        frame_count=length,
+                        width=256,  # Use downscaled width
+                        height=448,  # Use downscaled height
+                        operations=['vae_encode', 'unet_process', 'vae_decode']
+                    )
+                    self.chunked_processor.print_processing_plan(processing_plan)
+                    
                     # Retry with frame downscaling
                     try:
                         init_latent, trim_count = self._encode_with_chunking(
@@ -237,12 +249,29 @@ class ReferenceVideoPipeline:
                         # Force extreme downscaling
                         self.chunked_processor.force_extreme_downscaling()
                         
-                        # Retry with extreme downscaling
-                        init_latent, trim_count = self._encode_with_chunking(
-                            video_generator, positive_cond, negative_cond, vae, width, height,
-                            length, batch_size, strength, control_video, reference_image, processing_plan,
-                            force_downscale=True
+                        # Regenerate processing plan with extreme downscaled dimensions
+                        processing_plan = self.chunked_processor.get_processing_plan(
+                            frame_count=length,
+                            width=128,  # Use extreme downscaled width
+                            height=224,  # Use extreme downscaled height
+                            operations=['vae_encode', 'unet_process', 'vae_decode']
                         )
+                        self.chunked_processor.print_processing_plan(processing_plan)
+                        
+                        # Retry with extreme downscaling
+                        try:
+                            init_latent, trim_count = self._encode_with_chunking(
+                                video_generator, positive_cond, negative_cond, vae, width, height,
+                                length, batch_size, strength, control_video, reference_image, processing_plan,
+                                force_downscale=True
+                            )
+                        except torch.cuda.OutOfMemoryError:
+                            print("Still OOM even with extreme downscaling! Using single-frame processing...")
+                            # Final fallback: process one frame at a time with aggressive memory cleanup
+                            init_latent, trim_count = self._encode_single_frame_fallback(
+                                video_generator, positive_cond, negative_cond, vae, width, height,
+                                length, batch_size, strength, control_video, reference_image
+                            )
             
             # Track initial latent for cleanup
             self.memory_manager.track_tensor(init_latent, "initial_latent", cleanup_priority=1)
@@ -369,6 +398,66 @@ class ReferenceVideoPipeline:
         # Implementation for image loading
         # This would use PIL or torchvision to load image
         pass
+    
+    def _encode_single_frame_fallback(self, video_generator, positive, negative, vae, width, height, 
+                                    length, batch_size, strength, control_video, reference_image):
+        """Fallback method to encode frames one by one with aggressive memory management"""
+        print("Using single-frame fallback encoding with aggressive memory management...")
+        
+        # Force extreme downscaling
+        target_width = 128
+        target_height = 224
+        
+        # Process frames one by one
+        all_latents = []
+        trim_count = 0
+        
+        for frame_idx in range(length):
+            print(f"Processing frame {frame_idx + 1}/{length} individually...")
+            
+            # Create single frame tensor
+            if control_video is not None:
+                # Extract single frame and downscale
+                single_frame = control_video[frame_idx:frame_idx+1]
+                single_frame = comfy.utils.common_upscale(
+                    single_frame.movedim(-1, 1), target_width, target_height, "bilinear", "center"
+                ).movedim(1, -1)
+            else:
+                # Create dummy frame
+                single_frame = torch.ones((1, target_height, target_width, 3)) * 0.5
+            
+            # Encode single frame
+            try:
+                single_latent = vae.encode(single_frame[:, :, :, :3])
+                all_latents.append(single_latent)
+                
+                # Aggressive cleanup
+                del single_frame
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    
+            except torch.cuda.OutOfMemoryError:
+                print(f"OOM on frame {frame_idx + 1}! Skipping frame...")
+                trim_count += 1
+                # Create dummy latent for this frame
+                dummy_latent = torch.zeros((1, 4, target_height // 8, target_width // 8), device=vae.device)
+                all_latents.append(dummy_latent)
+                
+                # Force memory cleanup
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+        
+        # Concatenate all latents
+        if all_latents:
+            init_latent = torch.cat(all_latents, dim=0)
+            del all_latents
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        else:
+            # Create empty latent if all frames failed
+            init_latent = torch.zeros((length, 4, target_height // 8, target_width // 8), device=vae.device)
+        
+        return init_latent, trim_count
     
     def _print_memory_callback(self):
         """Callback function to print memory stats during cleanup"""
