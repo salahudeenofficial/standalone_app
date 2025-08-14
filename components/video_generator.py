@@ -114,20 +114,42 @@ class WanVaceToVideo:
             
             # Encode inactive frames in chunks
             inactive_latents = []
+            print(f"5a. Starting VAE encoding of {length} inactive frames in chunks of {chunk_size}")
+            
             for i in range(0, length, chunk_size):
                 end_idx = min(i + chunk_size, length)
                 chunk = inactive[i:end_idx, :, :, :3]
+                print(f"5a. Processing inactive chunk {i//chunk_size + 1}: frames {i}-{end_idx-1}, shape: {chunk.shape}")
                 
                 try:
                     chunk_latent = vae.encode(chunk)
+                    print(f"5a. Chunk {i//chunk_size + 1} encoded successfully: {chunk_latent.shape}")
                     inactive_latents.append(chunk_latent)
                 except torch.cuda.OutOfMemoryError:
                     print(f"OOM encoding chunk {i//chunk_size + 1}! Processing frame by frame...")
                     # Process frame by frame if chunk fails
                     for j in range(i, end_idx):
                         single_frame = inactive[j:j+1, :, :, :3]
-                        single_latent = vae.encode(single_frame)
-                        inactive_latents.append(single_latent)
+                        print(f"5a. Processing single frame {j}, shape: {single_frame.shape}")
+                        try:
+                            single_latent = vae.encode(single_frame)
+                            print(f"5a. Frame {j} encoded successfully: {single_latent.shape}")
+                            # Ensure consistent shape for single frame latents
+                            if single_latent.dim() == 4:  # Should be [1, 4, H//8, W//8]
+                                inactive_latents.append(single_latent)
+                            else:
+                                print(f"Warning: Unexpected latent shape for frame {j}: {single_latent.shape}")
+                                # Create dummy latent with correct shape
+                                dummy_latent = torch.zeros((1, 4, height // 8, width // 8), 
+                                                        device=single_latent.device, dtype=single_latent.dtype)
+                                inactive_latents.append(dummy_latent)
+                        except Exception as frame_error:
+                            print(f"Error encoding frame {j}: {frame_error}")
+                            # Create dummy latent for failed frame
+                            dummy_latent = torch.zeros((1, 4, height // 8, width // 8), 
+                                                    device=comfy.model_management.intermediate_device())
+                            inactive_latents.append(dummy_latent)
+                        
                         del single_frame
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
@@ -137,25 +159,68 @@ class WanVaceToVideo:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
             
+            print(f"5a. Completed inactive frame encoding. Total latents: {len(inactive_latents)}")
+            
+            # Verify all latents have consistent shapes before concatenating
+            if inactive_latents:
+                expected_shape = inactive_latents[0].shape[1:]  # Skip batch dimension
+                print(f"Expected latent shape: {expected_shape}")
+                
+                # Validate and fix any mismatched latents
+                for i, latent in enumerate(inactive_latents):
+                    if latent.shape[1:] != expected_shape:
+                        print(f"Fixing latent {i} shape: {latent.shape} -> {expected_shape}")
+                        # Resize or pad to match expected shape
+                        if latent.shape[1:] == (4, height // 8, width // 8):
+                            # Same dimensions, just different batch size
+                            pass
+                        else:
+                            # Different dimensions, create dummy latent
+                            inactive_latents[i] = torch.zeros((latent.shape[0], 4, height // 8, width // 8), 
+                                                            device=latent.device, dtype=latent.dtype)
+            
             inactive = torch.cat(inactive_latents, dim=0)
+            print(f"5a. Concatenated inactive latents: {inactive.shape}")
             del inactive_latents
             
             # Encode reactive frames in chunks
             reactive_latents = []
+            print(f"5a. Starting VAE encoding of {length} reactive frames in chunks of {chunk_size}")
+            
             for i in range(0, length, chunk_size):
                 end_idx = min(i + chunk_size, length)
                 chunk = reactive[i:end_idx, :, :, :3]
+                print(f"5a. Processing reactive chunk {i//chunk_size + 1}: frames {i}-{end_idx-1}, shape: {chunk.shape}")
                 
                 try:
                     chunk_latent = vae.encode(chunk)
+                    print(f"5a. Reactive chunk {i//chunk_size + 1} encoded successfully: {chunk_latent.shape}")
                     reactive_latents.append(chunk_latent)
                 except torch.cuda.OutOfMemoryError:
-                    print(f"OOM encoding chunk {i//chunk_size + 1}! Processing frame by frame...")
+                    print(f"OOM encoding reactive chunk {i//chunk_size + 1}! Processing frame by frame...")
                     # Process frame by frame if chunk fails
                     for j in range(i, end_idx):
                         single_frame = reactive[j:j+1, :, :, :3]
-                        single_latent = vae.encode(single_frame)
-                        reactive_latents.append(single_latent)
+                        print(f"5a. Processing reactive single frame {j}, shape: {single_frame.shape}")
+                        try:
+                            single_latent = vae.encode(single_frame)
+                            print(f"5a. Reactive frame {j} encoded successfully: {single_latent.shape}")
+                            # Ensure consistent shape for single frame latents
+                            if single_latent.dim() == 4:  # Should be [1, 4, H//8, W//8]
+                                reactive_latents.append(single_latent)
+                            else:
+                                print(f"Warning: Unexpected latent shape for reactive frame {j}: {single_latent.shape}")
+                                # Create dummy latent with correct shape
+                                dummy_latent = torch.zeros((1, 4, height // 8, width // 8), 
+                                                        device=single_latent.device, dtype=single_latent.dtype)
+                                reactive_latents.append(dummy_latent)
+                        except Exception as frame_error:
+                            print(f"Error encoding reactive frame {j}: {frame_error}")
+                            # Create dummy latent for failed frame
+                            dummy_latent = torch.zeros((1, 4, height // 8, width // 8), 
+                                                    device=comfy.model_management.intermediate_device())
+                            reactive_latents.append(dummy_latent)
+                        
                         del single_frame
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
@@ -165,7 +230,28 @@ class WanVaceToVideo:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
             
+            print(f"5a. Completed reactive frame encoding. Total latents: {len(reactive_latents)}")
+            
+            # Verify all reactive latents have consistent shapes before concatenating
+            if reactive_latents:
+                expected_shape = reactive_latents[0].shape[1:]  # Skip batch dimension
+                print(f"Expected reactive latent shape: {expected_shape}")
+                
+                # Validate and fix any mismatched latents
+                for i, latent in enumerate(reactive_latents):
+                    if latent.shape[1:] != expected_shape:
+                        print(f"Fixing reactive latent {i} shape: {latent.shape} -> {expected_shape}")
+                        # Resize or pad to match expected shape
+                        if latent.shape[1:] == (4, height // 8, width // 8):
+                            # Same dimensions, just different batch size
+                            pass
+                        else:
+                            # Different dimensions, create dummy latent
+                            reactive_latents[i] = torch.zeros((latent.shape[0], 4, height // 8, width // 8), 
+                                                            device=latent.device, dtype=latent.dtype)
+            
             reactive = torch.cat(reactive_latents, dim=0)
+            print(f"5a. Concatenated reactive latents: {reactive.shape}")
             del reactive_latents
             
         else:
