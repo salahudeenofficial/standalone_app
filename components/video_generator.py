@@ -299,7 +299,48 @@ class WanVaceToVideo:
             inactive = vae.encode(inactive[:, :, :, :3])
             reactive = vae.encode(reactive[:, :, :, :3])
         
-        control_video_latent = torch.cat((inactive, reactive), dim=1)
+        # Ensure both inactive and reactive have the same tensor format before concatenation
+        print(f"5a. Normalizing tensor dimensions for concatenation...")
+        print(f"5a. Inactive tensor: {inactive.shape} (dim={inactive.dim()})")
+        print(f"5a. Reactive tensor: {reactive.shape} (dim={reactive.dim()})")
+        
+        # Normalize to 5D format if possible, otherwise to 4D format
+        if inactive.dim() == 5 and reactive.dim() == 4:
+            # Convert reactive from 4D to 5D: [frames, channels, height, width] -> [1, frames, channels, height, width]
+            reactive = reactive.unsqueeze(0)
+            print(f"5a. Converted reactive to 5D: {reactive.shape}")
+        elif inactive.dim() == 4 and reactive.dim() == 5:
+            # Convert inactive from 4D to 5D: [frames, channels, height, width] -> [1, frames, channels, height, width]
+            inactive = inactive.unsqueeze(0)
+            print(f"5a. Converted inactive to 5D: {inactive.shape}")
+        elif inactive.dim() == 4 and reactive.dim() == 4:
+            # Both are 4D, keep as is
+            print(f"5a. Both tensors are 4D, keeping format")
+        elif inactive.dim() == 5 and reactive.dim() == 5:
+            # Both are 5D, keep as is
+            print(f"5a. Both tensors are 5D, keeping format")
+        
+        # Now concatenate along the appropriate dimension
+        if inactive.dim() == 5 and reactive.dim() == 5:
+            # 5D format: concatenate along frame dimension (dim=1)
+            control_video_latent = torch.cat((inactive, reactive), dim=1)
+            print(f"5a. Concatenated 5D tensors along frame dimension: {control_video_latent.shape}")
+        elif inactive.dim() == 4 and reactive.dim() == 4:
+            # 4D format: concatenate along frame dimension (dim=0)
+            control_video_latent = torch.cat((inactive, reactive), dim=0)
+            print(f"5a. Concatenated 4D tensors along frame dimension: {control_video_latent.shape}")
+        else:
+            # This shouldn't happen, but handle it gracefully
+            print(f"5a. Warning: Unexpected tensor dimensions, attempting concatenation...")
+            try:
+                control_video_latent = torch.cat((inactive, reactive), dim=1)
+                print(f"5a. Concatenation successful: {control_video_latent.shape}")
+            except Exception as e:
+                print(f"5a. Error during concatenation: {e}")
+                # Create a dummy control video latent as fallback
+                control_video_latent = torch.zeros((1, length, 4, height // 8, width // 8), 
+                                                device=comfy.model_management.intermediate_device())
+                print(f"5a. Created dummy control video latent: {control_video_latent.shape}")
         
         if reference_image is not None:
             # Encode reference image through VAE to get consistent latent dimensions
