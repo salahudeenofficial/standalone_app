@@ -21,8 +21,16 @@ class KSampler:
                sampler_name, scheduler, denoise=1.0):
         """Sample using the provided parameters"""
         
-        # Get device from model
-        device = next(model.parameters()).device
+        # Get device from model - handle ModelPatcher objects
+        if hasattr(model, 'parameters'):
+            device = next(model.parameters()).device
+        elif hasattr(model, 'model') and hasattr(model.model, 'parameters'):
+            device = next(model.model.parameters()).device
+        elif hasattr(model, 'device'):
+            device = model.device
+        else:
+            # Default to CUDA if we can't determine device
+            device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
         
         # Get sampler and scheduler
         sampler = comfy.samplers.KSampler(model, steps, device, sampler_name, scheduler, denoise)

@@ -202,6 +202,10 @@ class ReferenceVideoPipeline:
             # VAE encoding step - keep VAE on GPU
             print("5a. VAE encoding...")
             
+            # CRITICAL: Offload UNET to CPU BEFORE VAE encoding to free up massive VRAM
+            print("5a. Offloading UNET to CPU to free VRAM for VAE encoding...")
+            self.model_manager.unload_model("UNET")
+            
             # Check detailed VRAM usage before VAE encoding
             print("Checking VRAM usage before VAE encoding...")
             self.memory_manager.print_detailed_vram_usage()
@@ -287,6 +291,7 @@ class ReferenceVideoPipeline:
             # After VAE encoding, we can offload VAE to CPU to free VRAM for UNET
             print("5b. Offloading VAE to CPU after encoding...")
             self.model_manager.unload_model("VAE")
+            
             self.model_manager.print_status()
             
             # Check VRAM status and adjust chunking strategy if needed
@@ -448,20 +453,24 @@ class ReferenceVideoPipeline:
                 print(f"OOM on frame {frame_idx + 1}! Trying CPU fallback...")
                 try:
                     # Move VAE to CPU temporarily for this frame
-                    vae_cpu = vae.cpu()
+                    vae_device = vae.device if hasattr(vae, 'device') else 'cuda:0'
+                    vae_cpu = vae.to('cpu') if hasattr(vae, 'to') else vae
                     single_frame_cpu = single_frame.cpu()
                     
                     # Encode on CPU
                     single_latent_cpu = vae_cpu.encode(single_frame_cpu[:, :, :, :3])
                     
                     # Move back to GPU
-                    single_latent = single_latent_cpu.to(vae.device)
-                    vae.to(vae.device)
+                    single_latent = single_latent_cpu.to(vae_device)
+                    if hasattr(vae, 'to'):
+                        vae.to(vae_device)
                     
                     all_latents.append(single_latent)
                     
                     # Cleanup
-                    del single_frame_cpu, single_latent_cpu, vae_cpu
+                    del single_frame_cpu, single_latent_cpu
+                    if vae_cpu is not vae:
+                        del vae_cpu
                     del single_frame
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
@@ -471,7 +480,7 @@ class ReferenceVideoPipeline:
                     print(f"Skipping frame {frame_idx + 1}...")
                     trim_count += 1
                     # Create dummy latent for this frame
-                    dummy_latent = torch.zeros((1, 4, target_height // 8, target_width // 8), device=vae.device)
+                    dummy_latent = torch.zeros((1, 4, target_height // 8, target_width // 8), device=vae_device)
                     all_latents.append(dummy_latent)
                     
                     # Force memory cleanup
