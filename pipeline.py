@@ -206,8 +206,12 @@ class ReferenceVideoPipeline:
             print("5a. Offloading UNET to CPU to free VRAM for VAE encoding...")
             self.model_manager.unload_model("UNET")
             
-            # Force aggressive GPU cleanup to ensure UNET memory is freed
-            print("5a. Forcing aggressive GPU cleanup after UNET offload...")
+            # CRITICAL: Also offload VAE to CPU to free up massive VRAM
+            print("5a. Offloading VAE to CPU to free VRAM for VAE encoding...")
+            self.model_manager.unload_model("VAE")
+            
+            # Force aggressive GPU cleanup to ensure model memory is freed
+            print("5a. Forcing aggressive GPU cleanup after model offload...")
             self.model_manager.force_gpu_cleanup()
             
             # Check detailed VRAM usage before VAE encoding
@@ -215,6 +219,10 @@ class ReferenceVideoPipeline:
             self.memory_manager.print_detailed_vram_usage()
             
             # Use chunked processing for VAE encoding
+            # Reload VAE to GPU for encoding
+            print("5a. Reloading VAE to GPU for encoding...")
+            self.model_manager.load_model_gpu(vae, "VAE")
+            
             try:
                 init_latent, trim_count = self._encode_with_chunking(
                     video_generator, positive_cond, negative_cond, vae, width, height,
