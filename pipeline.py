@@ -504,7 +504,8 @@ class ReferenceVideoPipeline:
             self._check_model_placement('vae_encoding_prep', ['unet', 'vae', 'clip'])
             
             try:
-                init_latent, trim_count = self._encode_with_chunking(
+                # video_generator.encode() returns (positive, negative, out_latent, trim_count)
+                positive_cond, negative_cond, init_latent, trim_count = self._encode_with_chunking(
                     video_generator, positive_cond, negative_cond, vae, width, height,
                     length, batch_size, strength, control_video, reference_image, processing_plan
                 )
@@ -527,7 +528,8 @@ class ReferenceVideoPipeline:
                 
                 # Retry with ultra-conservative chunking
                 try:
-                    init_latent, trim_count = self._encode_with_chunking(
+                    # video_generator.encode() returns (positive, negative, out_latent, trim_count)
+                    positive_cond, negative_cond, init_latent, trim_count = self._encode_with_chunking(
                         video_generator, positive_cond, negative_cond, vae, width, height,
                         length, batch_size, strength, control_video, reference_image, processing_plan
                     )
@@ -547,7 +549,8 @@ class ReferenceVideoPipeline:
                     
                     # Retry with frame downscaling
                     try:
-                        init_latent, trim_count = self._encode_with_chunking(
+                        # video_generator.encode() returns (positive, negative, out_latent, trim_count)
+                        positive_cond, negative_cond, init_latent, trim_count = self._encode_with_chunking(
                             video_generator, positive_cond, negative_cond, vae, width, height,
                             length, batch_size, strength, control_video, reference_image, processing_plan,
                             force_downscale=True
@@ -568,7 +571,8 @@ class ReferenceVideoPipeline:
                         
                         # Retry with extreme downscaling
                         try:
-                            init_latent, trim_count = self._encode_with_chunking(
+                            # video_generator.encode() returns (positive, negative, out_latent, trim_count)
+                            positive_cond, negative_cond, init_latent, trim_count = self._encode_with_chunking(
                                 video_generator, positive_cond, negative_cond, vae, width, height,
                                 length, batch_size, strength, control_video, reference_image, processing_plan,
                                 force_downscale=True

@@ -78,11 +78,13 @@ class WanVaceToVideo:
             
             print(f"5a. Reference image shape after upscaling: {reference_image.shape}")
             
-            reference_image = vae.encode(reference_image[:, :, :, :3])
-            reference_image = torch.cat([
-                reference_image, 
-                comfy.latent_formats.Wan21().process_out(torch.zeros_like(reference_image))
-            ], dim=1)
+            # Note: Reference image will be encoded by the main pipeline later
+            # We just prepare the pixel format here, don't encode to latent yet
+            # reference_image = vae.encode(reference_image[:, :, :, :3])  # REMOVED - duplicate encoding
+            # reference_image = torch.cat([  # REMOVED - duplicate processing
+            #     reference_image, 
+            #     comfy.latent_formats.Wan21().process_out(torch.zeros_like(reference_image))
+            # ], dim=1)
             
         # Process masks
         if control_masks is None:
