@@ -55,6 +55,17 @@ class ChunkedProcessor:
         # Override default chunk sizes with very conservative ones
         self.default_chunk_sizes = self.conservative_chunk_sizes.copy()
     
+    def force_ultra_conservative_chunking(self) -> None:
+        """Force ultra-conservative chunking for severe memory constraints"""
+        self.logger.error("Forcing ultra-conservative chunking due to severe memory constraints")
+        self.current_strategy = 'conservative'
+        # Use the smallest possible chunk sizes
+        self.default_chunk_sizes = {
+            'vae_encode': 1,     # Process 1 frame at a time
+            'vae_decode': 1,     # Process 1 frame at a time
+            'unet_process': 1    # Process 1 frame at a time
+        }
+    
     def get_optimal_chunk_size(self, operation: str, frame_count: int, 
                               width: int, height: int, channels: int = 3) -> int:
         """Calculate optimal chunk size based on available VRAM and frame dimensions"""
@@ -179,13 +190,7 @@ class ChunkedProcessor:
                 # If we're getting close to OOM, force very conservative chunking
                 elif utilization > 95:
                     self.logger.error("Critical VRAM usage detected! Forcing ultra-conservative chunking")
-                    self.current_strategy = 'conservative'
-                    # Use even smaller chunks
-                    self.default_chunk_sizes = {
-                        'vae_encode': 1,
-                        'vae_decode': 1,
-                        'unet_process': 2
-                    }
+                    self.force_ultra_conservative_chunking()
         except Exception as e:
             self.logger.warning(f"Failed to check memory pressure: {e}")
     
@@ -271,14 +276,9 @@ class ChunkedProcessor:
                 chunk_result = process_func(chunk, **kwargs)
                 results.append(chunk_result)
             except torch.cuda.OutOfMemoryError:
-                self.logger.error("OOM during chunk processing! Reducing chunk size and retrying...")
+                self.logger.error("OOM during chunk processing! Forcing ultra-conservative chunking...")
                 # Force ultra-conservative chunking
-                self.current_strategy = 'conservative'
-                self.default_chunk_sizes = {
-                    'vae_encode': 1,
-                    'vae_decode': 1,
-                    'unet_process': 1
-                }
+                self.force_ultra_conservative_chunking()
                 # Retry with smaller chunk
                 smaller_chunk = chunk[:chunk_size//2] if chunk_size > 1 else chunk
                 chunk_result = process_func(smaller_chunk, **kwargs)

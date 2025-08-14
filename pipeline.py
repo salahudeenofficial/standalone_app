@@ -104,6 +104,9 @@ class ReferenceVideoPipeline:
                 if total_vram_gb < 12.0:  # Less than 12GB VRAM
                     print(f"Limited VRAM detected ({total_vram_gb:.1f} GB), forcing conservative chunking")
                     self.chunked_processor.force_conservative_chunking()
+                elif total_vram_gb < 8.0:  # Less than 8GB VRAM
+                    print(f"Very limited VRAM detected ({total_vram_gb:.1f} GB), forcing ultra-conservative chunking")
+                    self.chunked_processor.force_ultra_conservative_chunking()
         except Exception as e:
             print(f"Warning: Could not check VRAM status: {e}")
         
@@ -193,10 +196,29 @@ class ReferenceVideoPipeline:
             print("5a. VAE encoding...")
             
             # Use chunked processing for VAE encoding
-            init_latent, trim_count = self._encode_with_chunking(
-                video_generator, positive_cond, negative_cond, vae, width, height,
-                length, batch_size, strength, control_video, reference_image, processing_plan
-            )
+            try:
+                init_latent, trim_count = self._encode_with_chunking(
+                    video_generator, positive_cond, negative_cond, vae, width, height,
+                    length, batch_size, strength, control_video, reference_image, processing_plan
+                )
+            except torch.cuda.OutOfMemoryError:
+                print("OOM during VAE encoding! Forcing ultra-conservative chunking and retrying...")
+                self.chunked_processor.force_ultra_conservative_chunking()
+                
+                # Regenerate processing plan with ultra-conservative settings
+                processing_plan = self.chunked_processor.get_processing_plan(
+                    frame_count=length,
+                    width=width,
+                    height=height,
+                    operations=['vae_encode', 'unet_process', 'vae_decode']
+                )
+                self.chunked_processor.print_processing_plan(processing_plan)
+                
+                # Retry with ultra-conservative chunking
+                init_latent, trim_count = self._encode_with_chunking(
+                    video_generator, positive_cond, negative_cond, vae, width, height,
+                    length, batch_size, strength, control_video, reference_image, processing_plan
+                )
             
             # Track initial latent for cleanup
             self.memory_manager.track_tensor(init_latent, "initial_latent", cleanup_priority=1)
@@ -346,19 +368,12 @@ class ReferenceVideoPipeline:
         # Process in chunks
         print(f"Processing {length} frames in chunks of {chunk_size}")
         
-        # For chunked processing, we need to handle the video generator differently
-        # This is a simplified approach - in practice, you'd modify the video_generator
-        # to support true chunked processing
-        
-        # For now, we'll use the original method but with chunked control video processing
-        if control_video is not None and control_video.shape[0] > chunk_size:
-            print("Processing control video in chunks...")
-            # This would be where you'd implement true chunked processing
-            # For now, we'll fall back to the original method
-        
+        # Use the chunked processor and chunk size
         return video_generator.encode(
             positive, negative, vae, width, height, length, batch_size,
-            strength, control_video, None, reference_image
+            strength, control_video, None, reference_image,
+            chunked_processor=self.chunked_processor,
+            chunk_size=chunk_size
         )
 
 def main():

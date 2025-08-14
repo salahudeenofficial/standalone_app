@@ -19,7 +19,8 @@ class WanVaceToVideo:
     """Generate initial video latents from reference image and control video"""
     
     def encode(self, positive, negative, vae, width, height, length, batch_size, 
-               strength, control_video=None, control_masks=None, reference_image=None):
+               strength, control_video=None, control_masks=None, reference_image=None, 
+               chunked_processor=None, chunk_size=None):
         """Encode reference image and control video to initial latents"""
         
         latent_length = ((length - 1) // 4) + 1
@@ -65,8 +66,47 @@ class WanVaceToVideo:
         inactive = (control_video * (1 - mask)) + 0.5
         reactive = (control_video * mask) + 0.5
         
-        inactive = vae.encode(inactive[:, :, :, :3])
-        reactive = vae.encode(reactive[:, :, :, :3])
+        # Use chunked VAE encoding if available
+        if chunked_processor is not None and chunk_size is not None and length > chunk_size:
+            print(f"Using chunked VAE encoding: processing {length} frames in chunks of {chunk_size}")
+            
+            # Encode inactive frames in chunks
+            inactive_latents = []
+            for i in range(0, length, chunk_size):
+                end_idx = min(i + chunk_size, length)
+                chunk = inactive[i:end_idx, :, :, :3]
+                chunk_latent = vae.encode(chunk)
+                inactive_latents.append(chunk_latent)
+                
+                # Clean up chunk to free memory
+                del chunk
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            
+            inactive = torch.cat(inactive_latents, dim=0)
+            del inactive_latents
+            
+            # Encode reactive frames in chunks
+            reactive_latents = []
+            for i in range(0, length, chunk_size):
+                end_idx = min(i + chunk_size, length)
+                chunk = reactive[i:end_idx, :, :, :3]
+                chunk_latent = vae.encode(chunk)
+                reactive_latents.append(chunk_latent)
+                
+                # Clean up chunk to free memory
+                del chunk
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            
+            reactive = torch.cat(reactive_latents, dim=0)
+            del reactive_latents
+            
+        else:
+            # Use regular encoding
+            inactive = vae.encode(inactive[:, :, :, :3])
+            reactive = vae.encode(reactive[:, :, :, :3])
+        
         control_video_latent = torch.cat((inactive, reactive), dim=1)
         
         if reference_image is not None:
