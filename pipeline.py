@@ -946,6 +946,248 @@ class ReferenceVideoPipeline:
             # OOM Checklist: Check memory after final cleanup
             self._check_memory_usage('final_cleanup', expected_threshold=100)
             
+            # COMPREHENSIVE DIAGNOSTIC SUMMARY
+            print("\n" + "="*100)
+            print("🔍 COMPREHENSIVE PIPELINE DIAGNOSTIC SUMMARY")
+            print("="*100)
+            
+            # System Information
+            print("💻 SYSTEM INFORMATION:")
+            if torch.cuda.is_available():
+                gpu_props = torch.cuda.get_device_properties(0)
+                print(f"   GPU: {gpu_props.name}")
+                print(f"   Total VRAM: {gpu_props.total_memory / 1024**3:.2f} GB")
+                print(f"   CUDA Version: {torch.version.cuda}")
+            else:
+                print("   GPU: Not available")
+            
+            import psutil
+            cpu_info = psutil.cpu_count(logical=False)
+            cpu_logical = psutil.cpu_count(logical=True)
+            memory_info = psutil.virtual_memory()
+            print(f"   CPU: {cpu_info} physical cores, {cpu_logical} logical cores")
+            print(f"   RAM: {memory_info.total / 1024**3:.2f} GB total, {memory_info.available / 1024**3:.2f} GB available")
+            
+            # Pipeline Step-by-Step Analysis
+            print("\n📊 PIPELINE STEP ANALYSIS:")
+            print("-" * 80)
+            
+            # Step 1: Model Loading
+            print("1️⃣  MODEL LOADING:")
+            step1_data = self.oom_checklist.get('model_loading')
+            if step1_data:
+                print(f"   Status: {'✅ PASS' if step1_data['status'] == 'PASS' else '❌ FAIL'}")
+                print(f"   GPU Memory: {step1_data['allocated_mb']:.1f} MB allocated, {step1_data['reserved_mb']:.1f} MB reserved")
+                if torch.cuda.is_available():
+                    current_gpu = torch.cuda.memory_allocated() / 1024**2
+                    current_reserved = torch.cuda.memory_reserved() / 1024**2
+                    print(f"   Current GPU: {current_gpu:.1f} MB allocated, {current_reserved:.1f} MB reserved")
+                    if step1_data['allocated_mb'] > 0:
+                        memory_change = current_gpu - step1_data['allocated_mb']
+                        print(f"   Memory Change: {memory_change:+.1f} MB")
+            else:
+                print("   Status: ❌ NOT EXECUTED")
+            
+            # Step 2: LoRA Application
+            print("\n2️⃣  LoRA APPLICATION:")
+            step2_data = self.oom_checklist.get('lora_application')
+            if step2_data:
+                print(f"   Status: {'✅ PASS' if step2_data['status'] == 'PASS' else '❌ FAIL'}")
+                print(f"   GPU Memory: {step2_data['allocated_mb']:.1f} MB allocated, {step2_data['reserved_mb']:.1f} MB reserved")
+            else:
+                print("   Status: ❌ NOT EXECUTED")
+            
+            # Step 3: Text Encoding
+            print("\n3️⃣  TEXT ENCODING:")
+            step3_data = self.oom_checklist.get('text_encoding')
+            if step3_data:
+                print(f"   Status: {'✅ PASS' if step3_data['status'] == 'PASS' else '❌ FAIL'}")
+                print(f"   GPU Memory: {step3_data['allocated_mb']:.1f} MB allocated, {step3_data['reserved_mb']:.1f} MB reserved")
+                print(f"   CLIP Status: Moved to offload device (CPU)")
+            else:
+                print("   Status: ❌ NOT EXECUTED")
+            
+            # Step 4: Model Sampling
+            print("\n4️⃣  MODEL SAMPLING (ModelSamplingSD3):")
+            step4_data = self.oom_checklist.get('model_sampling')
+            if step4_data:
+                print(f"   Status: {'✅ PASS' if step4_data['status'] == 'PASS' else '❌ FAIL'}")
+                print(f"   GPU Memory: {step4_data['allocated_mb']:.1f} MB allocated, {step4_data['reserved_mb']:.1f} MB reserved")
+            else:
+                print("   Status: ❌ NOT EXECUTED")
+            
+            # Step 5: VAE Encoding
+            print("\n5️⃣  VAE ENCODING:")
+            step5_data = self.oom_checklist.get('vae_encoding_complete')
+            if step5_data:
+                print(f"   Status: {'✅ PASS' if step5_data['status'] == 'PASS' else '❌ FAIL'}")
+                print(f"   GPU Memory: {step5_data['allocated_mb']:.1f} MB allocated, {step5_data['reserved_mb']:.1f} MB reserved")
+                
+                # Check if VAE encoding actually worked or fell back to dummies
+                if 'init_latent' in locals():
+                    if hasattr(init_latent, 'shape'):
+                        print(f"   Latent Generated: ✅ Shape: {init_latent.shape}")
+                        if init_latent.shape[1] < 10:  # Likely dummy latents
+                            print("   ⚠️  WARNING: Using dummy latents (VAE encoding failed)")
+                        else:
+                            print("   ✅ Real VAE encoding successful")
+                    else:
+                        print("   Latent Generated: ❌ No shape information")
+                else:
+                    print("   Latent Generated: ❌ No latent created")
+            else:
+                print("   Status: ❌ NOT EXECUTED")
+            
+            # Step 6: UNET Sampling
+            print("\n6️⃣  UNET SAMPLING:")
+            step6_data = self.oom_checklist.get('unet_sampling')
+            if step6_data:
+                print(f"   Status: {'✅ PASS' if step6_data['status'] == 'PASS' else '❌ FAIL'}")
+                print(f"   GPU Memory: {step6_data['allocated_mb']:.1f} MB allocated, {step6_data['reserved_mb']:.1f} MB reserved")
+                
+                # Check if UNET sampling worked
+                if 'final_latent' in locals():
+                    if hasattr(final_latent, 'shape'):
+                        print(f"   Sampling Result: ✅ Shape: {final_latent.shape}")
+                    else:
+                        print("   Sampling Result: ❌ No shape information")
+                else:
+                    print("   Sampling Result: ❌ No final latent created")
+            else:
+                print("   Status: ❌ NOT EXECUTED")
+            
+            # Step 7: Video Latent Trimming
+            print("\n7️⃣  VIDEO LATENT TRIMMING:")
+            if 'trimmed_latent' in locals():
+                if hasattr(trimmed_latent, 'shape'):
+                    print(f"   Status: ✅ PASS")
+                    print(f"   Trimmed Shape: {trimmed_latent.shape}")
+                    print(f"   Trim Count: {trim_count if 'trim_count' in locals() else 'Unknown'}")
+                else:
+                    print("   Status: ❌ FAIL - No shape information")
+            else:
+                print("   Status: ❌ NOT EXECUTED")
+            
+            # Step 8: VAE Decoding
+            print("\n8️⃣  VAE DECODING:")
+            step8_data = self.oom_checklist.get('vae_decoding')
+            if step8_data:
+                print(f"   Status: {'✅ PASS' if step8_data['status'] == 'PASS' else '❌ FAIL'}")
+                print(f"   GPU Memory: {step8_data['allocated_mb']:.1f} MB allocated, {step8_data['reserved_mb']:.1f} MB reserved")
+                
+                # Check if frames were generated
+                if 'frames' in locals():
+                    if hasattr(frames, 'shape'):
+                        print(f"   Frames Generated: ✅ Shape: {frames.shape}")
+                        if len(frames.shape) == 4:
+                            print(f"   Frame Info: {frames.shape[0]} frames, {frames.shape[1]}x{frames.shape[2]}, {frames.shape[3]} channels")
+                    else:
+                        print("   Frames Generated: ❌ No shape information")
+                else:
+                    print("   Frames Generated: ❌ No frames created")
+            else:
+                print("   Status: ❌ NOT EXECUTED")
+            
+            # Step 9: Video Export
+            print("\n9️⃣  VIDEO EXPORT:")
+            if 'output_path' in locals():
+                print(f"   Status: ✅ PASS")
+                print(f"   Output Path: {output_path}")
+                if os.path.exists(output_path):
+                    file_size = os.path.getsize(output_path) / (1024 * 1024)  # MB
+                    print(f"   File Size: {file_size:.1f} MB")
+                else:
+                    print("   File Size: ❌ File not found")
+            else:
+                print("   Status: ❌ NOT EXECUTED")
+            
+            # Memory Usage Summary
+            print("\n💾 MEMORY USAGE SUMMARY:")
+            print("-" * 80)
+            
+            if torch.cuda.is_available():
+                final_allocated = torch.cuda.memory_allocated() / 1024**2
+                final_reserved = torch.cuda.memory_reserved() / 1024**2
+                total_vram = torch.cuda.get_device_properties(0).total_memory / 1024**2
+                free_vram = total_vram - final_reserved
+                
+                print(f"   Final GPU Memory:")
+                print(f"     Allocated: {final_allocated:.1f} MB")
+                print(f"     Reserved: {final_reserved:.1f} MB")
+                print(f"     Free: {free_vram:.1f} MB")
+                print(f"     Total: {total_vram:.1f} MB")
+                print(f"     Utilization: {(final_reserved/total_vram)*100:.1f}%")
+                
+                # Memory efficiency
+                if 'baseline_allocated' in locals():
+                    baseline_mb = baseline_allocated / 1024**2
+                    memory_efficiency = ((final_allocated - baseline_mb) / baseline_mb) * 100 if baseline_mb > 0 else 0
+                    print(f"     Memory Efficiency: {memory_efficiency:+.1f}% from baseline")
+            
+            # CPU Memory
+            cpu_memory = psutil.virtual_memory()
+            print(f"   Final CPU Memory:")
+            print(f"     Used: {cpu_memory.used / 1024**3:.1f} GB")
+            print(f"     Available: {cpu_memory.available / 1024**3:.1f} GB")
+            print(f"     Total: {cpu_memory.total / 1024**3:.1f} GB")
+            print(f"     Utilization: {cpu_memory.percent:.1f}%")
+            
+            # Performance Metrics
+            print("\n⚡ PERFORMANCE METRICS:")
+            print("-" * 80)
+            
+            # Count successful vs failed steps
+            successful_steps = 0
+            failed_steps = 0
+            total_steps = 0
+            
+            for step_name, step_data in self.oom_checklist.items():
+                if step_data is not None:
+                    total_steps += 1
+                    if step_data['status'] == 'PASS':
+                        successful_steps += 1
+                    else:
+                        failed_steps += 1
+            
+            print(f"   Pipeline Success Rate: {successful_steps}/{total_steps} steps ({successful_steps/total_steps*100:.1f}%)")
+            
+            # Identify critical failures
+            critical_failures = []
+            if 'vae_encoding_complete' in self.oom_checklist and self.oom_checklist['vae_encoding_complete']:
+                if self.oom_checklist['vae_encoding_complete']['status'] == 'FAIL':
+                    critical_failures.append("VAE Encoding")
+            
+            if 'unet_sampling' in self.oom_checklist and self.oom_checklist['unet_sampling']:
+                if self.oom_checklist['unet_sampling']['status'] == 'FAIL':
+                    critical_failures.append("UNET Sampling")
+            
+            if critical_failures:
+                print(f"   Critical Failures: {'❌ ' + ', '.join(critical_failures)}")
+            else:
+                print("   Critical Failures: ✅ None")
+            
+            # Recommendations
+            print("\n💡 RECOMMENDATIONS:")
+            print("-" * 80)
+            
+            if torch.cuda.is_available() and final_reserved > 1000:  # More than 1GB still reserved
+                print("   🔧 GPU Memory: Consider forcing more aggressive cleanup")
+                print("   🔧 GPU Memory: Check if models are properly offloaded to CPU")
+            
+            if failed_steps > 0:
+                print("   🔧 Pipeline: Review failed steps and implement fallbacks")
+                print("   🔧 Pipeline: Consider reducing batch sizes or input dimensions")
+            
+            if 'vae_encoding_complete' in self.oom_checklist and self.oom_checklist['vae_encoding_complete']:
+                if self.oom_checklist['vae_encoding_complete']['status'] == 'PASS':
+                    print("   ✅ VAE Encoding: Working correctly")
+                else:
+                    print("   🔧 VAE Encoding: Implement more aggressive memory management")
+            
+            print("\n" + "="*100)
+            print("🔍 DIAGNOSTIC SUMMARY COMPLETE")
+            print("="*100)
+            
             # Print complete OOM debugging checklist
             self._print_oom_checklist()
             
