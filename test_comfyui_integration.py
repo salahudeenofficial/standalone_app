@@ -94,7 +94,7 @@ def test_comfyui_model_loading():
                 
                 # Test model unloading
                 print("   Testing UNET unloading...")
-                model.unpatch_model()
+                model.unpatch_model(device_to=model.offload_device)
                 
                 # Force garbage collection and cache cleanup
                 import gc
@@ -120,6 +120,14 @@ def test_comfyui_model_loading():
                             print("   ✅ UNET is actually on CPU (memory may be cached)")
                         else:
                             print("   ❌ UNET is not on CPU")
+                    
+                    # Check if the model was actually moved to offload device
+                    if hasattr(model, 'offload_device'):
+                        print(f"   UNET offload device: {model.offload_device}")
+                        if str(model.model.device) == str(model.offload_device):
+                            print("   ✅ UNET is on correct offload device")
+                        else:
+                            print("   ❌ UNET is not on correct offload device")
             else:
                 print("   Skipping GPU memory tests (CUDA not available)")
             
@@ -139,7 +147,7 @@ def test_comfyui_model_loading():
                 
                 # Test CLIP unloading
                 print("   Testing CLIP unloading...")
-                clip_model.patcher.unpatch_model()
+                clip_model.patcher.unpatch_model(device_to=clip_model.patcher.offload_device)
                 
                 # Force cleanup
                 import gc
