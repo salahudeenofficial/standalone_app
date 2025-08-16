@@ -81,7 +81,7 @@ class ReferenceVideoPipeline:
             'text_encoding': 8000,     # MB - models in optimal positions
             'model_sampling': 12000,   # MB - UNET loaded for patching
             'vae_encoding': 8000,     # MB - VAE encoding in progress
-            'unet_sampling': 15000,   # MB - UNET sampling in progress
+            'unet_sampling': 40000,   # MB - UNET sampling needs ~33GB (realistic)
             'vae_decoding': 8000,     # MB - VAE decoding in progress
             'final_cleanup': 100      # MB - back to baseline
         }
@@ -675,7 +675,13 @@ class ReferenceVideoPipeline:
                 
                 # Try chunked processing first
                 try:
-                    frames = self.chunked_processor.vae_decode_chunked(vae, trimmed_latent)
+                    # Ensure latent tensor is properly wrapped for VAE decoding
+                    if isinstance(trimmed_latent, torch.Tensor):
+                        latent_dict = {"samples": trimmed_latent}
+                    else:
+                        latent_dict = trimmed_latent
+                    
+                    frames = self.chunked_processor.vae_decode_chunked(vae, latent_dict)
                     print("8a. Chunked VAE decoding successful!")
                     
                 except torch.cuda.OutOfMemoryError:
@@ -693,7 +699,7 @@ class ReferenceVideoPipeline:
                             processing_plan['vae_decode']['chunk_size'] = smaller_chunk_size
                             processing_plan['vae_decode']['num_chunks'] = (length + smaller_chunk_size - 1) // smaller_chunk_size
                             
-                            frames = self.chunked_processor.vae_decode_chunked(vae, trimmed_latent)
+                            frames = self.chunked_processor.vae_decode_chunked(vae, latent_dict)
                             print(f"8a. VAE decoding successful with chunk size: {smaller_chunk_size}")
                             break
                             
@@ -704,17 +710,48 @@ class ReferenceVideoPipeline:
                     if frames is None:
                         print("8a. All chunk sizes failed! Using single-frame fallback...")
                         # Final fallback: process one frame at a time
-                        frames = self._decode_single_frame_fallback(vae, trimmed_latent)
+                        frames = self._decode_single_frame_fallback(vae, latent_dict)
             else:
                 print("Processing all frames at once (within chunk size limit)")
                 try:
-                    frames = vae_decoder.decode(vae, trimmed_latent)
+                    # Ensure latent tensor is properly wrapped for VAE decoding
+                    if isinstance(trimmed_latent, torch.Tensor):
+                        latent_dict = {"samples": trimmed_latent}
+                    else:
+                        latent_dict = trimmed_latent
+                    
+                    frames = vae_decoder.decode(vae, latent_dict)
                 except torch.cuda.OutOfMemoryError:
                     print("OOM during single-pass VAE decoding! Using single-frame fallback...")
-                    frames = self._decode_single_frame_fallback(vae, trimmed_latent)
+                    frames = self._decode_single_frame_fallback(vae, latent_dict)
             
             # OOM Checklist: Check memory after VAE decoding execution
             self._check_memory_usage('vae_decoding', expected_threshold=8000)
+            
+            # Debug: Check frame shapes after VAE decoding
+            print("8a. VAE decoding debug info:")
+            if frames is not None:
+                print(f"8a. Frames type: {type(frames)}")
+                if hasattr(frames, 'shape'):
+                    print(f"8a. Frames shape: {frames.shape}")
+                    if len(frames.shape) == 4:  # (batch, height, width, channels)
+                        print(f"8a. Frame dimensions: {frames.shape[0]} frames, {frames.shape[1]}x{frames.shape[2]}, {frames.shape[3]} channels")
+                        if frames.shape[3] == 1:
+                            print("8a. ⚠️  WARNING: Frames have only 1 channel! Expected 3 channels (RGB)")
+                            print("8a. 🔧 Attempting to expand 1-channel frames to 3-channel...")
+                            # Expand 1-channel to 3-channel by repeating
+                            frames = frames.repeat(1, 1, 1, 3)
+                            print(f"8a. ✅ Expanded frames shape: {frames.shape}")
+                        elif frames.shape[3] == 3:
+                            print("8a. ✅ Frames have correct 3 channels (RGB)")
+                        else:
+                            print(f"8a. ⚠️  Unexpected channel count: {frames.shape[3]} (expected 3)")
+                    else:
+                        print(f"8a. ⚠️  Unexpected frame shape: {frames.shape}")
+                else:
+                    print("8a. ⚠️  Frames object has no shape attribute")
+            else:
+                print("8a. ❌ ERROR: No frames generated from VAE decoding!")
             
             # After VAE decoding, explicitly manage VAE memory
             print("8b. VAE decoding complete")
@@ -741,6 +778,26 @@ class ReferenceVideoPipeline:
             
             # 9. Export Video
             print("9. Exporting video...")
+            
+            # Debug: Check frame format before export
+            print("9a. Pre-export frame debug info:")
+            if frames is not None:
+                print(f"9a. Export frames type: {type(frames)}")
+                if hasattr(frames, 'shape'):
+                    print(f"9a. Export frames shape: {frames.shape}")
+                    if len(frames.shape) == 4:  # (batch, height, width, channels)
+                        print(f"9a. Export frame dimensions: {frames.shape[0]} frames, {frames.shape[1]}x{frames.shape[2]}, {frames.shape[3]} channels")
+                        if frames.shape[3] == 3:
+                            print("9a. ✅ Export frames have correct 3 channels (RGB)")
+                        else:
+                            print(f"9a. ❌ Export frames have wrong channel count: {frames.shape[3]} (expected 3)")
+                    else:
+                        print(f"9a. ⚠️  Export frames have unexpected shape: {frames.shape}")
+                else:
+                    print("9a. ⚠️  Export frames object has no shape attribute")
+            else:
+                print("9a. ❌ ERROR: No frames to export!")
+            
             exporter = VideoExporter()
             exporter.export_video(frames, output_path)
             
