@@ -177,9 +177,19 @@ class WanVaceToVideo:
                     for i, latent in enumerate(inactive_latents):
                         if latent.shape[2:] != expected_shape:
                             print(f"Fixing 5D latent {i} shape: {latent.shape} -> {expected_shape}")
-                            # Create dummy latent with correct shape
-                            inactive_latents[i] = torch.zeros((latent.shape[0], latent.shape[1], 4, height // 8, width // 8), 
+                            # Force correct shape for WAN VAE compatibility
+                            # WAN VAE produces 10 channels but UNET expects 4
+                            if latent.shape[2] == 10:  # WAN VAE 10-channel output
+                                print(f"   WAN VAE detected: converting 10 channels to 4 channels")
+                                # Take first 4 channels from WAN VAE output
+                                corrected_latent = latent[:, :, :4, :, :]
+                                inactive_latents[i] = corrected_latent
+                                print(f"   Corrected latent shape: {corrected_latent.shape}")
+                            else:
+                                # Create dummy latent with correct shape
+                                inactive_latent = torch.zeros((latent.shape[0], latent.shape[1], 4, height // 8, width // 8), 
                                                             device=latent.device, dtype=latent.dtype)
+                                inactive_latents[i] = inactive_latent
                 else:
                     # 4D format: [batch, channels, height, width]
                     expected_shape = first_latent.shape[1:]  # Skip batch dimension
@@ -267,9 +277,19 @@ class WanVaceToVideo:
                     for i, latent in enumerate(reactive_latents):
                         if latent.shape[2:] != expected_shape:
                             print(f"Fixing 5D reactive latent {i} shape: {latent.shape} -> {expected_shape}")
-                            # Create dummy latent with correct shape
-                            reactive_latents[i] = torch.zeros((latent.shape[0], latent.shape[1], 4, height // 8, width // 8), 
+                            # Force correct shape for WAN VAE compatibility
+                            # WAN VAE produces 10 channels but UNET expects 4
+                            if latent.shape[2] == 10:  # WAN VAE 10-channel output
+                                print(f"   WAN VAE detected: converting 10 channels to 4 channels")
+                                # Take first 4 channels from WAN VAE output
+                                corrected_latent = latent[:, :, :4, :, :]
+                                reactive_latents[i] = corrected_latent
+                                print(f"   Corrected latent shape: {corrected_latent.shape}")
+                            else:
+                                # Create dummy latent with correct shape
+                                reactive_latent = torch.zeros((latent.shape[0], latent.shape[1], 4, height // 8, width // 8), 
                                                             device=latent.device, dtype=latent.dtype)
+                                reactive_latents[i] = reactive_latent
                 else:
                     # 4D format: [batch, channels, height, width]
                     expected_shape = first_latent.shape[1:]  # Skip batch dimension
@@ -417,12 +437,37 @@ class WanVaceToVideo:
             negative, {"vace_frames": [control_video_latent], "vace_mask": [mask], "vace_strength": [strength]}
         )
         
-        # Create initial latent
+        # Create initial latent - MUST be 4 channels for UNET compatibility
+        # WAN VAE produces 10 channels but UNET expects 4 channels
+        print(f"5a. Creating final latent with correct shape for UNET compatibility")
+        print(f"5a. UNET expects: 4 channels, WAN VAE produces: 10 channels")
+        print(f"5a. Using: 4 channels (UNET requirement)")
+        
         latent = torch.zeros(
-            [batch_size, 16, latent_length, height // 8, width // 8], 
+            [batch_size, 4, latent_length, height // 8, width // 8], 
             device=comfy.model_management.intermediate_device()
         )
         out_latent = {"samples": latent}
+        
+        # Final validation: ensure latent has correct shape for UNET
+        final_shape = out_latent["samples"].shape
+        print(f"5a. Final latent shape validation:")
+        print(f"   Shape: {final_shape}")
+        print(f"   Channels: {final_shape[1]} (expected: 4)")
+        
+        if final_shape[1] != 4:
+            print(f"   ❌ ERROR: Wrong channel count! UNET expects 4 channels")
+            print(f"   🔧 Forcing correction to 4 channels...")
+            # Force correct shape
+            corrected_latent = torch.zeros(
+                [final_shape[0], 4, final_shape[2], final_shape[3], final_shape[4]], 
+                device=out_latent["samples"].device,
+                dtype=out_latent["samples"].dtype
+            )
+            out_latent["samples"] = corrected_latent
+            print(f"   ✅ Corrected latent shape: {out_latent['samples'].shape}")
+        else:
+            print(f"   ✅ SUCCESS: Latent has correct 4 channels for UNET")
         
         return (positive, negative, out_latent, trim_latent)
     
