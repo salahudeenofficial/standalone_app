@@ -152,6 +152,39 @@ def debug_model_detection_step_by_step():
                 print(f"   ⚠️  Prefix mismatch: expected 'model.' but got '{diffusion_model_prefix}'")
                 print("   This might be causing detection issues")
             
+            # NEW: Show what keys actually exist
+            print("\n🔍 STEP 9: What keys actually exist in the state dict?")
+            print("   Showing first 20 keys to understand the structure:")
+            all_keys = list(sd.keys())
+            for i, key in enumerate(all_keys[:20]):
+                print(f"     {i+1:2d}. {key}")
+                
+            # Check for common prefixes
+            print("\n   Analyzing key prefixes:")
+            prefixes = {}
+            for key in all_keys:
+                if '.' in key:
+                    prefix = key.split('.')[0]
+                    prefixes[prefix] = prefixes.get(prefix, 0) + 1
+                    
+            # Show most common prefixes
+            sorted_prefixes = sorted(prefixes.items(), key=lambda x: x[1], reverse=True)
+            print("   Most common prefixes:")
+            for prefix, count in sorted_prefixes[:10]:
+                print(f"     '{prefix}': {count} keys")
+                
+            # Check if there are any keys that might be WAN-related
+            print("\n   Looking for WAN-related keys (case-insensitive):")
+            wan_indicators = ['wan', 'head', 'patch', 'block', 'embed', 'vace']
+            for indicator in wan_indicators:
+                matching_keys = [k for k in all_keys if indicator.lower() in k.lower()]
+                if matching_keys:
+                    print(f"     '{indicator}': {len(matching_keys)} keys")
+                    for key in matching_keys[:3]:  # Show first 3
+                        print(f"       {key}")
+                else:
+                    print(f"     '{indicator}': 0 keys")
+            
         except Exception as e:
             print(f"❌ Error in detailed debugging: {e}")
             
