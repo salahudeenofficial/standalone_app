@@ -67,6 +67,7 @@ class ReferenceVideoPipeline:
             'lora_application': None,
             'text_encoding': None,
             'model_sampling': None,
+            'gpu_capability_test': None,  # Add GPU capability test results
             'vae_encoding': None,
             'unet_sampling': None,
             'vae_decoding': None,
@@ -80,6 +81,7 @@ class ReferenceVideoPipeline:
             'lora_application': 16000, # MB - LoRA applied
             'text_encoding': 8000,     # MB - models in optimal positions
             'model_sampling': 12000,   # MB - UNET loaded for patching
+            'gpu_capability_test': 1000, # MB - should be low during testing
             'vae_encoding': 8000,     # MB - VAE encoding in progress
             'unet_sampling': 40000,   # MB - UNET sampling needs ~33GB (realistic)
             'vae_decoding': 8000,     # MB - VAE decoding in progress
@@ -128,11 +130,38 @@ class ReferenceVideoPipeline:
                 print(f"❌ {phase}: NOT EXECUTED")
                 continue
                 
-            status_icon = "✅" if data['status'] == 'PASS' else "❌"
+            status_icon = "✅" if data['status'] == 'PASS' else "❌" if data['status'] == 'FAIL' else "⚠️"
             print(f"{status_icon} {phase}:")
             print(f"   Allocated: {data['allocated_mb']:.1f} MB")
             print(f"   Reserved: {data['reserved_mb']:.1f} MB")
             print(f"   Status: {data['status']}")
+            
+            # Special handling for GPU capability test
+            if phase == 'gpu_capability_test' and 'gpu_capable' in data:
+                print(f"   GPU Capable: {'✅ YES' if data['gpu_capable'] else '❌ NO'}")
+                
+                # Show test results if available
+                if 'test_results' in data and data['test_results']:
+                    test_results = data['test_results']
+                    print(f"   Test Results:")
+                    
+                    # Show VRAM info
+                    if 'vram_total' in test_results:
+                        print(f"     Total VRAM: {test_results['vram_total']:.2f} GB")
+                        print(f"     Free VRAM: {test_results['vram_free']:.2f} GB")
+                        print(f"     Fragmentation: {test_results.get('fragmentation_ratio', 0):.1%}")
+                    
+                    # Show test outcomes
+                    for test_name, result in test_results.items():
+                        if test_name.endswith('_test') and isinstance(result, bool):
+                            test_status = "✅ PASS" if result else "❌ FAIL"
+                            print(f"     {test_name}: {test_status}")
+                        elif test_name == 'vae_memory_estimate':
+                            print(f"     VAE Memory Estimate: {result:.1f} MB")
+                        elif test_name == 'vae_device':
+                            print(f"     VAE Device: {result}")
+                        elif test_name == 'error':
+                            print(f"     Error: {result}")
         
         print("="*80)
         
@@ -145,6 +174,14 @@ class ReferenceVideoPipeline:
             print("💡 These phases exceeded memory thresholds and may cause OOM errors")
         else:
             print("✅ ALL PHASES PASSED MEMORY THRESHOLDS")
+        
+        # GPU capability summary
+        gpu_test_data = self.oom_checklist.get('gpu_capability_test')
+        if gpu_test_data and 'gpu_capable' in gpu_test_data:
+            if gpu_test_data['gpu_capable']:
+                print("✅ GPU CAPABILITY: GPU is capable of VAE encoding")
+            else:
+                print("❌ GPU CAPABILITY: GPU is NOT capable of VAE encoding - using CPU fallback")
         
         print("="*80)
     
@@ -482,6 +519,205 @@ class ReferenceVideoPipeline:
                             vae.device = torch.device('cuda:0')
                 else:
                     use_cpu_fallback = False
+            
+            # GPU CAPABILITY TEST FOR VAE ENCODING
+            print("5a. 🧪 GPU CAPABILITY TEST FOR VAE ENCODING...")
+            print("5a. Testing GPU's ability to handle VAE operations before proceeding...")
+            
+            gpu_capable = False
+            test_results = {}
+            
+            if torch.cuda.is_available() and not use_cpu_fallback:
+                try:
+                    # Test 1: Basic VRAM availability
+                    print("5a. Test 1: Basic VRAM availability...")
+                    allocated = torch.cuda.memory_allocated() / 1024**3
+                    reserved = torch.cuda.memory_reserved() / 1024**3
+                    total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                    free = total - reserved
+                    
+                    test_results['vram_total'] = total
+                    test_results['vram_free'] = free
+                    test_results['vram_allocated'] = allocated
+                    test_results['vram_reserved'] = reserved
+                    
+                    print(f"5a.   Total VRAM: {total:.2f} GB")
+                    print(f"5a.   Free VRAM: {free:.2f} GB")
+                    print(f"5a.   Allocated: {allocated:.2f} GB")
+                    print(f"5a.   Reserved: {reserved:.2f} GB")
+                    
+                    if free < 2.0:  # Less than 2GB free
+                        print("5a.   ❌ FAIL: Insufficient free VRAM (< 2GB)")
+                        test_results['vram_test'] = False
+                    else:
+                        print("5a.   ✅ PASS: Sufficient free VRAM")
+                        test_results['vram_test'] = True
+                    
+                    # Test 2: Memory fragmentation check
+                    print("5a. Test 2: Memory fragmentation check...")
+                    fragmentation_ratio = allocated / total if total > 0 else 1.0
+                    test_results['fragmentation_ratio'] = fragmentation_ratio
+                    
+                    print(f"5a.   Fragmentation ratio: {fragmentation_ratio:.2%}")
+                    
+                    if fragmentation_ratio > 0.95:  # More than 95% allocated
+                        print("5a.   ❌ FAIL: Extreme memory fragmentation (>95%)")
+                        test_results['fragmentation_test'] = False
+                    elif fragmentation_ratio > 0.8:  # More than 80% allocated
+                        print("5a.   ⚠️  WARNING: High memory fragmentation (>80%)")
+                        test_results['fragmentation_test'] = False
+                    else:
+                        print("5a.   ✅ PASS: Acceptable memory fragmentation")
+                        test_results['fragmentation_test'] = True
+                    
+                    # Test 3: VAE model placement test
+                    print("5a. Test 3: VAE model placement test...")
+                    if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                        # Ensure VAE is on GPU for testing
+                        vae.first_stage_model.to('cuda:0')
+                        vae.device = torch.device('cuda:0')
+                        
+                        # Check if VAE is actually on GPU
+                        vae_device = str(vae.first_stage_model.device)
+                        test_results['vae_device'] = vae_device
+                        
+                        if 'cuda' in vae_device:
+                            print(f"5a.   ✅ PASS: VAE successfully moved to GPU ({vae_device})")
+                            test_results['vae_placement_test'] = True
+                        else:
+                            print(f"5a.   ❌ FAIL: VAE not on GPU ({vae_device})")
+                            test_results['vae_placement_test'] = False
+                    else:
+                        print("5a.   ❌ FAIL: VAE does not support device placement")
+                        test_results['vae_placement_test'] = False
+                    
+                    # Test 4: Small tensor allocation test
+                    print("5a. Test 4: Small tensor allocation test...")
+                    try:
+                        # Try to allocate a small test tensor
+                        test_tensor = torch.randn((1, 3, 64, 64), device='cuda:0')
+                        test_tensor_size = test_tensor.numel() * test_tensor.element_size() / 1024**2
+                        print(f"5a.   ✅ PASS: Successfully allocated {test_tensor_size:.1f} MB test tensor")
+                        test_results['tensor_allocation_test'] = True
+                        
+                        # Clean up test tensor
+                        del test_tensor
+                        torch.cuda.empty_cache()
+                        
+                    except Exception as e:
+                        print(f"5a.   ❌ FAIL: Cannot allocate test tensor: {e}")
+                        test_results['tensor_allocation_test'] = False
+                    
+                    # Test 5: VAE memory estimation test
+                    print("5a. Test 5: VAE memory estimation test...")
+                    try:
+                        if hasattr(vae, 'memory_used_encode'):
+                            # Estimate memory for a small test input
+                            test_shape = (1, 3, 64, 64)
+                            estimated_memory = vae.memory_used_encode(test_shape, vae.vae_dtype) / 1024**2
+                            test_results['vae_memory_estimate'] = estimated_memory
+                            
+                            print(f"5a.   Estimated VAE memory for 64x64: {estimated_memory:.1f} MB")
+                            
+                            if estimated_memory < free * 1024:  # Convert GB to MB for comparison
+                                print("5a.   ✅ PASS: VAE memory estimate fits in available VRAM")
+                                test_results['vae_memory_test'] = True
+                            else:
+                                print(f"5a.   ❌ FAIL: VAE memory estimate ({estimated_memory:.1f} MB) exceeds free VRAM ({free:.2f} GB)")
+                                test_results['vae_memory_test'] = False
+                        else:
+                            print("5a.   ⚠️  WARNING: VAE does not support memory estimation")
+                            test_results['vae_memory_test'] = None
+                    except Exception as e:
+                        print(f"5a.   ❌ FAIL: VAE memory estimation failed: {e}")
+                        test_results['vae_memory_test'] = False
+                    
+                    # Overall GPU capability assessment
+                    print("5a. 🎯 OVERALL GPU CAPABILITY ASSESSMENT...")
+                    
+                    # Count passed tests
+                    passed_tests = sum(1 for test, result in test_results.items() 
+                                     if test.endswith('_test') and result is True)
+                    total_tests = sum(1 for test, result in test_results.items() 
+                                    if test.endswith('_test') and result is not None)
+                    
+                    print(f"5a.   Tests passed: {passed_tests}/{total_tests}")
+                    
+                    # Determine GPU capability
+                    if passed_tests >= total_tests * 0.8:  # At least 80% of tests passed
+                        print("5a.   ✅ GPU CAPABLE: Sufficient capability for VAE encoding")
+                        gpu_capable = True
+                    elif passed_tests >= total_tests * 0.5:  # At least 50% of tests passed
+                        print("5a.   ⚠️  GPU MARGINAL: Limited capability, may need fallbacks")
+                        gpu_capable = True
+                    else:
+                        print("5a.   ❌ GPU INCAPABLE: Insufficient capability for VAE encoding")
+                        gpu_capable = False
+                    
+                    # Print detailed test results
+                    print("5a. 📊 DETAILED TEST RESULTS:")
+                    for test_name, result in test_results.items():
+                        if test_name.endswith('_test'):
+                            status = "✅ PASS" if result else "❌ FAIL"
+                            print(f"5a.   {test_name}: {status}")
+                        elif test_name in ['vram_total', 'vram_free', 'vram_allocated', 'vram_reserved']:
+                            print(f"5a.   {test_name}: {result:.2f} GB")
+                        elif test_name in ['fragmentation_ratio']:
+                            print(f"5a.   {test_name}: {result:.2%}")
+                        elif test_name in ['vae_memory_estimate']:
+                            print(f"5a.   {test_name}: {result:.1f} MB")
+                        elif test_name in ['vae_device']:
+                            print(f"5a.   {test_name}: {result}")
+                    
+                except Exception as test_error:
+                    print(f"5a. ❌ GPU capability test failed with error: {test_error}")
+                    print("5a. ⚠️  Assuming GPU is incapable, will use CPU fallback")
+                    gpu_capable = False
+                    test_results = {'error': str(test_error)}
+            else:
+                print("5a. ⚠️  Skipping GPU capability test (using CPU fallback)")
+                gpu_capable = False
+            
+            # Decision making based on test results
+            print("5a. 🎯 STRATEGY DECISION BASED ON GPU CAPABILITY TEST...")
+            
+            if gpu_capable:
+                print("5a. ✅ GPU is capable - proceeding with GPU-based VAE encoding")
+                use_cpu_fallback = False
+            else:
+                print("5a. ❌ GPU is not capable - using CPU fallback strategy")
+                use_cpu_fallback = True
+                
+                # Move VAE to CPU for CPU fallback
+                if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                    print("5a. Moving VAE to CPU for CPU fallback...")
+                    vae.first_stage_model.to('cpu')
+                    vae.device = torch.device('cpu')
+            
+            # OOM Checklist: Record GPU capability test results
+            if torch.cuda.is_available():
+                test_memory_allocated = torch.cuda.memory_allocated() / 1024**2
+                test_memory_reserved = torch.cuda.memory_reserved() / 1024**2
+                
+                self.oom_checklist['gpu_capability_test'] = {
+                    'allocated_mb': test_memory_allocated,
+                    'reserved_mb': test_memory_reserved,
+                    'timestamp': 'gpu_capability_test',
+                    'gpu_capable': gpu_capable,
+                    'test_results': test_results,
+                    'status': 'PASS' if test_memory_allocated <= 1000 else 'FAIL'
+                }
+                
+                print(f"5a. GPU capability test memory: {test_memory_allocated:.1f} MB allocated, {test_memory_reserved:.1f} MB reserved")
+            else:
+                self.oom_checklist['gpu_capability_test'] = {
+                    'allocated_mb': 0,
+                    'reserved_mb': 0,
+                    'timestamp': 'gpu_capability_test',
+                    'gpu_capable': False,
+                    'test_results': {'error': 'CUDA not available'},
+                    'status': 'SKIP'
+                }
             
             # Aggressive memory cleanup before VAE operations
             print("5a. Aggressive memory cleanup before VAE operations...")
