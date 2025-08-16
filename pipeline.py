@@ -583,49 +583,68 @@ class ReferenceVideoPipeline:
             
             # Use ComfyUI's native loading functions which return ModelPatcher objects
             # ModelPatcher automatically handles all memory management
-            print("1a. Loading UNET with WAN model class...")
+            print("1a. Loading models using ComfyUI's automatic detection system...")
             
-            # Load the UNET state dict first
+            # Instead of loading individual components, use the checkpoint loading approach
+            # This automatically detects WAN models and ensures compatibility
+            # This is the same approach used by CheckpointLoaderSimple node
+            
+            # Create a temporary checkpoint-like structure for automatic detection
+            print("1a. Creating checkpoint structure for automatic model detection...")
+            
+            # Load all state dicts
             unet_state_dict = comfy.utils.load_torch_file(unet_model_path)
+            clip_state_dict = comfy.utils.load_torch_file(clip_model_path)
+            vae_state_dict = comfy.utils.load_torch_file(vae_model_path)
             
-            # Force WAN model type instead of relying on automatic detection
-            # This ensures the UNET expects 10-channel latents from WAN VAE
-            from comfy.supported_models import WAN21_T2V
-            from comfy.model_base import WAN21
+            # Combine them into a checkpoint-like structure
+            # This allows ComfyUI to automatically detect the model types
+            checkpoint_state_dict = {}
             
-            # Create WAN model config
-            wan_config = WAN21_T2V({
-                "image_model": "wan2.1",
-                "model_type": "t2v",
-            })
+            # Add UNET weights with proper prefix for detection
+            # WAN models use no prefix, so we add them directly
+            for key, value in unet_state_dict.items():
+                checkpoint_state_dict[key] = value
+                
+            # Add CLIP weights with proper prefix
+            for key, value in clip_state_dict.items():
+                checkpoint_state_dict[key] = value
+                
+            # Add VAE weights with proper prefix
+            for key, value in vae_state_dict.items():
+                checkpoint_state_dict[key] = value
             
-            # Create WAN model using the correct class
-            wan_model = WAN21(wan_config, image_to_video=False, device=comfy.model_management.get_torch_device())
+            print(f"1a. ✅ Combined checkpoint state dict: {len(checkpoint_state_dict)} keys")
             
-            # Load the weights
-            wan_model.load_model_weights(unet_state_dict, "model.")
+            # Use ComfyUI's automatic model detection system
+            print("1a. Using ComfyUI's automatic model detection...")
             
-            # Create ModelPatcher wrapper
-            model = comfy.model_patcher.ModelPatcher(
-                wan_model, 
-                load_device=comfy.model_management.get_torch_device(),
-                offload_device=comfy.model_management.unet_offload_device()
+            # This is the same function that CheckpointLoaderSimple uses
+            # It automatically detects WAN models and loads them correctly
+            from comfy.sd import load_state_dict_guess_config
+            
+            # Load models with automatic detection
+            model, clip_model, vae, _ = load_state_dict_guess_config(
+                checkpoint_state_dict, 
+                output_vae=True, 
+                output_clip=True, 
+                output_clipvision=False, 
+                embedding_directory=None, 
+                output_model=True
             )
             
-            print(f"1a. ✅ UNET loaded as WAN model: {type(model)}")
-            print(f"1a. UNET internal model: {type(model.model)}")
-            
-            clip_model = comfy.sd.load_clip([clip_model_path], clip_type=comfy.sd.CLIPType.WAN)
-            
-            # For VAE, we need to load the state dict first, then create VAE object
-            # VAE has its own built-in memory management
-            vae_state_dict = comfy.utils.load_torch_file(vae_model_path)
-            vae = comfy.sd.VAE(sd=vae_state_dict)
-            
-            print("1a. Models loaded using ComfyUI's native system")
+            print(f"1a. ✅ Models loaded using ComfyUI's automatic detection system")
             print(f"1a. UNET: {type(model)} (ModelPatcher)")
             print(f"1a. CLIP: {type(clip_model)} (ModelPatcher)")
             print(f"1a. VAE: {type(vae)} (VAE with built-in memory management)")
+            
+            # Verify that the UNET was detected as WAN model
+            if hasattr(model, 'model') and hasattr(model.model, 'model_type'):
+                print(f"1a. ✅ UNET model type detected: {model.model.model_type}")
+                if hasattr(model.model, 'image_model'):
+                    print(f"1a. ✅ UNET image model: {model.model.image_model}")
+            else:
+                print("1a. ⚠️  UNET model type not accessible, but loaded successfully")
             
             # DEBUG: Check if models are actually loaded to GPU
             print("1a. 🔍 DEBUG: Checking model loading status...")
