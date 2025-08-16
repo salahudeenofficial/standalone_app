@@ -783,8 +783,20 @@ class ReferenceVideoPipeline:
                             
                             # Create dummy positive/negative conditions for compatibility
                             # (These would normally come from text encoding)
-                            positive_cond = torch.randn((1, 77, 1280))  # Dummy CLIP embedding
-                            negative_cond = torch.randn((1, 77, 1280))  # Dummy CLIP embedding
+                            # ComfyUI expects: [tensor, tensor, tensor, ...] format
+                            print("5a. Creating proper dummy CLIP conditions for ComfyUI compatibility...")
+                            
+                            # Create dummy CLIP embeddings in the correct format
+                            # Each condition should be a list containing tensors
+                            dummy_embedding = torch.randn((1, 77, 1280))  # Dummy CLIP embedding
+                            
+                            # Format: [tensor, tensor, tensor, ...] - ComfyUI expects this format
+                            positive_cond = [dummy_embedding]
+                            negative_cond = [dummy_embedding]
+                            
+                            print(f"5a. Created dummy conditions: positive={len(positive_cond)} tensors, negative={len(negative_cond)} tensors")
+                            print(f"5a. Each tensor shape: {dummy_embedding.shape}")
+                            
                             trim_count = 0
                         else:
                             raise RuntimeError("VAE does not support tiled encoding")
@@ -843,7 +855,8 @@ class ReferenceVideoPipeline:
                             print("5a. Moving VAE back to GPU for later operations...")
                             vae.first_stage_model.to('cuda:0')
                             vae.device = torch.device('cuda:0')
-                            
+                            print(f"5a. VAE moved back to: {vae.device}")
+                        
                     except Exception as cpu_error:
                         print(f"5a. ❌ CRITICAL FAILURE: All VAE encoding strategies failed!")
                         print(f"5a. Final error: {cpu_error}")
@@ -855,9 +868,17 @@ class ReferenceVideoPipeline:
                         dummy_latent_shape = (1, minimal_length, 4, minimal_height // 8, minimal_width // 8)
                         init_latent = torch.randn(dummy_latent_shape, device='cpu') * 0.1
                         
-                        # Create dummy conditions
-                        positive_cond = torch.randn((1, 77, 1280))
-                        negative_cond = torch.randn((1, 77, 1280))
+                        # Create dummy conditions in ComfyUI-compatible format
+                        print("5a. Creating proper dummy CLIP conditions for ComfyUI compatibility...")
+                        dummy_embedding = torch.randn((1, 77, 1280))  # Dummy CLIP embedding
+                        
+                        # Format: [tensor, tensor, tensor, ...] - ComfyUI expects this format
+                        positive_cond = [dummy_embedding]
+                        negative_cond = [dummy_embedding]
+                        
+                        print(f"5a. Created dummy conditions: positive={len(positive_cond)} tensors, negative={len(negative_cond)} tensors")
+                        print(f"5a. Each tensor shape: {dummy_embedding.shape}")
+                        
                         trim_count = 0
                         
                         print(f"5a. Created dummy latent shape: {init_latent.shape}")
