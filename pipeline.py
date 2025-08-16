@@ -65,7 +65,21 @@ class ReferenceVideoPipeline:
         self.chunked_processor = ChunkedProcessor()
         
         # Start with conservative chunking for better memory management
-        self.chunked_processor.set_chunking_strategy('conservative')
+        try:
+            self.chunked_processor.set_chunking_strategy('conservative')
+            print("✅ Chunked processor initialized with conservative strategy")
+        except Exception as e:
+            print(f"⚠️  Warning: Could not set chunking strategy: {e}")
+            print("   Using default chunking strategy")
+        
+        # Verify chunked processor is working
+        try:
+            if hasattr(self.chunked_processor, 'current_strategy'):
+                print(f"✅ Chunked processor strategy: {self.chunked_processor.current_strategy}")
+            if hasattr(self.chunked_processor, 'default_chunk_sizes'):
+                print("✅ Chunked processor has default chunk sizes configured")
+        except Exception as e:
+            print(f"⚠️  Warning: Chunked processor verification failed: {e}")
         
         # Initialize OOM debugging checklist
         self.oom_checklist = {
@@ -205,13 +219,19 @@ class ReferenceVideoPipeline:
         # Check UNET placement
         if 'unet' in expected_models:
             try:
-                unet_device = getattr(self, 'model', None)
-                if unet_device and hasattr(unet_device, 'device'):
-                    model_status['unet'] = str(unet_device.device)
-                    print(f"   UNET: {model_status['unet']}")
+                if hasattr(self, 'model') and self.model is not None:
+                    if hasattr(self.model, 'model') and hasattr(self.model.model, 'device'):
+                        model_status['unet'] = str(self.model.model.device)
+                        print(f"   UNET: {model_status['unet']}")
+                    elif hasattr(self.model, 'device'):
+                        model_status['unet'] = str(self.model.device)
+                        print(f"   UNET: {model_status['unet']}")
+                    else:
+                        model_status['unet'] = 'LOADED (device not accessible)'
+                        print(f"   UNET: {model_status['unet']}")
                 else:
-                    model_status['unet'] = 'UNKNOWN'
-                    print(f"   UNET: {model_status['unet']} (not accessible)")
+                    model_status['unet'] = 'NOT LOADED'
+                    print(f"   UNET: {model_status['unet']}")
             except Exception as e:
                 model_status['unet'] = f'ERROR: {e}'
                 print(f"   UNET: {model_status['unet']}")
@@ -219,13 +239,19 @@ class ReferenceVideoPipeline:
         # Check VAE placement
         if 'vae' in expected_models:
             try:
-                vae_device = getattr(self, 'vae', None)
-                if vae_device and hasattr(vae_device, 'device'):
-                    model_status['vae'] = str(vae_device.device)
-                    print(f"   VAE: {model_status['vae']}")
+                if hasattr(self, 'vae') and self.vae is not None:
+                    if hasattr(self.vae, 'device'):
+                        model_status['vae'] = str(self.vae.device)
+                        print(f"   VAE: {model_status['vae']}")
+                    elif hasattr(self.vae, 'first_stage_model') and hasattr(self.vae.first_stage_model, 'device'):
+                        model_status['vae'] = str(self.vae.first_stage_model.device)
+                        print(f"   VAE: {model_status['vae']}")
+                    else:
+                        model_status['vae'] = 'LOADED (device not accessible)'
+                        print(f"   VAE: {model_status['vae']}")
                 else:
-                    model_status['vae'] = 'UNKNOWN'
-                    print(f"   VAE: {model_status['vae']} (not accessible)")
+                    model_status['vae'] = 'NOT LOADED'
+                    print(f"   VAE: {model_status['vae']}")
             except Exception as e:
                 model_status['vae'] = f'ERROR: {e}'
                 print(f"   VAE: {model_status['vae']}")
@@ -233,13 +259,23 @@ class ReferenceVideoPipeline:
         # Check CLIP placement
         if 'clip' in expected_models:
             try:
-                clip_device = getattr(self, 'clip_model', None)
-                if clip_device and hasattr(clip_device, 'device'):
-                    model_status['clip'] = str(clip_device.device)
-                    print(f"   CLIP: {model_status['clip']}")
+                if hasattr(self, 'clip_model') and self.clip_model is not None:
+                    if hasattr(self.clip_model, 'patcher') and hasattr(self.clip_model.patcher, 'model'):
+                        if hasattr(self.clip_model.patcher.model, 'device'):
+                            model_status['clip'] = str(self.clip_model.patcher.model.device)
+                            print(f"   CLIP: {model_status['clip']}")
+                        else:
+                            model_status['clip'] = 'LOADED (device not accessible)'
+                            print(f"   CLIP: {model_status['clip']}")
+                    elif hasattr(self.clip_model, 'device'):
+                        model_status['clip'] = str(self.clip_model.device)
+                        print(f"   CLIP: {model_status['clip']}")
+                    else:
+                        model_status['clip'] = 'LOADED (device not accessible)'
+                        print(f"   CLIP: {model_status['clip']}")
                 else:
-                    model_status['clip'] = 'UNKNOWN'
-                    print(f"   CLIP: {model_status['clip']} (not accessible)")
+                    model_status['clip'] = 'NOT LOADED'
+                    print(f"   CLIP: {model_status['clip']}")
             except Exception as e:
                 model_status['clip'] = f'ERROR: {e}'
                 print(f"   CLIP: {model_status['clip']}")
@@ -261,9 +297,11 @@ class ReferenceVideoPipeline:
         
         # Check if models are properly offloaded
         models_offloaded = True
+        models_checked = 0
         
         for model_name in expected_models:
-            if model_name == 'unet' and hasattr(self, 'model'):
+            if model_name == 'unet' and hasattr(self, 'model') and self.model is not None:
+                models_checked += 1
                 if hasattr(self.model, 'model') and hasattr(self.model.model, 'device'):
                     device = str(self.model.model.device)
                     if device != 'cpu':
@@ -271,8 +309,18 @@ class ReferenceVideoPipeline:
                         models_offloaded = False
                     else:
                         print(f"   ✅ UNET properly offloaded to: {device}")
+                elif hasattr(self.model, 'device'):
+                    device = str(self.model.device)
+                    if device != 'cpu':
+                        print(f"   ❌ UNET still on GPU: {device}")
+                        models_offloaded = False
+                    else:
+                        print(f"   ✅ UNET properly offloaded to: {device}")
+                else:
+                    print(f"   ⚠️  UNET loaded but device not accessible")
             
-            elif model_name == 'clip' and hasattr(self, 'clip_model'):
+            elif model_name == 'clip' and hasattr(self, 'clip_model') and self.clip_model is not None:
+                models_checked += 1
                 if hasattr(self.clip_model, 'patcher') and hasattr(self.clip_model.patcher, 'model'):
                     if hasattr(self.clip_model.patcher.model, 'device'):
                         device = str(self.clip_model.patcher.model.device)
@@ -281,8 +329,20 @@ class ReferenceVideoPipeline:
                             models_offloaded = False
                         else:
                             print(f"   ✅ CLIP properly offloaded to: {device}")
+                    else:
+                        print(f"   ⚠️  CLIP loaded but device not accessible")
+                elif hasattr(self.clip_model, 'device'):
+                    device = str(self.clip_model.device)
+                    if device != 'cpu':
+                        print(f"   ❌ CLIP still on GPU: {device}")
+                        models_offloaded = False
+                    else:
+                        print(f"   ✅ CLIP properly offloaded to: {device}")
+                else:
+                    print(f"   ⚠️  CLIP loaded but device not accessible")
             
-            elif model_name == 'vae' and hasattr(self, 'vae'):
+            elif model_name == 'vae' and hasattr(self, 'vae') and self.vae is not None:
+                models_checked += 1
                 if hasattr(self.vae, 'device'):
                     device = str(self.vae.device)
                     if device != 'cpu':
@@ -290,9 +350,21 @@ class ReferenceVideoPipeline:
                         models_offloaded = False
                     else:
                         print(f"   ✅ VAE properly offloaded to: {device}")
+                elif hasattr(self.vae, 'first_stage_model') and hasattr(self.vae.first_stage_model, 'device'):
+                    device = str(self.vae.first_stage_model.device)
+                    if device != 'cpu':
+                        print(f"   ❌ VAE still on GPU: {device}")
+                        models_offloaded = False
+                    else:
+                        print(f"   ✅ VAE properly offloaded to: {device}")
+                else:
+                    print(f"   ⚠️  VAE loaded but device not accessible")
         
-        if models_offloaded:
-            print(f"   ✅ All models properly offloaded to CPU")
+        if models_checked == 0:
+            print(f"   ℹ️  No models loaded yet for {phase_name}")
+            return True
+        elif models_offloaded:
+            print(f"   ✅ All loaded models properly offloaded to CPU")
         else:
             print(f"   ⚠️  Some models still on GPU - memory management may be incomplete")
         
@@ -329,16 +401,34 @@ class ReferenceVideoPipeline:
             print(f"     {operation}: {chunk_size} items per chunk, {num_chunks} total chunks")
         
         # Verify chunked processor is configured
-        if hasattr(self, 'chunked_processor'):
-            strategy = self.chunked_processor.get_current_strategy()
-            print(f"   Chunked Processor Strategy: {strategy}")
-            
-            if strategy == 'conservative':
-                print("   ✅ Using conservative chunking for memory efficiency")
-            elif strategy == 'aggressive':
-                print("   ⚠️  Using aggressive chunking - may use more memory")
-            elif strategy == 'ultra_conservative':
-                print("   ✅ Using ultra-conservative chunking for maximum memory efficiency")
+        if hasattr(self, 'chunked_processor') and self.chunked_processor is not None:
+            try:
+                strategy = self.chunked_processor.current_strategy
+                print(f"   Chunked Processor Strategy: {strategy}")
+                
+                if strategy == 'conservative':
+                    print("   ✅ Using conservative chunking for memory efficiency")
+                elif strategy == 'aggressive':
+                    print("   ⚠️  Using aggressive chunking - may use more memory")
+                elif strategy == 'ultra_conservative':
+                    print("   ✅ Using ultra-conservative chunking for maximum memory efficiency")
+                elif strategy == 'balanced':
+                    print("   ⚖️  Using balanced chunking strategy")
+                else:
+                    print(f"   ℹ️  Using custom chunking strategy: {strategy}")
+                    
+                # Additional chunked processor verification
+                if hasattr(self.chunked_processor, 'default_chunk_sizes'):
+                    print("   ✅ Chunked processor has default chunk sizes configured")
+                if hasattr(self.chunked_processor, 'chunking_strategies'):
+                    print("   ✅ Chunked processor has chunking strategies configured")
+                    
+            except AttributeError as e:
+                print(f"   ❌ Chunked processor missing attribute: {e}")
+                return False
+            except Exception as e:
+                print(f"   ❌ Error accessing chunked processor: {e}")
+                return False
         else:
             print("   ❌ Chunked processor not available")
             return False
@@ -395,6 +485,37 @@ class ReferenceVideoPipeline:
         
         # Establish baseline memory state for OOM debugging
         print("🔍 ESTABLISHING BASELINE MEMORY STATE...")
+        
+        # DEBUG: Check baseline memory state
+        if torch.cuda.is_available():
+            baseline_allocated = torch.cuda.memory_allocated() / 1024**2
+            baseline_reserved = torch.cuda.memory_reserved() / 1024**2
+            total_vram = torch.cuda.get_device_properties(0).total_memory / 1024**2
+            
+            print(f"🔍 DEBUG: Baseline memory check:")
+            print(f"   CUDA available: {torch.cuda.is_available()}")
+            print(f"   Current device: {torch.cuda.current_device()}")
+            print(f"   Device properties: {torch.cuda.get_device_properties(0).name}")
+            print(f"   Total VRAM: {total_vram:.1f} GB")
+            print(f"   Allocated: {baseline_allocated:.1f} MB")
+            print(f"   Reserved: {baseline_reserved:.1f} MB")
+            
+            if baseline_allocated == 0.0 and baseline_reserved == 0.0:
+                print("   ⚠️  WARNING: Baseline memory shows 0.0 MB!")
+                print("   🔍 This suggests either:")
+                print("      - No models loaded yet (expected at start)")
+                print("      - Models loaded to CPU instead of GPU")
+                print("      - ComfyUI using lazy loading strategy")
+                print("      - Memory measurement issue")
+            
+            # Store baseline for later comparison
+            self.baseline_allocated = baseline_allocated
+            self.baseline_reserved = baseline_reserved
+        else:
+            print("🔍 CUDA not available, skipping baseline memory check")
+            self.baseline_allocated = 0
+            self.baseline_reserved = 0
+        
         self._check_memory_usage('baseline_memory', expected_threshold=100)
         
         # Generate chunked processing plan
@@ -472,8 +593,96 @@ class ReferenceVideoPipeline:
             print(f"1a. CLIP: {type(clip_model)} (ModelPatcher)")
             print(f"1a. VAE: {type(vae)} (VAE with built-in memory management)")
             
+            # DEBUG: Check if models are actually loaded to GPU
+            print("1a. 🔍 DEBUG: Checking model loading status...")
+            if hasattr(model, 'model') and hasattr(model.model, 'device'):
+                print(f"1a. DEBUG: UNET internal model device: {model.model.device}")
+            if hasattr(model, 'device'):
+                print(f"1a. DEBUG: UNET wrapper device: {model.device}")
+            
+            if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'model'):
+                if hasattr(clip_model.patcher.model, 'device'):
+                    print(f"1a. DEBUG: CLIP internal model device: {clip_model.patcher.model.device}")
+            if hasattr(clip_model, 'device'):
+                print(f"1a. DEBUG: CLIP wrapper device: {clip_model.device}")
+            
+            if hasattr(vae, 'device'):
+                print(f"1a. DEBUG: VAE wrapper device: {vae.device}")
+            if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'device'):
+                print(f"1a. DEBUG: VAE internal model device: {vae.first_stage_model.device}")
+            
+            # Check memory after model loading
+            if torch.cuda.is_available():
+                after_loading_allocated = torch.cuda.memory_allocated() / 1024**2
+                after_loading_reserved = torch.cuda.memory_reserved() / 1024**2
+                print(f"1a. DEBUG: Memory after loading - Allocated: {after_loading_allocated:.1f} MB, Reserved: {after_loading_reserved:.1f} MB")
+                
+                if after_loading_allocated == 0.0:
+                    print("1a. ⚠️  WARNING: Models loaded but GPU memory still shows 0.0 MB!")
+                    print("1a. 🔍 This suggests models may not be loaded to GPU yet")
+                    print("1a. 💡 ComfyUI may be using lazy loading or CPU-first strategy")
+            
             # OOM Checklist: Check memory after model loading
             self._check_memory_usage('model_loading', expected_threshold=15000)
+            
+            # Check if models need to be explicitly loaded to GPU
+            print("1a. 🔍 Checking if models need explicit GPU loading...")
+            if torch.cuda.is_available():
+                # Try to load models to GPU to see if that allocates memory
+                try:
+                    print("1a. Attempting to load models to GPU...")
+                    
+                    # For UNET, try to patch it to GPU
+                    if hasattr(model, 'patch_model'):
+                        print("1a. Patching UNET to GPU...")
+                        model.patch_model()
+                        print("1a. UNET patched to GPU")
+                    
+                    # For CLIP, try to patch it to GPU
+                    if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'patch_model'):
+                        print("1a. Patching CLIP to GPU...")
+                        clip_model.patcher.patch_model()
+                        print("1a. CLIP patched to GPU")
+                    
+                    # For VAE, let ComfyUI handle it automatically
+                    print("1a. VAE will be loaded to GPU when needed")
+                    
+                    # Check memory after patching
+                    after_patching_allocated = torch.cuda.memory_allocated() / 1024**2
+                    after_patching_reserved = torch.cuda.memory_reserved() / 1024**2
+                    print(f"1a. DEBUG: Memory after patching - Allocated: {after_patching_allocated:.1f} MB, Reserved: {after_patching_reserved:.1f} MB")
+                    
+                    if after_patching_allocated > 0.0:
+                        print("1a. ✅ SUCCESS: Models now loaded to GPU!")
+                    else:
+                        print("1a. ⚠️  Models still not showing GPU memory allocation")
+                        
+                except Exception as e:
+                    print(f"1a. ⚠️  Error during explicit GPU loading: {e}")
+                    print("1a. Continuing with ComfyUI's automatic management...")
+            
+            # Check ComfyUI's model management system
+            print("1a. 🔍 Checking ComfyUI's model management system...")
+            try:
+                import comfy.model_management
+                
+                # Check what device ComfyUI thinks models should be on
+                if hasattr(comfy.model_management, 'get_torch_device'):
+                    comfy_device = comfy.model_management.get_torch_device()
+                    print(f"1a. ComfyUI device: {comfy_device}")
+                
+                if hasattr(comfy.model_management, 'vae_device'):
+                    vae_device = comfy.model_management.vae_device()
+                    print(f"1a. ComfyUI VAE device: {vae_device}")
+                
+                if hasattr(comfy.model_management, 'model_device'):
+                    model_device = comfy.model_management.model_device()
+                    print(f"1a. ComfyUI model device: {model_device}")
+                
+                print("1a. ComfyUI model management system is available")
+                
+            except Exception as e:
+                print(f"1a. ⚠️  Could not check ComfyUI model management: {e}")
             
             # COMPREHENSIVE VERIFICATION AFTER MODEL LOADING
             print("\n" + "="*80)
