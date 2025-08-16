@@ -36,17 +36,18 @@ class ReferenceVideoPipeline:
     """
     Standalone Reference Image + Control Video to Output Video Pipeline
     
-    Memory Management Philosophy (following ComfyUI):
-    - UNET models: Managed by ComfyUI's ModelPatcher system (automatic GPU/CPU swapping)
-    - VAE models: Built-in memory management with automatic loading/unloading
-    - CLIP models: Managed by ComfyUI's ModelPatcher system
-    - All memory management: Handled by ComfyUI's proven system
+    Memory Management Philosophy (explicit ModelPatcher control):
+    - UNET models: Explicitly managed using ModelPatcher.unpatch_model(device_to=offload_device)
+    - VAE models: Explicitly moved to CPU after operations using vae.to('cpu')
+    - CLIP models: Explicitly managed using clip.patcher.unpatch_model(device_to=offload_device)
+    - All memory management: Explicit control using proven ModelPatcher methods
     
     This approach ensures:
-    1. Heavy models (UNET) get sophisticated memory management via ModelPatcher
-    2. VAE models follow ComfyUI's proven device placement strategy
-    3. Light models (CLIP) get the same ModelPatcher benefits
-    4. No manual memory management conflicts with ComfyUI
+    1. Heavy models (UNET) get explicit GPU/CPU swapping via ModelPatcher
+    2. VAE models get explicit device placement control
+    3. Light models (CLIP) get the same explicit ModelPatcher control
+    4. Full control over when models are loaded/unloaded
+    5. Uses the exact same working logic as test_comfyui_integration.py
     """
     def __init__(self, models_dir="models"):
         """Initialize the pipeline with model directory"""
@@ -236,11 +237,11 @@ class ReferenceVideoPipeline:
         """
         Run the complete pipeline from reference image + control video to output video
         
-        This pipeline now properly leverages ComfyUI's native memory management:
+        This pipeline now uses explicit ModelPatcher memory management (same as working test):
         - All models are loaded using ComfyUI's native functions
-        - ModelPatcher handles UNET/CLIP memory automatically
-        - VAE has built-in memory management
-        - No manual memory management calls
+        - ModelPatcher explicitly manages UNET/CLIP memory with device_to=offload_device
+        - VAE explicitly moved to CPU after operations
+        - Explicit memory management calls using proven working logic
         """
         print("Starting Reference Video Pipeline...")
         print("🚀 Using ComfyUI's native memory management system")
@@ -351,6 +352,31 @@ class ReferenceVideoPipeline:
             # ComfyUI automatically manages encoded prompts through ModelPatcher
             print("3a. Text encoding complete")
             
+            # Explicitly manage CLIP memory using working logic from test
+            print("3a. Explicitly managing CLIP memory using working ModelPatcher logic...")
+            if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'unpatch_model'):
+                print(f"3a. Moving CLIP to offload device: {clip_model.patcher.offload_device}")
+                clip_model.patcher.unpatch_model(device_to=clip_model.patcher.offload_device)
+                
+                # Force cleanup like in the working test
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.ipc_collect()
+                
+                # Verify CLIP is on correct device
+                if hasattr(clip_model.patcher, 'model') and hasattr(clip_model.patcher.model, 'device'):
+                    print(f"3a. CLIP model device after unpatch: {clip_model.patcher.model.device}")
+                    if str(clip_model.patcher.model.device) == str(clip_model.patcher.offload_device):
+                        print("3a. ✅ CLIP successfully moved to offload device")
+                    else:
+                        print("3a. ❌ CLIP failed to move to offload device")
+                else:
+                    print("3a. ⚠️  Cannot verify CLIP device placement")
+            else:
+                print("3a. ⚠️  CLIP ModelPatcher not available, skipping explicit memory management")
+            
             # OOM Checklist: Check memory after text encoding
             self._check_memory_usage('text_encoding', expected_threshold=8000)
             
@@ -378,6 +404,7 @@ class ReferenceVideoPipeline:
             # VAE encoding step - VAE has built-in memory management
             print("5a. VAE encoding...")
             print("5a. VAE automatically manages memory during encode()/decode()")
+            print("5a. VAE will be loaded to GPU for encoding, then offloaded to CPU")
             
             # Strategic chunk size optimization based on available VRAM
             print("5a. Optimizing chunk sizes based on available VRAM...")
@@ -453,9 +480,24 @@ class ReferenceVideoPipeline:
                         length, batch_size, strength, control_video, reference_image
                     )
             
-            # After VAE encoding, VAE automatically manages its memory
+            # After VAE encoding, explicitly manage VAE memory
             print("5b. VAE encoding complete")
-            print("5b. VAE automatically offloaded to CPU")
+            print("5b. Explicitly managing VAE memory...")
+            
+            # VAE should automatically offload, but let's verify and force if needed
+            if hasattr(vae, 'device'):
+                current_device = vae.device
+                print(f"5b. VAE current device: {current_device}")
+                
+                # If VAE is still on GPU, force it to CPU
+                if str(current_device) != 'cpu':
+                    print("5b. VAE still on GPU, forcing to CPU...")
+                    vae.to('cpu')
+                    print(f"5b. VAE moved to: {vae.device}")
+                else:
+                    print("5b. ✅ VAE already on CPU")
+            else:
+                print("5b. ⚠️  Cannot determine VAE device, assuming automatic management")
             
             # 6. Run KSampler
             print("6. Running KSampler...")
@@ -502,9 +544,33 @@ class ReferenceVideoPipeline:
             # OOM Checklist: Check memory after UNET sampling execution
             self._check_memory_usage('unet_sampling', expected_threshold=15000)
             
-            # After UNET sampling, ModelPatcher automatically manages memory
+            # After UNET sampling, explicitly manage UNET memory using working logic from test
             print("6a. UNET sampling complete")
-            print("6a. ModelPatcher automatically offloaded UNET to CPU")
+            print("6a. Explicitly managing UNET memory using working ModelPatcher logic...")
+            
+            # Use the same working logic from test_comfyui_integration.py
+            if hasattr(model, 'unpatch_model') and hasattr(model, 'offload_device'):
+                print(f"6a. Moving UNET to offload device: {model.offload_device}")
+                model.unpatch_model(device_to=model.offload_device)
+                
+                # Force cleanup like in the working test
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.ipc_collect()
+                
+                # Verify UNET is on correct device
+                if hasattr(model, 'model') and hasattr(model.model, 'device'):
+                    print(f"6a. UNET model device after unpatch: {model.model.device}")
+                    if str(model.model.device) == str(model.offload_device):
+                        print("6a. ✅ UNET successfully moved to offload device")
+                    else:
+                        print("6a. ❌ UNET failed to move to offload device")
+                else:
+                    print("6a. ⚠️  Cannot verify UNET device placement")
+            else:
+                print("6a. ⚠️  ModelPatcher not available, skipping explicit memory management")
             
             # 7. Trim Video Latent
             print("7. Trimming video latent...")
@@ -599,9 +665,24 @@ class ReferenceVideoPipeline:
             # OOM Checklist: Check memory after VAE decoding execution
             self._check_memory_usage('vae_decoding', expected_threshold=8000)
             
-            # After VAE decoding, VAE automatically manages memory
+            # After VAE decoding, explicitly manage VAE memory
             print("8b. VAE decoding complete")
-            print("8b. VAE automatically offloaded to CPU")
+            print("8b. Explicitly managing VAE memory...")
+            
+            # VAE should automatically offload, but let's verify and force if needed
+            if hasattr(vae, 'device'):
+                current_device = vae.device
+                print(f"8b. VAE current device: {current_device}")
+                
+                # If VAE is still on GPU, force it to CPU
+                if str(current_device) != 'cpu':
+                    print("8b. VAE still on GPU, forcing to CPU...")
+                    vae.to('cpu')
+                    print(f"8b. VAE moved to: {vae.device}")
+                else:
+                    print("8b. ✅ VAE already on CPU")
+            else:
+                print("8b. ⚠️  Cannot determine VAE device, assuming automatic management")
             
             # 9. Export Video
             print("9. Exporting video...")
@@ -610,8 +691,33 @@ class ReferenceVideoPipeline:
             
             print(f"Pipeline completed successfully! Output saved to: {output_path}")
             
-            # Final cleanup - ComfyUI automatically handles everything
-            print("Final cleanup: ComfyUI automatically managing all models...")
+            # Final cleanup - Explicitly manage all model memory using working logic
+            print("Final cleanup: Explicitly managing all model memory...")
+            
+            # 1. Cleanup UNET
+            if hasattr(model, 'unpatch_model') and hasattr(model, 'offload_device'):
+                print("Final cleanup: Moving UNET to offload device...")
+                model.unpatch_model(device_to=model.offload_device)
+                print(f"Final cleanup: UNET moved to {model.offload_device}")
+            
+            # 2. Cleanup CLIP
+            if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'unpatch_model'):
+                print("Final cleanup: Moving CLIP to offload device...")
+                clip_model.patcher.unpatch_model(device_to=clip_model.patcher.offload_device)
+                print(f"Final cleanup: CLIP moved to {clip_model.patcher.offload_device}")
+            
+            # 3. Cleanup VAE
+            if hasattr(vae, 'device') and str(vae.device) != 'cpu':
+                print("Final cleanup: Moving VAE to CPU...")
+                vae.to('cpu')
+                print("Final cleanup: VAE moved to CPU")
+            
+            # 4. Force final cleanup
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
             
             # OOM Checklist: Check memory after final cleanup
             self._check_memory_usage('final_cleanup', expected_threshold=100)
