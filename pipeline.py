@@ -438,594 +438,9 @@ class ReferenceVideoPipeline:
             control_video = self.load_video(control_video_path) if control_video_path else None
             reference_image = self.load_image(reference_image_path) if reference_image_path else None
             
-            # TRUE MEMORY-EFFICIENT VAE ENCODING STRATEGY
-            print("5a. Implementing ComfyUI's native VAE encoding strategy...")
-            print("5a. Strategy: Smart batching + automatic tiled fallback (like ComfyUI)")
-            
-            # Pre-emptive VAE memory management - ensure VAE is on GPU for encoding
-            if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                print("5a. Ensuring VAE is on GPU for encoding...")
-                vae.first_stage_model.to('cuda:0')
-                vae.device = torch.device('cuda:0')
-                print(f"5a. VAE moved to: {vae.device}")
-            else:
-                print("5a. ⚠️  Cannot move VAE to GPU")
-            
-            # AGGRESSIVE MEMORY DEFRAGMENTATION
-            print("5a. AGGRESSIVE MEMORY DEFRAGMENTATION...")
-            print("5a. Current GPU memory state:")
-            if torch.cuda.is_available():
-                allocated = torch.cuda.memory_allocated() / 1024**3
-                reserved = torch.cuda.memory_reserved() / 1024**3
-                total = torch.cuda.get_device_properties(0).total_memory / 1024**3
-                free = total - reserved
-                print(f"5a.   Allocated: {allocated:.2f} GB")
-                print(f"5a.   Reserved: {reserved:.2f} GB")
-                print(f"5a.   Total: {total:.2f} GB")
-                print(f"5a.   Free: {free:.2f} GB")
-                
-                # If memory is heavily fragmented, force cleanup
-                if allocated > 40.0:  # More than 40GB allocated
-                    print("5a. ⚠️  HEAVY MEMORY FRAGMENTATION DETECTED!")
-                    print("5a. 🔧 Forcing aggressive memory cleanup...")
-                    
-                    # Force all models to CPU to free GPU memory
-                    print("5a. Moving all models to CPU to free GPU memory...")
-                    
-                    # Move UNET to CPU
-                    if hasattr(model, 'unpatch_model') and hasattr(model, 'offload_device'):
-                        print("5a. Moving UNET to CPU...")
-                        model.unpatch_model(device_to=torch.device('cpu'))
-                    
-                    # Move CLIP to CPU
-                    if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'unpatch_model'):
-                        print("5a. Moving CLIP to CPU...")
-                        clip_model.patcher.unpatch_model(device_to=torch.device('cpu'))
-                    
-                    # Move VAE to CPU temporarily
-                    if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                        print("5a. Moving VAE to CPU temporarily...")
-                        vae.first_stage_model.to('cpu')
-                        vae.device = torch.device('cpu')
-                        
-                        # Verify synchronization after moving to CPU
-                        first_stage_device = str(vae.first_stage_model.device)
-                        wrapper_device = str(vae.device)
-                        print(f"5a. VAE device sync check after CPU move:")
-                        print(f"5a.   Wrapper: {wrapper_device}, First_stage: {first_stage_device}")
-                        if first_stage_device == wrapper_device and 'cpu' in first_stage_device:
-                            print("5a.   ✅ VAE successfully synchronized on CPU")
-                        else:
-                            print("5a.   ⚠️  VAE device attributes not synchronized on CPU")
-                    else:
-                        print("5a. ⚠️  Cannot move VAE to CPU (no first_stage_model)")
-                    
-                    # Aggressive cleanup
-                    import gc
-                    gc.collect()
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                        torch.cuda.ipc_collect()
-                        torch.cuda.synchronize()
-                    
-                    # Check memory after cleanup
-                    allocated_after = torch.cuda.memory_allocated() / 1024**3
-                    reserved_after = torch.cuda.memory_reserved() / 1024**3
-                    free_after = total - reserved_after
-                    print(f"5a. Memory after cleanup:")
-                    print(f"5a.   Allocated: {allocated_after:.2f} GB")
-                    print(f"5a.   Reserved: {reserved_after:.2f} GB")
-                    print(f"5a.   Free: {free_after:.2f} GB")
-                    
-                    # If still fragmented, use CPU fallback
-                    if free_after < 5.0:  # Less than 5GB free
-                        print("5a. ⚠️  GPU still heavily fragmented, using CPU fallback...")
-                        use_cpu_fallback = True
-                    else:
-                        print("5a. ✅ Memory cleanup successful, retrying GPU processing...")
-                        use_cpu_fallback = False
-                        
-                        # Move VAE back to GPU
-                        if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                            vae.first_stage_model.to('cuda:0')
-                            vae.device = torch.device('cuda:0')
-                            
-                            # Verify synchronization after moving back to GPU
-                            first_stage_device = str(vae.first_stage_model.device)
-                            wrapper_device = str(vae.device)
-                            print(f"5a. VAE device sync check after GPU move:")
-                            print(f"5a.   Wrapper: {wrapper_device}, First_stage: {first_stage_device}")
-                            if first_stage_device == wrapper_device and 'cuda' in first_stage_device:
-                                print("5a.   ✅ VAE successfully synchronized on GPU")
-                            else:
-                                print("5a.   ⚠️  VAE device attributes are NOT synchronized!")
-                                print("5a.   🔧 Attempting to force synchronization...")
-                                # Force both to GPU
-                                try:
-                                    vae.first_stage_model.to('cuda:0')
-                                    vae.device = torch.device('cuda:0')
-                                    # Verify again
-                                    first_stage_device = str(vae.first_stage_model.device)
-                                    wrapper_device = str(vae.device)
-                                    print(f"5a.   After force sync - Wrapper: {wrapper_device}, First_stage: {first_stage_device}")
-                                except Exception as sync_error:
-                                    print(f"5a.   ❌ Force sync failed: {sync_error}")
-                                
-                                # If all attempts fail, accept CPU placement and adjust strategy
-                                if 'cuda' not in str(vae.first_stage_model.device):
-                                    print("5a.   🔄 ACCEPTING CPU PLACEMENT: VAE will operate on CPU")
-                                    print("5a.   📋 Strategy adjustment: Will use CPU-based VAE encoding")
-                                    
-                                    # Ensure both attributes are synchronized on CPU
-                                    try:
-                                        vae.first_stage_model.to('cpu')
-                                        vae.device = torch.device('cpu')
-                                        print("5a.   ✅ VAE synchronized on CPU")
-                                    except Exception as cpu_sync_error:
-                                        print(f"5a.   ⚠️  CPU sync failed: {cpu_sync_error}")
-                                    
-                                    # Set flag for CPU-based processing
-                                    use_cpu_fallback = True
-                                    print("5a.   🎯 CPU fallback strategy activated due to VAE placement constraints")
-                else:
-                    use_cpu_fallback = False
-                    
-                    # Ensure VAE is on GPU for testing (if not using CPU fallback)
-                    if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                        print("5a. Ensuring VAE is on GPU for capability testing...")
-                        
-                        # Try multiple approaches to move VAE to GPU
-                        print("5a. Attempting VAE GPU placement with multiple strategies...")
-                        
-                        # Strategy 1: Direct .to() call
-                        try:
-                            print("5a. Strategy 1: Direct first_stage_model.to('cuda:0')")
-                            vae.first_stage_model.to('cuda:0')
-                            vae.device = torch.device('cuda:0')
-                            
-                            # Verify placement
-                            first_stage_device = str(vae.first_stage_model.device)
-                            wrapper_device = str(vae.device)
-                            print(f"5a.   After Strategy 1 - Wrapper: {wrapper_device}, First_stage: {first_stage_device}")
-                            
-                            if 'cuda' in first_stage_device:
-                                print("5a.   ✅ Strategy 1 successful!")
-                            else:
-                                print("5a.   ❌ Strategy 1 failed, trying Strategy 2...")
-                                
-                                # Strategy 2: Force with error handling
-                                try:
-                                    print("5a. Strategy 2: Force GPU placement with error handling")
-                                    # Try to move with explicit device specification
-                                    vae.first_stage_model = vae.first_stage_model.to('cuda:0')
-                                    vae.device = torch.device('cuda:0')
-                                    
-                                    # Verify again
-                                    first_stage_device = str(vae.first_stage_model.device)
-                                    wrapper_device = str(vae.device)
-                                    print(f"5a.   After Strategy 2 - Wrapper: {wrapper_device}, First_stage: {first_stage_device}")
-                                    
-                                    if 'cuda' in first_stage_device:
-                                        print("5a.   ✅ Strategy 2 successful!")
-                                    else:
-                                        print("5a.   ❌ Strategy 2 failed, trying Strategy 3...")
-                                        
-                                        # Strategy 3: Check if there are any CUDA errors
-                                        try:
-                                            print("5a. Strategy 3: Checking for CUDA errors and trying alternative approach")
-                                            if torch.cuda.is_available():
-                                                # Try to create a test tensor on GPU to verify CUDA is working
-                                                test_tensor = torch.randn(1, device='cuda:0')
-                                                print(f"5a.   CUDA test tensor created successfully: {test_tensor.device}")
-                                                
-                                                # Try to move VAE with explicit error checking
-                                                print("5a.   Attempting VAE move with explicit error checking...")
-                                                vae.first_stage_model = vae.first_stage_model.cuda()
-                                                vae.device = torch.device('cuda:0')
-                                                
-                                                # Verify final placement
-                                                first_stage_device = str(vae.first_stage_model.device)
-                                                wrapper_device = str(vae.device)
-                                                print(f"5a.   After Strategy 3 - Wrapper: {wrapper_device}, First_stage: {first_stage_device}")
-                                                
-                                                if 'cuda' in first_stage_device:
-                                                    print("5a.   ✅ Strategy 3 successful!")
-                                                else:
-                                                    print("5a.   ❌ All strategies failed - VAE cannot be moved to GPU")
-                                                    print("5a.   🔍 This may indicate a VAE model issue or CUDA constraint")
-                                            else:
-                                                print("5a.   ❌ CUDA not available for Strategy 3")
-                                        except Exception as strategy3_error:
-                                            print(f"5a.   ❌ Strategy 3 failed with error: {strategy3_error}")
-                                            print("5a.   🔍 VAE GPU placement failed - will use CPU fallback")
-                                        
-                                except Exception as strategy2_error:
-                                    print(f"5a.   ❌ Strategy 2 failed with error: {strategy2_error}")
-                                    print("5a.   🔍 VAE GPU placement failed - will use CPU fallback")
-                                    
-                        except Exception as strategy1_error:
-                            print(f"5a.   ❌ Strategy 1 failed with error: {strategy1_error}")
-                            print("5a.   🔍 VAE GPU placement failed - will use CPU fallback")
-                        
-                        # Final verification
-                        first_stage_device = str(vae.first_stage_model.device)
-                        wrapper_device = str(vae.device)
-                        print(f"5a. Final VAE device status:")
-                        print(f"5a.   Wrapper: {wrapper_device}")
-                        print(f"5a.   First_stage: {first_stage_device}")
-                        
-                        # Diagnostic information about VAE model
-                        if first_stage_device != wrapper_device or 'cuda' not in first_stage_device:
-                            print("5a. 🔍 DIAGNOSTIC: VAE GPU placement failed, investigating...")
-                            print(f"5a.   VAE type: {type(vae)}")
-                            print(f"5a.   VAE first_stage_model type: {type(vae.first_stage_model)}")
-                            
-                            # Check if VAE has any device constraints
-                            if hasattr(vae, 'device'):
-                                print(f"5a.   VAE.device attribute: {vae.device}")
-                            if hasattr(vae, 'offload_device'):
-                                print(f"5a.   VAE.offload_device: {vae.offload_device}")
-                            if hasattr(vae, 'current_device'):
-                                print(f"5a.   VAE.current_device: {vae.current_device}")
-                            
-                            # Check first_stage_model properties
-                            if hasattr(vae.first_stage_model, 'device'):
-                                print(f"5a.   first_stage_model.device: {vae.first_stage_model.device}")
-                            if hasattr(vae.first_stage_model, 'dtype'):
-                                print(f"5a.   first_stage_model.dtype: {vae.first_stage_model.dtype}")
-                            if hasattr(vae.first_stage_model, 'requires_grad'):
-                                print(f"5a.   first_stage_model.requires_grad: {vae.first_stage_model.requires_grad}")
-                            
-                            # Try to understand why .to() is not working
-                            print("5a.   🔍 Attempting to understand .to() behavior...")
-                            try:
-                                # Check if the model has any parameters
-                                if hasattr(vae.first_stage_model, 'parameters'):
-                                    param_count = sum(p.numel() for p in vae.first_stage_model.parameters())
-                                    print(f"5a.   first_stage_model parameter count: {param_count:,}")
-                                    
-                                    # Check first few parameter devices
-                                    for i, param in enumerate(vae.first_stage_model.parameters()):
-                                        if i < 3:  # Show first 3 parameters
-                                            print(f"5a.     Param {i} device: {param.device}, shape: {param.shape}")
-                                        else:
-                                            break
-                                else:
-                                    print("5a.   first_stage_model has no parameters() method")
-                            except Exception as diag_error:
-                                print(f"5a.   ❌ Diagnostic failed: {diag_error}")
-                        
-                        if first_stage_device == wrapper_device and 'cuda' in first_stage_device:
-                            print("5a.   ✅ VAE successfully synchronized on GPU")
-                        else:
-                            print("5a.   ⚠️  VAE device attributes are NOT synchronized!")
-                            print("5a.   🔧 Attempting to force synchronization...")
-                            # Force synchronization by moving both to GPU
-                            try:
-                                vae.first_stage_model.to('cuda:0')
-                                vae.device = torch.device('cuda:0')
-                                # Verify again
-                                first_stage_device = str(vae.first_stage_model.device)
-                                wrapper_device = str(vae.device)
-                                print(f"5a.   After force sync - Wrapper: {wrapper_device}, First_stage: {first_stage_device}")
-                            except Exception as sync_error:
-                                print(f"5a.   ❌ Force sync failed: {sync_error}")
-                                
-                            # If all attempts fail, accept CPU placement and adjust strategy
-                            if 'cuda' not in str(vae.first_stage_model.device):
-                                print("5a.   🔄 ACCEPTING CPU PLACEMENT: VAE will operate on CPU")
-                                print("5a.   📋 Strategy adjustment: Will use CPU-based VAE encoding")
-                                
-                                # Ensure both attributes are synchronized on CPU
-                                try:
-                                    vae.first_stage_model.to('cpu')
-                                    vae.device = torch.device('cpu')
-                                    print("5a.   ✅ VAE synchronized on CPU")
-                                except Exception as cpu_sync_error:
-                                    print(f"5a.   ⚠️  CPU sync failed: {cpu_sync_error}")
-                                
-                                # Set flag for CPU-based processing
-                                use_cpu_fallback = True
-                                print("5a.   🎯 CPU fallback strategy activated due to VAE placement constraints")
-                    else:
-                        print("5a. ⚠️  Cannot move VAE to GPU (no first_stage_model)")
-            
-            # GPU CAPABILITY TEST FOR VAE ENCODING
-            print("5a. 🧪 GPU CAPABILITY TEST FOR VAE ENCODING...")
-            print("5a. Testing GPU's ability to handle VAE operations before proceeding...")
-            
-            gpu_capable = False
-            test_results = {}
-            
-            if torch.cuda.is_available() and not use_cpu_fallback:
-                try:
-                    # Test 1: Basic VRAM availability
-                    print("5a. Test 1: Basic VRAM availability...")
-                    allocated = torch.cuda.memory_allocated() / 1024**3
-                    reserved = torch.cuda.memory_reserved() / 1024**3
-                    total = torch.cuda.get_device_properties(0).total_memory / 1024**3
-                    free = total - reserved
-                    
-                    test_results['vram_total'] = total
-                    test_results['vram_free'] = free
-                    test_results['vram_allocated'] = allocated
-                    test_results['vram_reserved'] = reserved
-                    
-                    print(f"5a.   Total VRAM: {total:.2f} GB")
-                    print(f"5a.   Free VRAM: {free:.2f} GB")
-                    print(f"5a.   Allocated: {allocated:.2f} GB")
-                    print(f"5a.   Reserved: {reserved:.2f} GB")
-                    
-                    if free < 2.0:  # Less than 2GB free
-                        print("5a.   ❌ FAIL: Insufficient free VRAM (< 2GB)")
-                        test_results['vram_test'] = False
-                    else:
-                        print("5a.   ✅ PASS: Sufficient free VRAM")
-                        test_results['vram_test'] = True
-                    
-                    # Test 2: Memory fragmentation check
-                    print("5a. Test 2: Memory fragmentation check...")
-                    fragmentation_ratio = allocated / total if total > 0 else 1.0
-                    test_results['fragmentation_ratio'] = fragmentation_ratio
-                    
-                    print(f"5a.   Fragmentation ratio: {fragmentation_ratio:.2%}")
-                    
-                    if fragmentation_ratio > 0.95:  # More than 95% allocated
-                        print("5a.   ❌ FAIL: Extreme memory fragmentation (>95%)")
-                        test_results['fragmentation_test'] = False
-                    elif fragmentation_ratio > 0.8:  # More than 80% allocated
-                        print("5a.   ⚠️  WARNING: High memory fragmentation (>80%)")
-                        test_results['fragmentation_test'] = False
-                    else:
-                        print("5a.   ✅ PASS: Acceptable memory fragmentation")
-                        test_results['fragmentation_test'] = True
-                    
-                    # Test 3: VAE model placement test
-                    print("5a. Test 3: VAE model placement test...")
-                    print(f"5a.   Current VAE device before test: {vae.device}")
-                    print(f"5a.   VAE first_stage_model device: {vae.first_stage_model.device if hasattr(vae, 'first_stage_model') else 'N/A'}")
-                    
-                    if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                        # Check if VAE is actually on GPU by checking both attributes
-                        vae_wrapper_device = str(vae.device)
-                        vae_first_stage_device = str(vae.first_stage_model.device)
-                        test_results['vae_device'] = f"wrapper:{vae_wrapper_device}, first_stage:{vae_first_stage_device}"
-                        
-                        # Both should be on GPU for the test to pass
-                        wrapper_on_gpu = 'cuda' in vae_wrapper_device
-                        first_stage_on_gpu = 'cuda' in vae_first_stage_device
-                        
-                        print(f"5a.   VAE wrapper on GPU: {wrapper_on_gpu} ({vae_wrapper_device})")
-                        print(f"5a.   VAE first_stage on GPU: {first_stage_on_gpu} ({vae_first_stage_device})")
-                        
-                        if wrapper_on_gpu and first_stage_on_gpu:
-                            print(f"5a.   ✅ PASS: VAE successfully on GPU")
-                            test_results['vae_placement_test'] = True
-                        elif wrapper_on_gpu and not first_stage_on_gpu:
-                            print(f"5a.   ❌ FAIL: VAE wrapper on GPU but first_stage_model on CPU")
-                            print(f"5a.   🔧 Attempting to fix first_stage_model placement...")
-                            try:
-                                vae.first_stage_model.to('cuda:0')
-                                vae_first_stage_device = str(vae.first_stage_model.device)
-                                print(f"5a.   After fix attempt: first_stage_model device: {vae_first_stage_device}")
-                                if 'cuda' in vae_first_stage_device:
-                                    print(f"5a.   ✅ PASS: VAE placement fixed and now on GPU")
-                                    test_results['vae_placement_test'] = True
-                                else:
-                                    print(f"5a.   ❌ FAIL: Could not move first_stage_model to GPU")
-                                    test_results['vae_placement_test'] = False
-                            except Exception as fix_error:
-                                print(f"5a.   ❌ FAIL: Error fixing VAE placement: {fix_error}")
-                                test_results['vae_placement_test'] = False
-                        elif not wrapper_on_gpu and first_stage_on_gpu:
-                            print(f"5a.   ❌ FAIL: VAE first_stage_model on GPU but wrapper on CPU")
-                            print(f"5a.   🔧 Attempting to fix wrapper placement...")
-                            try:
-                                vae.device = torch.device('cuda:0')
-                                vae_wrapper_device = str(vae.device)
-                                print(f"5a.   After fix attempt: wrapper device: {vae_wrapper_device}")
-                                if 'cuda' in vae_wrapper_device:
-                                    print(f"5a.   ✅ PASS: VAE placement fixed and now on GPU")
-                                    test_results['vae_placement_test'] = True
-                                else:
-                                    print(f"5a.   ❌ FAIL: Could not move wrapper to GPU")
-                                    test_results['vae_placement_test'] = False
-                            except Exception as fix_error:
-                                print(f"5a.   ❌ FAIL: Error fixing VAE placement: {fix_error}")
-                                test_results['vae_placement_test'] = False
-                        else:
-                            print(f"5a.   ❌ FAIL: VAE not on GPU (both wrapper and first_stage on CPU)")
-                            test_results['vae_placement_test'] = False
-                    else:
-                        print("5a.   ❌ FAIL: VAE does not support device placement")
-                        test_results['vae_placement_test'] = False
-                    
-                    # Test 4: Small tensor allocation test
-                    print("5a. Test 4: Small tensor allocation test...")
-                    try:
-                        # Try to allocate a small test tensor
-                        test_tensor = torch.randn((1, 3, 64, 64), device='cuda:0')
-                        test_tensor_size = test_tensor.numel() * test_tensor.element_size() / 1024**2
-                        print(f"5a.   ✅ PASS: Successfully allocated {test_tensor_size:.1f} MB test tensor")
-                        test_results['tensor_allocation_test'] = True
-                        
-                        # Clean up test tensor
-                        del test_tensor
-                        torch.cuda.empty_cache()
-                        
-                    except Exception as e:
-                        print(f"5a.   ❌ FAIL: Cannot allocate test tensor: {e}")
-                        test_results['tensor_allocation_test'] = False
-                    
-                    # Test 5: VAE memory estimation test
-                    print("5a. Test 5: VAE memory estimation test...")
-                    try:
-                        if hasattr(vae, 'memory_used_encode'):
-                            # Estimate memory for a small test input
-                            test_shape = (1, 3, 64, 64)
-                            
-                            # Try to call memory_used_encode with proper error handling
-                            try:
-                                estimated_memory = vae.memory_used_encode(test_shape, vae.vae_dtype) / 1024**2
-                                test_results['vae_memory_estimate'] = estimated_memory
-                                
-                                print(f"5a.   Estimated VAE memory for 64x64: {estimated_memory:.1f} MB")
-                                
-                                if estimated_memory < free * 1024:  # Convert GB to MB for comparison
-                                    print("5a.   ✅ PASS: VAE memory estimate fits in available VRAM")
-                                    test_results['vae_memory_test'] = True
-                                else:
-                                    print(f"5a.   ❌ FAIL: VAE memory estimate ({estimated_memory:.1f} MB) exceeds free VRAM ({free:.2f} GB)")
-                                    test_results['vae_memory_test'] = False
-                                    
-                            except Exception as memory_est_error:
-                                print(f"5a.   ⚠️  VAE memory estimation method failed: {memory_est_error}")
-                                print("5a.   🔧 Using fallback memory estimation...")
-                                
-                                # Fallback: estimate based on input size and typical VAE ratios
-                                input_pixels = test_shape[0] * test_shape[1] * test_shape[2] * test_shape[3]
-                                estimated_memory_mb = (input_pixels * 4 * 2) / (1024 * 1024)  # Rough estimate
-                                
-                                test_results['vae_memory_estimate'] = estimated_memory_mb
-                                print(f"5a.   Fallback estimate for 64x64: {estimated_memory_mb:.1f} MB")
-                                
-                                if estimated_memory_mb < free * 1024:
-                                    print("5a.   ✅ PASS: Fallback memory estimate fits in available VRAM")
-                                    test_results['vae_memory_test'] = True
-                                else:
-                                    print(f"5a.   ❌ FAIL: Fallback memory estimate ({estimated_memory_mb:.1f} MB) exceeds free VRAM ({free:.2f} GB)")
-                                    test_results['vae_memory_test'] = False
-                                    
-                        else:
-                            print("5a.   ⚠️  WARNING: VAE does not support memory estimation")
-                            print("5a.   🔧 Using fallback memory estimation...")
-                            
-                            # Fallback: estimate based on input size and typical VAE ratios
-                            test_shape = (1, 3, 64, 64)
-                            input_pixels = test_shape[0] * test_shape[1] * test_shape[2] * test_shape[3]
-                            estimated_memory_mb = (input_pixels * 4 * 2) / (1024 * 1024)  # Rough estimate
-                            
-                            test_results['vae_memory_estimate'] = estimated_memory_mb
-                            print(f"5a.   Fallback estimate for 64x64: {estimated_memory_mb:.1f} MB")
-                            
-                            if estimated_memory_mb < free * 1024:
-                                print("5a.   ✅ PASS: Fallback memory estimate fits in available VRAM")
-                                test_results['vae_memory_test'] = True
-                            else:
-                                print(f"5a.   ❌ FAIL: Fallback memory estimate ({estimated_memory_mb:.1f} MB) exceeds free VRAM ({free:.2f} GB)")
-                                test_results['vae_memory_test'] = False
-                                
-                    except Exception as e:
-                        print(f"5a.   ❌ FAIL: VAE memory estimation failed: {e}")
-                        print("5a.   🔧 Using fallback memory estimation...")
-                        
-                        # Final fallback: simple estimation
-                        test_shape = (1, 3, 64, 64)
-                        input_pixels = test_shape[0] * test_shape[1] * test_shape[2] * test_shape[3]
-                        estimated_memory_mb = (input_pixels * 4 * 2) / (1024 * 1024)
-                        
-                        test_results['vae_memory_estimate'] = estimated_memory_mb
-                        print(f"5a.   Final fallback estimate for 64x64: {estimated_memory_mb:.1f} MB")
-                        
-                        # Assume it fits if we can't determine otherwise
-                        test_results['vae_memory_test'] = True
-                        print("5a.   ✅ PASS: Assuming fallback estimate fits (cannot verify)")
-                    
-                    # Overall GPU capability assessment
-                    print("5a. 🎯 OVERALL GPU CAPABILITY ASSESSMENT...")
-                    
-                    # Count passed tests
-                    passed_tests = sum(1 for test, result in test_results.items() 
-                                     if test.endswith('_test') and result is True)
-                    total_tests = sum(1 for test, result in test_results.items() 
-                                    if test.endswith('_test') and result is not None)
-                    
-                    print(f"5a.   Tests passed: {passed_tests}/{total_tests}")
-                    
-                    # Determine GPU capability
-                    if passed_tests >= total_tests * 0.8:  # At least 80% of tests passed
-                        print("5a.   ✅ GPU CAPABLE: Sufficient capability for VAE encoding")
-                        gpu_capable = True
-                    elif passed_tests >= total_tests * 0.5:  # At least 50% of tests passed
-                        print("5a.   ⚠️  GPU MARGINAL: Limited capability, may need fallbacks")
-                        gpu_capable = True
-                    else:
-                        print("5a.   ❌ GPU INCAPABLE: Insufficient capability for VAE encoding")
-                        gpu_capable = False
-                    
-                    # Print detailed test results
-                    print("5a. 📊 DETAILED TEST RESULTS:")
-                    for test_name, result in test_results.items():
-                        if test_name.endswith('_test'):
-                            status = "✅ PASS" if result else "❌ FAIL"
-                            print(f"5a.   {test_name}: {status}")
-                        elif test_name in ['vram_total', 'vram_free', 'vram_allocated', 'vram_reserved']:
-                            print(f"5a.   {test_name}: {result:.2f} GB")
-                        elif test_name in ['fragmentation_ratio']:
-                            print(f"5a.   {test_name}: {result:.2%}")
-                        elif test_name in ['vae_memory_estimate']:
-                            print(f"5a.   {test_name}: {result:.1f} MB")
-                        elif test_name in ['vae_device']:
-                            print(f"5a.   {test_name}: {result}")
-                    
-                except Exception as test_error:
-                    print(f"5a. ❌ GPU capability test failed with error: {test_error}")
-                    print("5a. ⚠️  Assuming GPU is incapable, will use CPU fallback")
-                    gpu_capable = False
-                    test_results = {'error': str(test_error)}
-            else:
-                print("5a. ⚠️  Skipping GPU capability test (using CPU fallback)")
-                gpu_capable = False
-            
-            # Decision making based on test results
-            print("5a. 🎯 STRATEGY DECISION BASED ON GPU CAPABILITY TEST...")
-            
-            if gpu_capable:
-                print("5a. ✅ GPU is capable - proceeding with GPU-based VAE encoding")
-                use_cpu_fallback = False
-            else:
-                print("5a. ❌ GPU is not capable - using CPU fallback strategy")
-                use_cpu_fallback = True
-                
-                # Move VAE to CPU for CPU fallback
-                if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                    print("5a. Moving VAE to CPU for CPU fallback...")
-                    vae.first_stage_model.to('cpu')
-                    vae.device = torch.device('cpu')
-            
-            # OOM Checklist: Record GPU capability test results
-            if torch.cuda.is_available():
-                test_memory_allocated = torch.cuda.memory_allocated() / 1024**2
-                test_memory_reserved = torch.cuda.memory_reserved() / 1024**2
-                
-                self.oom_checklist['gpu_capability_test'] = {
-                    'allocated_mb': test_memory_allocated,
-                    'reserved_mb': test_memory_reserved,
-                    'timestamp': 'gpu_capability_test',
-                    'gpu_capable': gpu_capable,
-                    'test_results': test_results,
-                    'status': 'PASS' if test_memory_allocated <= 1000 else 'FAIL'
-                }
-                
-                print(f"5a. GPU capability test memory: {test_memory_allocated:.1f} MB allocated, {test_memory_reserved:.1f} MB reserved")
-            else:
-                self.oom_checklist['gpu_capability_test'] = {
-                    'allocated_mb': 0,
-                    'reserved_mb': 0,
-                    'timestamp': 'gpu_capability_test',
-                    'gpu_capable': False,
-                    'test_results': {'error': 'CUDA not available'},
-                    'status': 'SKIP'
-                }
-            
-            # Aggressive memory cleanup before VAE operations
-            print("5a. Aggressive memory cleanup before VAE operations...")
-            import gc
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.ipc_collect()
-                print(f"5a. Memory after cleanup: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
+            # Simplified VAE encoding strategy - let ComfyUI handle everything
+            print("5a. 🎯 SIMPLIFIED VAE ENCODING STRATEGY")
+            print("5a. Letting ComfyUI's VAE handle device placement and memory management automatically")
             
             # Check memory before VAE encoding starts
             print("5a. Checking memory before VAE encoding...")
@@ -1062,11 +477,6 @@ class ReferenceVideoPipeline:
                         # Use ComfyUI's tiled encoding directly
                         print("5a. Using VAE.encode_tiled() for memory-efficient processing")
                         
-                        # Ensure VAE is on GPU for tiled processing
-                        if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                            vae.first_stage_model.to('cuda:0')
-                            vae.device = torch.device('cuda:0')
-                        
                         # Use ComfyUI's tiled encoding with optimal tile sizes
                         if hasattr(vae, 'encode_tiled'):
                             # For video (3D), use optimal tile sizes
@@ -1081,20 +491,20 @@ class ReferenceVideoPipeline:
                             print(f"5a. Generated latent shape: {init_latent.shape}")
                             
                             # Create dummy positive/negative conditions for compatibility
-                            # (These would normally come from text encoding)
-                            # ComfyUI expects: [tensor, tensor, tensor, ...] format
+                            # ComfyUI expects: [(tensor, dict)] format from CLIPTextEncode
                             print("5a. Creating proper dummy CLIP conditions for ComfyUI compatibility...")
                             
                             # Create dummy CLIP embeddings in the correct format
-                            # Each condition should be a list containing tensors
+                            # Format: [(tensor, dict)] - ComfyUI expects this format
                             dummy_embedding = torch.randn((1, 77, 1280))  # Dummy CLIP embedding
+                            dummy_dict = {}  # Empty dict as expected by ComfyUI
                             
-                            # Format: [tensor, tensor, tensor, ...] - ComfyUI expects this format
-                            positive_cond = [dummy_embedding]
-                            negative_cond = [dummy_embedding]
+                            # Format: [(tensor, dict)] - ComfyUI expects this format
+                            positive_cond = [(dummy_embedding, dummy_dict)]
+                            negative_cond = [(dummy_embedding, dummy_dict)]
                             
-                            print(f"5a. Created dummy conditions: positive={len(positive_cond)} tensors, negative={len(negative_cond)} tensors")
-                            print(f"5a. Each tensor shape: {dummy_embedding.shape}")
+                            print(f"5a. Created dummy conditions: positive={len(positive_cond)} tuples, negative={len(negative_cond)} tuples")
+                            print(f"5a. Each tuple format: (tensor, dict) where tensor shape: {dummy_embedding.shape}")
                             
                             trim_count = 0
                         else:
@@ -1109,12 +519,6 @@ class ReferenceVideoPipeline:
                     try:
                         print("5a. Strategy 3: CPU Fallback - processing on CPU")
                         print("5a. This is the last resort when GPU memory is completely fragmented")
-                        
-                        # Move VAE to CPU for processing
-                        if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                            print("5a. Moving VAE to CPU for fallback processing...")
-                            vae.first_stage_model.to('cpu')
-                            vae.device = torch.device('cpu')
                         
                         # Create minimal tensors for CPU processing
                         minimal_width, minimal_height = 64, 36
@@ -1149,13 +553,6 @@ class ReferenceVideoPipeline:
                         del control_video_minimal, reference_image_minimal
                         gc.collect()
                         
-                        # Move VAE back to GPU for later operations
-                        if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                            print("5a. Moving VAE back to GPU for later operations...")
-                            vae.first_stage_model.to('cuda:0')
-                            vae.device = torch.device('cuda:0')
-                            print(f"5a. VAE moved back to: {vae.device}")
-                        
                     except Exception as cpu_error:
                         print(f"5a. ❌ CRITICAL FAILURE: All VAE encoding strategies failed!")
                         print(f"5a. Final error: {cpu_error}")
@@ -1170,63 +567,19 @@ class ReferenceVideoPipeline:
                         # Create dummy conditions in ComfyUI-compatible format
                         print("5a. Creating proper dummy CLIP conditions for ComfyUI compatibility...")
                         dummy_embedding = torch.randn((1, 77, 1280))  # Dummy CLIP embedding
+                        dummy_dict = {}  # Empty dict as expected by ComfyUI
                         
-                        # Format: [tensor, tensor, tensor, ...] - ComfyUI expects this format
-                        positive_cond = [dummy_embedding]
-                        negative_cond = [dummy_embedding]
+                        # Format: [(tensor, dict)] - ComfyUI expects this format
+                        positive_cond = [(dummy_embedding, dummy_dict)]
+                        negative_cond = [(dummy_embedding, dummy_dict)]
                         
-                        print(f"5a. Created dummy conditions: positive={len(positive_cond)} tensors, negative={len(negative_cond)} tensors")
-                        print(f"5a. Each tensor shape: {dummy_embedding.shape}")
+                        print(f"5a. Created dummy conditions: positive={len(positive_cond)} tuples, negative={len(negative_cond)} tuples")
+                        print(f"5a. Each tuple format: (tensor, dict) where tensor shape: {dummy_embedding.shape}")
                         
                         trim_count = 0
                         
                         print(f"5a. Created dummy latent shape: {init_latent.shape}")
                         print("5a. ⚠️  WARNING: Using dummy latents - output quality will be poor!")
-                        
-                        # Move VAE back to GPU
-                        if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                            vae.first_stage_model.to('cuda:0')
-                            vae.device = torch.device('cuda:0')
-                            
-                            # Verify synchronization after moving back to GPU
-                            first_stage_device = str(vae.first_stage_model.device)
-                            wrapper_device = str(vae.device)
-                            print(f"5a. VAE device sync check after GPU move:")
-                            print(f"5a.   Wrapper: {wrapper_device}, First_stage: {first_stage_device}")
-                            if first_stage_device == wrapper_device and 'cuda' in first_stage_device:
-                                print("5a.   ✅ VAE successfully synchronized on GPU")
-                            else:
-                                print("5a.   ⚠️  VAE device attributes are NOT synchronized!")
-                                print("5a.   🔧 Attempting to force synchronization...")
-                                # Force both to GPU
-                                try:
-                                    vae.first_stage_model.to('cuda:0')
-                                    vae.device = torch.device('cuda:0')
-                                    # Verify again
-                                    first_stage_device = str(vae.first_stage_model.device)
-                                    wrapper_device = str(vae.device)
-                                    print(f"5a.   After force sync - Wrapper: {wrapper_device}, First_stage: {first_stage_device}")
-                                except Exception as sync_error:
-                                    print(f"5a.   ❌ Force sync failed: {sync_error}")
-                                
-                                # If all attempts fail, accept CPU placement and adjust strategy
-                                if 'cuda' not in str(vae.first_stage_model.device):
-                                    print("5a.   🔄 ACCEPTING CPU PLACEMENT: VAE will operate on CPU")
-                                    print("5a.   📋 Strategy adjustment: Will use CPU-based VAE encoding")
-                                    
-                                    # Ensure both attributes are synchronized on CPU
-                                    try:
-                                        vae.first_stage_model.to('cpu')
-                                        vae.device = torch.device('cpu')
-                                        print("5a.   ✅ VAE synchronized on CPU")
-                                    except Exception as cpu_sync_error:
-                                        print(f"5a.   ⚠️  CPU sync failed: {cpu_sync_error}")
-                                    
-                                    # Set flag for CPU-based processing
-                                    use_cpu_fallback = True
-                                    print("5a.   🎯 CPU fallback strategy activated due to VAE placement constraints")
-                        else:
-                            print("5a. ⚠️  Cannot move VAE to GPU (no first_stage_model)")
             
             # Extract the actual latent tensor from the dictionary
             if isinstance(init_latent, dict) and "samples" in init_latent:
@@ -1242,26 +595,9 @@ class ReferenceVideoPipeline:
             # OOM Checklist: Check memory after VAE encoding execution
             self._check_memory_usage('vae_encoding_complete', expected_threshold=8000)
             
-            # After VAE encoding, explicitly manage VAE memory
+            # After VAE encoding, let ComfyUI handle VAE memory management
             print("5b. VAE encoding complete")
-            print("5b. Explicitly managing VAE memory...")
-            
-            # Force VAE to CPU after encoding to free GPU memory
-            if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                print("5b. Moving VAE to CPU after encoding...")
-                vae.first_stage_model.to('cpu')
-                vae.device = torch.device('cpu')
-                print(f"5b. VAE moved to: {vae.device}")
-                
-                # Force cleanup after moving VAE to CPU
-                import gc
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                    torch.cuda.ipc_collect()
-                    print(f"5b. Memory after VAE CPU move: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
-            else:
-                print("5b. ⚠️  Cannot move VAE to CPU (no first_stage_model)")
+            print("5b. ComfyUI's VAE ModelPatcher will handle memory management automatically")
             
             # 6. Run KSampler
             print("6. Running KSampler...")
@@ -1383,12 +719,8 @@ class ReferenceVideoPipeline:
             
             # Ensure VAE is on GPU for decoding
             print("8a. Ensuring VAE is on GPU for decoding...")
-            if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                vae.first_stage_model.to('cuda:0')
-                vae.device = torch.device('cuda:0')
-                print(f"8a. VAE moved to: {vae.device}")
-            else:
-                print("8a. ⚠️  Cannot move VAE to GPU")
+            print("8a. Letting ComfyUI's VAE ModelPatcher handle device placement automatically...")
+            print("8a. VAE will be moved to GPU when needed for decoding operations")
             
             print("8a. VAE is ready for decoding...")
             
@@ -1559,13 +891,9 @@ class ReferenceVideoPipeline:
                 print(f"Final cleanup: CLIP moved to {clip_model.patcher.offload_device}")
             
             # 3. Cleanup VAE
-            print("Final cleanup: Moving VAE to CPU...")
-            if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                vae.first_stage_model.to('cpu')
-                vae.device = torch.device('cpu')
-                print("Final cleanup: VAE moved to CPU")
-            else:
-                print("Final cleanup: ⚠️  Cannot move VAE to CPU (no first_stage_model)")
+            print("Final cleanup: VAE memory management...")
+            print("Final cleanup: ComfyUI's VAE ModelPatcher will handle device placement automatically")
+            print("Final cleanup: No manual VAE device management needed")
             
             # 4. Force final cleanup
             import gc
