@@ -538,46 +538,195 @@ class ReferenceVideoPipeline:
                             if first_stage_device == wrapper_device and 'cuda' in first_stage_device:
                                 print("5a.   ✅ VAE successfully synchronized on GPU")
                             else:
-                                print("5a.   ⚠️  VAE device attributes not synchronized on GPU")
+                                print("5a.   ⚠️  VAE device attributes are NOT synchronized!")
                                 print("5a.   🔧 Attempting to force synchronization...")
                                 # Force both to GPU
-                                vae.first_stage_model.to('cuda:0')
-                                vae.device = torch.device('cuda:0')
-                                # Verify again
-                                first_stage_device = str(vae.first_stage_model.device)
-                                wrapper_device = str(vae.device)
-                                print(f"5a.   After force sync - Wrapper: {wrapper_device}, First_stage: {first_stage_device}")
-                        else:
-                            print("5a. ⚠️  Cannot move VAE to GPU (no first_stage_model)")
+                                try:
+                                    vae.first_stage_model.to('cuda:0')
+                                    vae.device = torch.device('cuda:0')
+                                    # Verify again
+                                    first_stage_device = str(vae.first_stage_model.device)
+                                    wrapper_device = str(vae.device)
+                                    print(f"5a.   After force sync - Wrapper: {wrapper_device}, First_stage: {first_stage_device}")
+                                except Exception as sync_error:
+                                    print(f"5a.   ❌ Force sync failed: {sync_error}")
+                                
+                                # If all attempts fail, accept CPU placement and adjust strategy
+                                if 'cuda' not in str(vae.first_stage_model.device):
+                                    print("5a.   🔄 ACCEPTING CPU PLACEMENT: VAE will operate on CPU")
+                                    print("5a.   📋 Strategy adjustment: Will use CPU-based VAE encoding")
+                                    
+                                    # Ensure both attributes are synchronized on CPU
+                                    try:
+                                        vae.first_stage_model.to('cpu')
+                                        vae.device = torch.device('cpu')
+                                        print("5a.   ✅ VAE synchronized on CPU")
+                                    except Exception as cpu_sync_error:
+                                        print(f"5a.   ⚠️  CPU sync failed: {cpu_sync_error}")
+                                    
+                                    # Set flag for CPU-based processing
+                                    use_cpu_fallback = True
+                                    print("5a.   🎯 CPU fallback strategy activated due to VAE placement constraints")
                 else:
                     use_cpu_fallback = False
                     
                     # Ensure VAE is on GPU for testing (if not using CPU fallback)
                     if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
                         print("5a. Ensuring VAE is on GPU for capability testing...")
-                        vae.first_stage_model.to('cuda:0')
-                        vae.device = torch.device('cuda:0')
-                        print(f"5a. VAE moved to: {vae.device}")
                         
-                        # Verify both device attributes are synchronized
+                        # Try multiple approaches to move VAE to GPU
+                        print("5a. Attempting VAE GPU placement with multiple strategies...")
+                        
+                        # Strategy 1: Direct .to() call
+                        try:
+                            print("5a. Strategy 1: Direct first_stage_model.to('cuda:0')")
+                            vae.first_stage_model.to('cuda:0')
+                            vae.device = torch.device('cuda:0')
+                            
+                            # Verify placement
+                            first_stage_device = str(vae.first_stage_model.device)
+                            wrapper_device = str(vae.device)
+                            print(f"5a.   After Strategy 1 - Wrapper: {wrapper_device}, First_stage: {first_stage_device}")
+                            
+                            if 'cuda' in first_stage_device:
+                                print("5a.   ✅ Strategy 1 successful!")
+                            else:
+                                print("5a.   ❌ Strategy 1 failed, trying Strategy 2...")
+                                
+                                # Strategy 2: Force with error handling
+                                try:
+                                    print("5a. Strategy 2: Force GPU placement with error handling")
+                                    # Try to move with explicit device specification
+                                    vae.first_stage_model = vae.first_stage_model.to('cuda:0')
+                                    vae.device = torch.device('cuda:0')
+                                    
+                                    # Verify again
+                                    first_stage_device = str(vae.first_stage_model.device)
+                                    wrapper_device = str(vae.device)
+                                    print(f"5a.   After Strategy 2 - Wrapper: {wrapper_device}, First_stage: {first_stage_device}")
+                                    
+                                    if 'cuda' in first_stage_device:
+                                        print("5a.   ✅ Strategy 2 successful!")
+                                    else:
+                                        print("5a.   ❌ Strategy 2 failed, trying Strategy 3...")
+                                        
+                                        # Strategy 3: Check if there are any CUDA errors
+                                        try:
+                                            print("5a. Strategy 3: Checking for CUDA errors and trying alternative approach")
+                                            if torch.cuda.is_available():
+                                                # Try to create a test tensor on GPU to verify CUDA is working
+                                                test_tensor = torch.randn(1, device='cuda:0')
+                                                print(f"5a.   CUDA test tensor created successfully: {test_tensor.device}")
+                                                
+                                                # Try to move VAE with explicit error checking
+                                                print("5a.   Attempting VAE move with explicit error checking...")
+                                                vae.first_stage_model = vae.first_stage_model.cuda()
+                                                vae.device = torch.device('cuda:0')
+                                                
+                                                # Verify final placement
+                                                first_stage_device = str(vae.first_stage_model.device)
+                                                wrapper_device = str(vae.device)
+                                                print(f"5a.   After Strategy 3 - Wrapper: {wrapper_device}, First_stage: {first_stage_device}")
+                                                
+                                                if 'cuda' in first_stage_device:
+                                                    print("5a.   ✅ Strategy 3 successful!")
+                                                else:
+                                                    print("5a.   ❌ All strategies failed - VAE cannot be moved to GPU")
+                                                    print("5a.   🔍 This may indicate a VAE model issue or CUDA constraint")
+                                            else:
+                                                print("5a.   ❌ CUDA not available for Strategy 3")
+                                        except Exception as strategy3_error:
+                                            print(f"5a.   ❌ Strategy 3 failed with error: {strategy3_error}")
+                                            print("5a.   🔍 VAE GPU placement failed - will use CPU fallback")
+                                        
+                                except Exception as strategy2_error:
+                                    print(f"5a.   ❌ Strategy 2 failed with error: {strategy2_error}")
+                                    print("5a.   🔍 VAE GPU placement failed - will use CPU fallback")
+                                    
+                        except Exception as strategy1_error:
+                            print(f"5a.   ❌ Strategy 1 failed with error: {strategy1_error}")
+                            print("5a.   🔍 VAE GPU placement failed - will use CPU fallback")
+                        
+                        # Final verification
                         first_stage_device = str(vae.first_stage_model.device)
                         wrapper_device = str(vae.device)
-                        print(f"5a. Device synchronization check:")
-                        print(f"5a.   VAE wrapper device: {wrapper_device}")
-                        print(f"5a.   VAE first_stage_model device: {first_stage_device}")
+                        print(f"5a. Final VAE device status:")
+                        print(f"5a.   Wrapper: {wrapper_device}")
+                        print(f"5a.   First_stage: {first_stage_device}")
+                        
+                        # Diagnostic information about VAE model
+                        if first_stage_device != wrapper_device or 'cuda' not in first_stage_device:
+                            print("5a. 🔍 DIAGNOSTIC: VAE GPU placement failed, investigating...")
+                            print(f"5a.   VAE type: {type(vae)}")
+                            print(f"5a.   VAE first_stage_model type: {type(vae.first_stage_model)}")
+                            
+                            # Check if VAE has any device constraints
+                            if hasattr(vae, 'device'):
+                                print(f"5a.   VAE.device attribute: {vae.device}")
+                            if hasattr(vae, 'offload_device'):
+                                print(f"5a.   VAE.offload_device: {vae.offload_device}")
+                            if hasattr(vae, 'current_device'):
+                                print(f"5a.   VAE.current_device: {vae.current_device}")
+                            
+                            # Check first_stage_model properties
+                            if hasattr(vae.first_stage_model, 'device'):
+                                print(f"5a.   first_stage_model.device: {vae.first_stage_model.device}")
+                            if hasattr(vae.first_stage_model, 'dtype'):
+                                print(f"5a.   first_stage_model.dtype: {vae.first_stage_model.dtype}")
+                            if hasattr(vae.first_stage_model, 'requires_grad'):
+                                print(f"5a.   first_stage_model.requires_grad: {vae.first_stage_model.requires_grad}")
+                            
+                            # Try to understand why .to() is not working
+                            print("5a.   🔍 Attempting to understand .to() behavior...")
+                            try:
+                                # Check if the model has any parameters
+                                if hasattr(vae.first_stage_model, 'parameters'):
+                                    param_count = sum(p.numel() for p in vae.first_stage_model.parameters())
+                                    print(f"5a.   first_stage_model parameter count: {param_count:,}")
+                                    
+                                    # Check first few parameter devices
+                                    for i, param in enumerate(vae.first_stage_model.parameters()):
+                                        if i < 3:  # Show first 3 parameters
+                                            print(f"5a.     Param {i} device: {param.device}, shape: {param.shape}")
+                                        else:
+                                            break
+                                else:
+                                    print("5a.   first_stage_model has no parameters() method")
+                            except Exception as diag_error:
+                                print(f"5a.   ❌ Diagnostic failed: {diag_error}")
                         
                         if first_stage_device == wrapper_device and 'cuda' in first_stage_device:
-                            print("5a.   ✅ VAE device attributes are synchronized on GPU")
+                            print("5a.   ✅ VAE successfully synchronized on GPU")
                         else:
                             print("5a.   ⚠️  VAE device attributes are NOT synchronized!")
                             print("5a.   🔧 Attempting to force synchronization...")
                             # Force synchronization by moving both to GPU
-                            vae.first_stage_model.to('cuda:0')
-                            vae.device = torch.device('cuda:0')
-                            # Verify again
-                            first_stage_device = str(vae.first_stage_model.device)
-                            wrapper_device = str(vae.device)
-                            print(f"5a.   After sync - wrapper: {wrapper_device}, first_stage: {first_stage_device}")
+                            try:
+                                vae.first_stage_model.to('cuda:0')
+                                vae.device = torch.device('cuda:0')
+                                # Verify again
+                                first_stage_device = str(vae.first_stage_model.device)
+                                wrapper_device = str(vae.device)
+                                print(f"5a.   After force sync - Wrapper: {wrapper_device}, First_stage: {first_stage_device}")
+                            except Exception as sync_error:
+                                print(f"5a.   ❌ Force sync failed: {sync_error}")
+                                
+                            # If all attempts fail, accept CPU placement and adjust strategy
+                            if 'cuda' not in str(vae.first_stage_model.device):
+                                print("5a.   🔄 ACCEPTING CPU PLACEMENT: VAE will operate on CPU")
+                                print("5a.   📋 Strategy adjustment: Will use CPU-based VAE encoding")
+                                
+                                # Ensure both attributes are synchronized on CPU
+                                try:
+                                    vae.first_stage_model.to('cpu')
+                                    vae.device = torch.device('cpu')
+                                    print("5a.   ✅ VAE synchronized on CPU")
+                                except Exception as cpu_sync_error:
+                                    print(f"5a.   ⚠️  CPU sync failed: {cpu_sync_error}")
+                                
+                                # Set flag for CPU-based processing
+                                use_cpu_fallback = True
+                                print("5a.   🎯 CPU fallback strategy activated due to VAE placement constraints")
                     else:
                         print("5a. ⚠️  Cannot move VAE to GPU (no first_stage_model)")
             
@@ -1047,15 +1196,35 @@ class ReferenceVideoPipeline:
                             if first_stage_device == wrapper_device and 'cuda' in first_stage_device:
                                 print("5a.   ✅ VAE successfully synchronized on GPU")
                             else:
-                                print("5a.   ⚠️  VAE device attributes not synchronized on GPU")
+                                print("5a.   ⚠️  VAE device attributes are NOT synchronized!")
                                 print("5a.   🔧 Attempting to force synchronization...")
                                 # Force both to GPU
-                                vae.first_stage_model.to('cuda:0')
-                                vae.device = torch.device('cuda:0')
-                                # Verify again
-                                first_stage_device = str(vae.first_stage_model.device)
-                                wrapper_device = str(vae.device)
-                                print(f"5a.   After force sync - Wrapper: {wrapper_device}, First_stage: {first_stage_device}")
+                                try:
+                                    vae.first_stage_model.to('cuda:0')
+                                    vae.device = torch.device('cuda:0')
+                                    # Verify again
+                                    first_stage_device = str(vae.first_stage_model.device)
+                                    wrapper_device = str(vae.device)
+                                    print(f"5a.   After force sync - Wrapper: {wrapper_device}, First_stage: {first_stage_device}")
+                                except Exception as sync_error:
+                                    print(f"5a.   ❌ Force sync failed: {sync_error}")
+                                
+                                # If all attempts fail, accept CPU placement and adjust strategy
+                                if 'cuda' not in str(vae.first_stage_model.device):
+                                    print("5a.   🔄 ACCEPTING CPU PLACEMENT: VAE will operate on CPU")
+                                    print("5a.   📋 Strategy adjustment: Will use CPU-based VAE encoding")
+                                    
+                                    # Ensure both attributes are synchronized on CPU
+                                    try:
+                                        vae.first_stage_model.to('cpu')
+                                        vae.device = torch.device('cpu')
+                                        print("5a.   ✅ VAE synchronized on CPU")
+                                    except Exception as cpu_sync_error:
+                                        print(f"5a.   ⚠️  CPU sync failed: {cpu_sync_error}")
+                                    
+                                    # Set flag for CPU-based processing
+                                    use_cpu_fallback = True
+                                    print("5a.   🎯 CPU fallback strategy activated due to VAE placement constraints")
                         else:
                             print("5a. ⚠️  Cannot move VAE to GPU (no first_stage_model)")
             
