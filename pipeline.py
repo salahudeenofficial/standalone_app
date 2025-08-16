@@ -38,7 +38,7 @@ class ReferenceVideoPipeline:
     
     Memory Management Philosophy (explicit ModelPatcher control):
     - UNET models: Explicitly managed using ModelPatcher.unpatch_model(device_to=offload_device)
-    - VAE models: Explicitly moved to CPU after operations using vae.first_stage_model.to('cpu')
+    - VAE models: Moved to GPU for operations, then to CPU for memory management
     - CLIP models: Explicitly managed using clip.patcher.unpatch_model(device_to=offload_device)
     - All memory management: Explicit control using proven ModelPatcher methods
     
@@ -240,7 +240,7 @@ class ReferenceVideoPipeline:
         This pipeline now uses explicit ModelPatcher memory management (same as working test):
         - All models are loaded using ComfyUI's native functions
         - ModelPatcher explicitly manages UNET/CLIP memory with device_to=offload_device
-        - VAE explicitly moved to CPU after operations via first_stage_model.to('cpu')
+        - VAE moved to GPU for operations, then to CPU for memory management
         - Explicit memory management calls using proven working logic
         """
         print("Starting Reference Video Pipeline...")
@@ -406,14 +406,14 @@ class ReferenceVideoPipeline:
             print("5a. VAE automatically manages memory during encode()/decode()")
             print("5a. VAE will be loaded to GPU for encoding, then offloaded to CPU")
             
-            # Pre-emptive VAE memory management - ensure VAE starts on CPU
+            # Pre-emptive VAE memory management - ensure VAE is on GPU for encoding
             if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                print("5a. Pre-emptively moving VAE to CPU before encoding...")
-                vae.first_stage_model.to('cpu')
-                vae.device = torch.device('cpu')
+                print("5a. Ensuring VAE is on GPU for encoding...")
+                vae.first_stage_model.to('cuda:0')
+                vae.device = torch.device('cuda:0')
                 print(f"5a. VAE moved to: {vae.device}")
             else:
-                print("5a. ⚠️  Cannot pre-emptively move VAE to CPU")
+                print("5a. ⚠️  Cannot move VAE to GPU")
             
             # Aggressive memory cleanup before VAE operations
             print("5a. Aggressive memory cleanup before VAE operations...")
@@ -521,24 +521,22 @@ class ReferenceVideoPipeline:
             print("5b. VAE encoding complete")
             print("5b. Explicitly managing VAE memory...")
             
-            # VAE should automatically offload, but let's verify and force if needed
-            if hasattr(vae, 'device'):
-                current_device = vae.device
-                print(f"5b. VAE current device: {current_device}")
+            # Force VAE to CPU after encoding to free GPU memory
+            if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                print("5b. Moving VAE to CPU after encoding...")
+                vae.first_stage_model.to('cpu')
+                vae.device = torch.device('cpu')
+                print(f"5b. VAE moved to: {vae.device}")
                 
-                # If VAE is still on GPU, force it to CPU via first_stage_model
-                if str(current_device) != 'cpu':
-                    print("5b. VAE still on GPU, forcing to CPU...")
-                    if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                        vae.first_stage_model.to('cpu')
-                        vae.device = torch.device('cpu')
-                        print(f"5b. VAE moved to: {vae.device}")
-                    else:
-                        print("5b. ⚠️  Cannot move VAE to CPU (no first_stage_model)")
-                else:
-                    print("5b. ✅ VAE already on CPU")
+                # Force cleanup after moving VAE to CPU
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.ipc_collect()
+                    print(f"5b. Memory after VAE CPU move: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
             else:
-                print("5b. ⚠️  Cannot determine VAE device, assuming automatic management")
+                print("5b. ⚠️  Cannot move VAE to CPU (no first_stage_model)")
             
             # 6. Run KSampler
             print("6. Running KSampler...")
@@ -658,7 +656,15 @@ class ReferenceVideoPipeline:
                 processing_plan['vae_decode']['num_chunks'] = (length + optimal_decode_chunk_size - 1) // optimal_decode_chunk_size
                 print(f"8a. Updated decoding plan: {processing_plan['vae_decode']['num_chunks']} chunks of size {optimal_decode_chunk_size}")
             
-            # VAE should now be available for decoding
+            # Ensure VAE is on GPU for decoding
+            print("8a. Ensuring VAE is on GPU for decoding...")
+            if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                vae.first_stage_model.to('cuda:0')
+                vae.device = torch.device('cuda:0')
+                print(f"8a. VAE moved to: {vae.device}")
+            else:
+                print("8a. ⚠️  Cannot move VAE to GPU")
+            
             print("8a. VAE is ready for decoding...")
             
             vae_decoder = VAEDecode()
@@ -756,14 +762,13 @@ class ReferenceVideoPipeline:
                 print(f"Final cleanup: CLIP moved to {clip_model.patcher.offload_device}")
             
             # 3. Cleanup VAE
-            if hasattr(vae, 'device') and str(vae.device) != 'cpu':
-                print("Final cleanup: Moving VAE to CPU...")
-                if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                    vae.first_stage_model.to('cpu')
-                    vae.device = torch.device('cpu')
-                    print("Final cleanup: VAE moved to CPU")
-                else:
-                    print("Final cleanup: ⚠️  Cannot move VAE to CPU (no first_stage_model)")
+            print("Final cleanup: Moving VAE to CPU...")
+            if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                vae.first_stage_model.to('cpu')
+                vae.device = torch.device('cpu')
+                print("Final cleanup: VAE moved to CPU")
+            else:
+                print("Final cleanup: ⚠️  Cannot move VAE to CPU (no first_stage_model)")
             
             # 4. Force final cleanup
             import gc
