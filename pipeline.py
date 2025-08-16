@@ -38,7 +38,7 @@ class ReferenceVideoPipeline:
     
     Memory Management Philosophy (explicit ModelPatcher control):
     - UNET models: Explicitly managed using ModelPatcher.unpatch_model(device_to=offload_device)
-    - VAE models: Explicitly moved to CPU after operations using vae.to('cpu')
+    - VAE models: Explicitly moved to CPU after operations using vae.first_stage_model.to('cpu')
     - CLIP models: Explicitly managed using clip.patcher.unpatch_model(device_to=offload_device)
     - All memory management: Explicit control using proven ModelPatcher methods
     
@@ -240,7 +240,7 @@ class ReferenceVideoPipeline:
         This pipeline now uses explicit ModelPatcher memory management (same as working test):
         - All models are loaded using ComfyUI's native functions
         - ModelPatcher explicitly manages UNET/CLIP memory with device_to=offload_device
-        - VAE explicitly moved to CPU after operations
+        - VAE explicitly moved to CPU after operations via first_stage_model.to('cpu')
         - Explicit memory management calls using proven working logic
         """
         print("Starting Reference Video Pipeline...")
@@ -406,6 +406,24 @@ class ReferenceVideoPipeline:
             print("5a. VAE automatically manages memory during encode()/decode()")
             print("5a. VAE will be loaded to GPU for encoding, then offloaded to CPU")
             
+            # Pre-emptive VAE memory management - ensure VAE starts on CPU
+            if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                print("5a. Pre-emptively moving VAE to CPU before encoding...")
+                vae.first_stage_model.to('cpu')
+                vae.device = torch.device('cpu')
+                print(f"5a. VAE moved to: {vae.device}")
+            else:
+                print("5a. ⚠️  Cannot pre-emptively move VAE to CPU")
+            
+            # Aggressive memory cleanup before VAE operations
+            print("5a. Aggressive memory cleanup before VAE operations...")
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+                print(f"5a. Memory after cleanup: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
+            
             # Strategic chunk size optimization based on available VRAM
             print("5a. Optimizing chunk sizes based on available VRAM...")
             if torch.cuda.is_available():
@@ -436,11 +454,19 @@ class ReferenceVideoPipeline:
             self._check_memory_usage('vae_encoding', expected_threshold=8000)
             
             try:
+                # Check memory before VAE encoding starts
+                print("5a. Checking memory before VAE encoding...")
+                self._check_memory_usage('vae_encoding_start', expected_threshold=8000)
+                
                 # video_generator.encode() returns (positive, negative, out_latent, trim_count)
                 positive_cond, negative_cond, init_latent, trim_count = self._encode_with_chunking(
                     video_generator, positive_cond, negative_cond, vae, width, height,
                     length, batch_size, strength, control_video, reference_image, processing_plan
                 )
+                
+                # Check memory after VAE encoding completes
+                print("5a. Checking memory after VAE encoding...")
+                self._check_memory_usage('vae_encoding_complete', expected_threshold=8000)
                 
                 # Extract the actual latent tensor from the dictionary
                 if isinstance(init_latent, dict) and "samples" in init_latent:
@@ -455,6 +481,11 @@ class ReferenceVideoPipeline:
                 
             except torch.cuda.OutOfMemoryError:
                 print("OOM during VAE encoding! Forcing ultra-conservative chunking and retrying...")
+                
+                # Check memory during OOM recovery
+                print("5a. Checking memory during OOM recovery...")
+                self._check_memory_usage('vae_encoding_oom_recovery', expected_threshold=8000)
+                
                 self.chunked_processor.force_ultra_conservative_chunking()
                 
                 # Regenerate processing plan with ultra-conservative settings
@@ -468,12 +499,18 @@ class ReferenceVideoPipeline:
                 
                 # Retry with ultra-conservative chunking
                 try:
+                    print("5a. Retrying with ultra-conservative chunking...")
                     positive_cond, negative_cond, init_latent, trim_count = self._encode_with_chunking(
                         video_generator, positive_cond, negative_cond, vae, width, height,
                         length, batch_size, strength, control_video, reference_image, processing_plan
                     )
                 except torch.cuda.OutOfMemoryError:
                     print("Still OOM! Using single-frame processing...")
+                    
+                    # Check memory before single-frame fallback
+                    print("5a. Checking memory before single-frame fallback...")
+                    self._check_memory_usage('vae_encoding_single_frame_fallback', expected_threshold=8000)
+                    
                     # Final fallback: process one frame at a time
                     init_latent, trim_count = self._encode_single_frame_fallback(
                         video_generator, positive_cond, negative_cond, vae, width, height,
@@ -489,11 +526,15 @@ class ReferenceVideoPipeline:
                 current_device = vae.device
                 print(f"5b. VAE current device: {current_device}")
                 
-                # If VAE is still on GPU, force it to CPU
+                # If VAE is still on GPU, force it to CPU via first_stage_model
                 if str(current_device) != 'cpu':
                     print("5b. VAE still on GPU, forcing to CPU...")
-                    vae.to('cpu')
-                    print(f"5b. VAE moved to: {vae.device}")
+                    if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                        vae.first_stage_model.to('cpu')
+                        vae.device = torch.device('cpu')
+                        print(f"5b. VAE moved to: {vae.device}")
+                    else:
+                        print("5b. ⚠️  Cannot move VAE to CPU (no first_stage_model)")
                 else:
                     print("5b. ✅ VAE already on CPU")
             else:
@@ -526,6 +567,10 @@ class ReferenceVideoPipeline:
                 # Update batch size for sampling
                 batch_size = optimal_batch_size
                 print(f"6a. Updated batch size for UNET sampling: {batch_size}")
+            
+            # Check memory before UNET sampling
+            print("6a. Checking memory before UNET sampling...")
+            self._check_memory_usage('unet_sampling_start', expected_threshold=15000)
             
             sampler = KSampler()
             final_latent = sampler.sample(
@@ -674,11 +719,15 @@ class ReferenceVideoPipeline:
                 current_device = vae.device
                 print(f"8b. VAE current device: {current_device}")
                 
-                # If VAE is still on GPU, force it to CPU
+                # If VAE is still on GPU, force it to CPU via first_stage_model
                 if str(current_device) != 'cpu':
                     print("8b. VAE still on GPU, forcing to CPU...")
-                    vae.to('cpu')
-                    print(f"8b. VAE moved to: {vae.device}")
+                    if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                        vae.first_stage_model.to('cpu')
+                        vae.device = torch.device('cpu')
+                        print(f"8b. VAE moved to: {vae.device}")
+                    else:
+                        print("8b. ⚠️  Cannot move VAE to CPU (no first_stage_model)")
                 else:
                     print("8b. ✅ VAE already on CPU")
             else:
@@ -709,8 +758,12 @@ class ReferenceVideoPipeline:
             # 3. Cleanup VAE
             if hasattr(vae, 'device') and str(vae.device) != 'cpu':
                 print("Final cleanup: Moving VAE to CPU...")
-                vae.to('cpu')
-                print("Final cleanup: VAE moved to CPU")
+                if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                    vae.first_stage_model.to('cpu')
+                    vae.device = torch.device('cpu')
+                    print("Final cleanup: VAE moved to CPU")
+                else:
+                    print("Final cleanup: ⚠️  Cannot move VAE to CPU (no first_stage_model)")
             
             # 4. Force final cleanup
             import gc
@@ -824,7 +877,11 @@ class ReferenceVideoPipeline:
                 try:
                     # Move VAE to CPU temporarily for this frame
                     vae_device = vae.device if hasattr(vae, 'device') else 'cuda:0'
-                    vae_cpu = vae.to('cpu') if hasattr(vae, 'to') else vae
+                    vae_cpu = vae
+                    if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                        vae.first_stage_model.to('cpu')
+                        vae.device = torch.device('cpu')
+                        vae_cpu = vae
                     single_frame_cpu = single_frame.cpu()
                     
                     # Encode on CPU
@@ -832,8 +889,9 @@ class ReferenceVideoPipeline:
                     
                     # Move back to GPU
                     single_latent = single_latent_cpu.to(vae_device)
-                    if hasattr(vae, 'to'):
-                        vae.to(vae_device)
+                    if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                        vae.first_stage_model.to(vae_device)
+                        vae.device = vae_device
                     
                     all_latents.append(single_latent)
                     
@@ -895,7 +953,11 @@ class ReferenceVideoPipeline:
                 try:
                     # Move VAE to CPU temporarily for this frame
                     vae_device = vae.device if hasattr(vae, 'device') else 'cuda:0'
-                    vae_cpu = vae.to('cpu') if hasattr(vae, 'to') else vae
+                    vae_cpu = vae
+                    if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                        vae.first_stage_model.to('cpu')
+                        vae.device = torch.device('cpu')
+                        vae_cpu = vae
                     single_frame_latent_cpu = single_frame_latent.cpu()
                     
                     # Decode on CPU
@@ -903,8 +965,9 @@ class ReferenceVideoPipeline:
                     
                     # Move back to GPU
                     single_frame = single_frame_cpu.to(vae_device)
-                    if hasattr(vae, 'to'):
-                        vae.to(vae_device)
+                    if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                        vae.first_stage_model.to(vae_device)
+                        vae.device = vae_device
                     
                     all_frames.append(single_frame)
                     
