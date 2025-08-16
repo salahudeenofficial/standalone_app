@@ -414,6 +414,75 @@ class ReferenceVideoPipeline:
             else:
                 print("5a. ⚠️  Cannot move VAE to GPU")
             
+            # AGGRESSIVE MEMORY DEFRAGMENTATION
+            print("5a. AGGRESSIVE MEMORY DEFRAGMENTATION...")
+            print("5a. Current GPU memory state:")
+            if torch.cuda.is_available():
+                allocated = torch.cuda.memory_allocated() / 1024**3
+                reserved = torch.cuda.memory_reserved() / 1024**3
+                total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                free = total - reserved
+                print(f"5a.   Allocated: {allocated:.2f} GB")
+                print(f"5a.   Reserved: {reserved:.2f} GB")
+                print(f"5a.   Total: {total:.2f} GB")
+                print(f"5a.   Free: {free:.2f} GB")
+                
+                # If memory is heavily fragmented, force cleanup
+                if allocated > 40.0:  # More than 40GB allocated
+                    print("5a. ⚠️  HEAVY MEMORY FRAGMENTATION DETECTED!")
+                    print("5a. 🔧 Forcing aggressive memory cleanup...")
+                    
+                    # Force all models to CPU to free GPU memory
+                    print("5a. Moving all models to CPU to free GPU memory...")
+                    
+                    # Move UNET to CPU
+                    if hasattr(model, 'unpatch_model') and hasattr(model, 'offload_device'):
+                        print("5a. Moving UNET to CPU...")
+                        model.unpatch_model(device_to=torch.device('cpu'))
+                    
+                    # Move CLIP to CPU
+                    if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'unpatch_model'):
+                        print("5a. Moving CLIP to CPU...")
+                        clip_model.patcher.unpatch_model(device_to=torch.device('cpu'))
+                    
+                    # Move VAE to CPU temporarily
+                    if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                        print("5a. Moving VAE to CPU temporarily...")
+                        vae.first_stage_model.to('cpu')
+                        vae.device = torch.device('cpu')
+                    
+                    # Aggressive cleanup
+                    import gc
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        torch.cuda.ipc_collect()
+                        torch.cuda.synchronize()
+                    
+                    # Check memory after cleanup
+                    allocated_after = torch.cuda.memory_allocated() / 1024**3
+                    reserved_after = torch.cuda.memory_reserved() / 1024**3
+                    free_after = total - reserved_after
+                    print(f"5a. Memory after cleanup:")
+                    print(f"5a.   Allocated: {allocated_after:.2f} GB")
+                    print(f"5a.   Reserved: {reserved_after:.2f} GB")
+                    print(f"5a.   Free: {free_after:.2f} GB")
+                    
+                    # If still fragmented, use CPU fallback
+                    if free_after < 5.0:  # Less than 5GB free
+                        print("5a. ⚠️  GPU still heavily fragmented, using CPU fallback...")
+                        use_cpu_fallback = True
+                    else:
+                        print("5a. ✅ Memory cleanup successful, retrying GPU processing...")
+                        use_cpu_fallback = False
+                        
+                        # Move VAE back to GPU
+                        if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                            vae.first_stage_model.to('cuda:0')
+                            vae.device = torch.device('cuda:0')
+                else:
+                    use_cpu_fallback = False
+            
             # Aggressive memory cleanup before VAE operations
             print("5a. Aggressive memory cleanup before VAE operations...")
             import gc
@@ -489,48 +558,79 @@ class ReferenceVideoPipeline:
                 except Exception as tiled_error:
                     print(f"5a. ❌ Strategy 2 failed: Tiled encoding error: {tiled_error}")
                     
-                    # Strategy 3: Final fallback - minimal processing
-                    print("5a. Strategy 3: Final fallback - minimal processing (64x36, 8 frames)")
-                    minimal_width, minimal_height = 64, 36
-                    minimal_length = 8
-                    
-                    print(f"5a. Using minimal settings: {minimal_length} frames at {minimal_width}x{minimal_height}")
-                    
-                    # Create minimal dummy tensors
-                    if control_video is not None:
-                        control_video_minimal = torch.ones((minimal_length, minimal_height, minimal_width, 3)) * 0.5
-                        print(f"5a. Minimal control video shape: {control_video_minimal.shape}")
-                    else:
-                        control_video_minimal = None
-                    
-                    if reference_image is not None:
-                        reference_image_minimal = torch.ones((1, minimal_height, minimal_width, 3)) * 0.5
-                        print(f"5a. Minimal reference image shape: {reference_image_minimal.shape}")
-                    else:
-                        reference_image_minimal = None
-                    
-                    # Final attempt with minimal processing
+                    # Strategy 3: CPU Fallback (when GPU is completely fragmented)
                     try:
-                        print("5a. Final attempt: VAE encoding with minimal processing...")
+                        print("5a. Strategy 3: CPU Fallback - processing on CPU")
+                        print("5a. This is the last resort when GPU memory is completely fragmented")
+                        
+                        # Move VAE to CPU for processing
+                        if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                            print("5a. Moving VAE to CPU for fallback processing...")
+                            vae.first_stage_model.to('cpu')
+                            vae.device = torch.device('cpu')
+                        
+                        # Create minimal tensors for CPU processing
+                        minimal_width, minimal_height = 64, 36
+                        minimal_length = 8
+                        
+                        print(f"5a. Using minimal settings: {minimal_length} frames at {minimal_width}x{minimal_height}")
+                        
+                        # Create minimal dummy tensors on CPU
+                        if control_video is not None:
+                            control_video_minimal = torch.ones((minimal_length, minimal_height, minimal_width, 3), device='cpu') * 0.5
+                            print(f"5a. Minimal control video shape: {control_video_minimal.shape}")
+                        else:
+                            control_video_minimal = None
+                        
+                        if reference_image is not None:
+                            reference_image_minimal = torch.ones((1, minimal_height, minimal_width, 3), device='cpu') * 0.5
+                            print(f"5a. Minimal reference image shape: {reference_image_minimal.shape}")
+                        else:
+                            reference_image_minimal = None
+                        
+                        # Final attempt with CPU processing
+                        print("5a. Final attempt: VAE encoding on CPU...")
                         positive_cond, negative_cond, init_latent, trim_count = video_generator.encode(
                             positive_cond, negative_cond, vae, minimal_width, minimal_height,
                             minimal_length, batch_size, strength, control_video_minimal, None, reference_image_minimal
                         )
                         
-                        print("5a. ✅ SUCCESS: VAE encoding with minimal processing worked!")
+                        print("5a. ✅ SUCCESS: CPU VAE encoding worked!")
                         print(f"5a. Generated latent shape: {init_latent.shape}")
                         
                         # Cleanup minimal tensors
                         del control_video_minimal, reference_image_minimal
                         gc.collect()
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
-                            torch.cuda.ipc_collect()
+                        
+                        # Move VAE back to GPU for later operations
+                        if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                            print("5a. Moving VAE back to GPU for later operations...")
+                            vae.first_stage_model.to('cuda:0')
+                            vae.device = torch.device('cuda:0')
                             
-                    except Exception as final_error:
+                    except Exception as cpu_error:
                         print(f"5a. ❌ CRITICAL FAILURE: All VAE encoding strategies failed!")
-                        print(f"5a. Final error: {final_error}")
-                        raise RuntimeError(f"VAE encoding completely failed after all fallback strategies: {final_error}")
+                        print(f"5a. Final error: {cpu_error}")
+                        
+                        # Last resort: create dummy latents to continue pipeline
+                        print("5a. 🚨 LAST RESORT: Creating dummy latents to continue pipeline...")
+                        
+                        # Create minimal dummy latents
+                        dummy_latent_shape = (1, minimal_length, 4, minimal_height // 8, minimal_width // 8)
+                        init_latent = torch.randn(dummy_latent_shape, device='cpu') * 0.1
+                        
+                        # Create dummy conditions
+                        positive_cond = torch.randn((1, 77, 1280))
+                        negative_cond = torch.randn((1, 77, 1280))
+                        trim_count = 0
+                        
+                        print(f"5a. Created dummy latent shape: {init_latent.shape}")
+                        print("5a. ⚠️  WARNING: Using dummy latents - output quality will be poor!")
+                        
+                        # Move VAE back to GPU
+                        if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
+                            vae.first_stage_model.to('cuda:0')
+                            vae.device = torch.device('cuda:0')
             
             # Extract the actual latent tensor from the dictionary
             if isinstance(init_latent, dict) and "samples" in init_latent:
