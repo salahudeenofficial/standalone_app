@@ -673,14 +673,21 @@ class ReferenceVideoPipeline:
             if length > processing_plan['vae_decode']['chunk_size']:
                 print(f"Using chunked VAE decoding: {processing_plan['vae_decode']['num_chunks']} chunks")
                 
+                # Debug: Show what we're passing to VAE decoding
+                print(f"8a. Debug: trimmed_latent type: {type(trimmed_latent)}")
+                if hasattr(trimmed_latent, 'shape'):
+                    print(f"8a. Debug: trimmed_latent shape: {trimmed_latent.shape}")
+                
+                # Ensure latent tensor is properly wrapped for VAE decoding
+                if isinstance(trimmed_latent, torch.Tensor):
+                    latent_dict = {"samples": trimmed_latent}
+                    print(f"8a. Debug: Created latent_dict with samples key, tensor shape: {trimmed_latent.shape}")
+                else:
+                    latent_dict = trimmed_latent
+                    print(f"8a. Debug: Using existing latent_dict: {type(latent_dict)}")
+                
                 # Try chunked processing first
                 try:
-                    # Ensure latent tensor is properly wrapped for VAE decoding
-                    if isinstance(trimmed_latent, torch.Tensor):
-                        latent_dict = {"samples": trimmed_latent}
-                    else:
-                        latent_dict = trimmed_latent
-                    
                     frames = self.chunked_processor.vae_decode_chunked(vae, latent_dict)
                     print("8a. Chunked VAE decoding successful!")
                     
@@ -713,12 +720,20 @@ class ReferenceVideoPipeline:
                         frames = self._decode_single_frame_fallback(vae, latent_dict)
             else:
                 print("Processing all frames at once (within chunk size limit)")
+                
+                # Debug: Show what we're passing to VAE decoding
+                print(f"8a. Debug: trimmed_latent type: {type(trimmed_latent)}")
+                if hasattr(trimmed_latent, 'shape'):
+                    print(f"8a. Debug: trimmed_latent shape: {trimmed_latent.shape}")
+                
                 try:
                     # Ensure latent tensor is properly wrapped for VAE decoding
                     if isinstance(trimmed_latent, torch.Tensor):
                         latent_dict = {"samples": trimmed_latent}
+                        print(f"8a. Debug: Created latent_dict with samples key, tensor shape: {trimmed_latent.shape}")
                     else:
                         latent_dict = trimmed_latent
+                        print(f"8a. Debug: Using existing latent_dict: {type(latent_dict)}")
                     
                     frames = vae_decoder.decode(vae, latent_dict)
                 except torch.cuda.OutOfMemoryError:

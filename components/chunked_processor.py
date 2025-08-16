@@ -320,21 +320,41 @@ class ChunkedProcessor:
     def vae_encode_chunked(self, vae, frames: torch.Tensor, **kwargs) -> torch.Tensor:
         """Encode frames using VAE in chunks"""
         
+        # Handle both tensor and dictionary inputs
+        if isinstance(frames, dict) and "samples" in frames:
+            # Extract tensor from dictionary format
+            frame_tensor = frames["samples"]
+        elif isinstance(frames, torch.Tensor):
+            # Use tensor directly
+            frame_tensor = frames
+        else:
+            raise ValueError(f"Expected tensor or dict with 'samples' key, got {type(frames)}")
+        
         def encode_chunk(chunk):
             return vae.encode(chunk)
         
         return self.process_in_chunks(
-            frames, 'vae_encode', encode_chunk, **kwargs
+            frame_tensor, 'vae_encode', encode_chunk, **kwargs
         )
     
     def vae_decode_chunked(self, vae, latents: torch.Tensor, **kwargs) -> torch.Tensor:
         """Decode latents using VAE in chunks"""
         
+        # Handle both tensor and dictionary inputs
+        if isinstance(latents, dict) and "samples" in latents:
+            # Extract tensor from dictionary format
+            latent_tensor = latents["samples"]
+        elif isinstance(latents, torch.Tensor):
+            # Use tensor directly
+            latent_tensor = latents
+        else:
+            raise ValueError(f"Expected tensor or dict with 'samples' key, got {type(latents)}")
+        
         def decode_chunk(chunk):
             return vae.decode(chunk)
         
         return self.process_in_chunks(
-            latents, 'vae_decode', decode_chunk, **kwargs
+            latent_tensor, 'vae_decode', decode_chunk, **kwargs
         )
     
     def unet_process_chunked(self, unet, latents: torch.Tensor, **kwargs) -> torch.Tensor:
