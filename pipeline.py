@@ -583,60 +583,47 @@ class ReferenceVideoPipeline:
             
             # Use ComfyUI's native loading functions which return ModelPatcher objects
             # ModelPatcher automatically handles all memory management
-            print("1a. Loading models using ComfyUI's automatic detection system...")
+            print("1a. Loading models using ComfyUI's individual component system...")
             
-            # Instead of loading individual components, use the checkpoint loading approach
-            # This automatically detects WAN models and ensures compatibility
-            # This is the same approach used by CheckpointLoaderSimple node
-            
-            # Create a temporary checkpoint-like structure for automatic detection
-            print("1a. Creating checkpoint structure for automatic model detection...")
-            
-            # Load all state dicts
+            # Load UNET with proper WAN model detection
+            print("1a. Loading UNET with automatic WAN detection...")
             unet_state_dict = comfy.utils.load_torch_file(unet_model_path)
-            clip_state_dict = comfy.utils.load_torch_file(clip_model_path)
-            vae_state_dict = comfy.utils.load_torch_file(vae_model_path)
             
-            # Combine them into a checkpoint-like structure
-            # This allows ComfyUI to automatically detect the model types
-            checkpoint_state_dict = {}
-            
-            # Add UNET weights with proper prefix for detection
-            # WAN models use no prefix, so we add them directly
-            for key, value in unet_state_dict.items():
-                checkpoint_state_dict[key] = value
-                
-            # Add CLIP weights with proper prefix
-            for key, value in clip_state_dict.items():
-                checkpoint_state_dict[key] = value
-                
-            # Add VAE weights with proper prefix
-            for key, value in vae_state_dict.items():
-                checkpoint_state_dict[key] = value
-            
-            print(f"1a. ✅ Combined checkpoint state dict: {len(checkpoint_state_dict)} keys")
-            
-            # Use ComfyUI's automatic model detection system
-            print("1a. Using ComfyUI's automatic model detection...")
-            
-            # This is the same function that CheckpointLoaderSimple uses
-            # It automatically detects WAN models and loads them correctly
+            # Use ComfyUI's automatic model detection for UNET
+            # This will automatically detect WAN models and load them correctly
             from comfy.sd import load_state_dict_guess_config
             
-            # Load models with automatic detection
-            model, clip_model, vae, _ = load_state_dict_guess_config(
-                checkpoint_state_dict, 
-                output_vae=True, 
-                output_clip=True, 
+            # Load just the UNET with automatic detection
+            model, _, _, _ = load_state_dict_guess_config(
+                unet_state_dict, 
+                output_vae=False, 
+                output_clip=False, 
                 output_clipvision=False, 
                 embedding_directory=None, 
                 output_model=True
             )
             
-            print(f"1a. ✅ Models loaded using ComfyUI's automatic detection system")
-            print(f"1a. UNET: {type(model)} (ModelPatcher)")
-            print(f"1a. CLIP: {type(clip_model)} (ModelPatcher)")
-            print(f"1a. VAE: {type(vae)} (VAE with built-in memory management)")
+            print(f"1a. ✅ UNET loaded using ComfyUI's automatic detection: {type(model)}")
+            
+            # Load CLIP separately with proper WAN type
+            print("1a. Loading CLIP with WAN type...")
+            clip_model = comfy.sd.load_clip([clip_model_path], clip_type=comfy.sd.CLIPType.WAN)
+            
+            if clip_model is None:
+                print("1a. ⚠️  CLIP loading failed, trying alternative approach...")
+                # Fallback: load CLIP state dict and create manually
+                clip_state_dict = comfy.utils.load_torch_file(clip_model_path)
+                from comfy.sd import CLIP
+                clip_model = CLIP(clip_state_dict, clip_type=comfy.sd.CLIPType.WAN)
+            
+            print(f"1a. ✅ CLIP loaded: {type(clip_model)}")
+            
+            # Load VAE separately
+            print("1a. Loading VAE...")
+            vae_state_dict = comfy.utils.load_torch_file(vae_model_path)
+            vae = comfy.sd.VAE(sd=vae_state_dict)
+            
+            print(f"1a. ✅ VAE loaded: {type(vae)}")
             
             # Verify that the UNET was detected as WAN model
             if hasattr(model, 'model') and hasattr(model.model, 'model_type'):
@@ -2227,7 +2214,7 @@ def main():
         clip_model_path=str(script_dir / "models/text_encoders/wan_clip_model.safetensors"),
         vae_model_path=str(script_dir / "models/vaes/wan_vae.safetensors"),
         lora_path=str(script_dir / "models/loras/Wan21_CausVid_14B_T2V_lora_rank32.safetensors"),
-        positive_prompt="very cinematic vide",
+        positive_prompt="very cinematic video",
         negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走 , extra hands, extra arms, extra legs",
         control_video_path=str(script_dir / "safu.mp4"),
         reference_image_path=str(script_dir / "safu.jpg"),
