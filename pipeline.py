@@ -583,7 +583,38 @@ class ReferenceVideoPipeline:
             
             # Use ComfyUI's native loading functions which return ModelPatcher objects
             # ModelPatcher automatically handles all memory management
-            model = comfy.sd.load_diffusion_model(unet_model_path)
+            print("1a. Loading UNET with WAN model class...")
+            
+            # Load the UNET state dict first
+            unet_state_dict = comfy.utils.load_torch_file(unet_model_path)
+            
+            # Force WAN model type instead of relying on automatic detection
+            # This ensures the UNET expects 10-channel latents from WAN VAE
+            from comfy.supported_models import WAN21_T2V
+            from comfy.model_base import WAN21
+            
+            # Create WAN model config
+            wan_config = WAN21_T2V({
+                "image_model": "wan2.1",
+                "model_type": "t2v",
+            })
+            
+            # Create WAN model using the correct class
+            wan_model = WAN21(wan_config, image_to_video=False, device=comfy.model_management.get_torch_device())
+            
+            # Load the weights
+            wan_model.load_model_weights(unet_state_dict, "model.")
+            
+            # Create ModelPatcher wrapper
+            model = comfy.model_patcher.ModelPatcher(
+                wan_model, 
+                load_device=comfy.model_management.get_torch_device(),
+                offload_device=comfy.model_management.unet_offload_device()
+            )
+            
+            print(f"1a. ✅ UNET loaded as WAN model: {type(model)}")
+            print(f"1a. UNET internal model: {type(model.model)}")
+            
             clip_model = comfy.sd.load_clip([clip_model_path], clip_type=comfy.sd.CLIPType.WAN)
             
             # For VAE, we need to load the state dict first, then create VAE object
