@@ -100,12 +100,12 @@ class ReferenceVideoPipeline:
         # Memory thresholds for each phase
         self.memory_thresholds = {
             'baseline': 100,           # MB - should be very low
-            'model_loading': 15000,    # MB - UNET + CLIP + VAE loaded
-            'lora_application': 16000, # MB - LoRA applied
-            'text_encoding': 8000,     # MB - models in optimal positions
-            'model_sampling': 12000,   # MB - UNET loaded for patching
+            'model_loading': 100,      # MB - ComfyUI lazy loading (models loaded on-demand)
+            'lora_application': 200,   # MB - LoRA applied (still lazy loading)
+            'text_encoding': 1000,     # MB - models may be loaded to GPU for encoding
+            'model_sampling': 2000,    # MB - models loaded for patching
             'gpu_capability_test': 1000, # MB - should be low during testing
-            'vae_encoding': 8000,     # MB - VAE encoding in progress
+            'vae_encoding': 8000,     # MB - VAE encoding in progress (models loaded)
             'unet_sampling': 40000,   # MB - UNET sampling needs ~33GB (realistic)
             'vae_decoding': 8000,     # MB - VAE decoding in progress
             'final_cleanup': 100,      # MB - back to baseline
@@ -623,7 +623,8 @@ class ReferenceVideoPipeline:
                     print("1a. 💡 ComfyUI may be using lazy loading or CPU-first strategy")
             
             # OOM Checklist: Check memory after model loading
-            self._check_memory_usage('model_loading', expected_threshold=15000)
+            # Note: ComfyUI uses lazy loading, so models may not consume GPU memory until used
+            self._check_memory_usage('model_loading', expected_threshold=100)  # Much lower threshold for lazy loading
             
             # Check if models need to be explicitly loaded to GPU
             print("1a. 🔍 Checking if models need explicit GPU loading...")
@@ -635,17 +636,55 @@ class ReferenceVideoPipeline:
                     # For UNET, try to patch it to GPU
                     if hasattr(model, 'patch_model'):
                         print("1a. Patching UNET to GPU...")
+                        print(f"1a. DEBUG: UNET before patching - device: {model.model.device if hasattr(model, 'model') and hasattr(model.model, 'device') else 'unknown'}")
                         model.patch_model()
                         print("1a. UNET patched to GPU")
+                        print(f"1a. DEBUG: UNET after patching - device: {model.model.device if hasattr(model, 'model') and hasattr(model.model, 'device') else 'unknown'}")
                     
                     # For CLIP, try to patch it to GPU
                     if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'patch_model'):
                         print("1a. Patching CLIP to GPU...")
+                        print(f"1a. DEBUG: CLIP before patching - device: {clip_model.patcher.model.device if hasattr(clip_model.patcher, 'model') and hasattr(clip_model.patcher.model, 'device') else 'unknown'}")
                         clip_model.patcher.patch_model()
                         print("1a. CLIP patched to GPU")
+                        print(f"1a. DEBUG: CLIP after patching - device: {clip_model.patcher.model.device if hasattr(clip_model.patcher, 'model') and hasattr(clip_model.patcher.model, 'device') else 'unknown'}")
                     
                     # For VAE, let ComfyUI handle it automatically
                     print("1a. VAE will be loaded to GPU when needed")
+                    
+                    # Check what patching methods are available
+                    print("1a. 🔍 DEBUG: Checking available patching methods...")
+                    if hasattr(model, 'patch_model'):
+                        print("1a. DEBUG: UNET has patch_model method")
+                    if hasattr(model, 'load_model'):
+                        print("1a. DEBUG: UNET has load_model method")
+                    if hasattr(model, 'to'):
+                        print("1a. DEBUG: UNET has to method")
+                    
+                    if hasattr(clip_model.patcher, 'patch_model'):
+                        print("1a. DEBUG: CLIP has patch_model method")
+                    if hasattr(clip_model.patcher, 'load_model'):
+                        print("1a. DEBUG: CLIP has load_model method")
+                    if hasattr(clip_model.patcher, 'to'):
+                        print("1a. DEBUG: CLIP has to method")
+                    
+                    # Try alternative loading methods
+                    print("1a. 🔍 DEBUG: Trying alternative loading methods...")
+                    
+                    # Try using ComfyUI's model management directly
+                    try:
+                        import comfy.model_management
+                        print("1a. DEBUG: Attempting to use ComfyUI model management...")
+                        
+                        # Check if we can force models to GPU via ComfyUI
+                        if hasattr(comfy.model_management, 'load_models_gpu'):
+                            print("1a. DEBUG: ComfyUI has load_models_gpu method")
+                            # Try to load models to GPU via ComfyUI
+                            comfy.model_management.load_models_gpu([model, clip_model.patcher])
+                            print("1a. DEBUG: Attempted ComfyUI GPU loading")
+                        
+                    except Exception as e:
+                        print(f"1a. DEBUG: ComfyUI model management error: {e}")
                     
                     # Check memory after patching
                     after_patching_allocated = torch.cuda.memory_allocated() / 1024**2
@@ -656,6 +695,30 @@ class ReferenceVideoPipeline:
                         print("1a. ✅ SUCCESS: Models now loaded to GPU!")
                     else:
                         print("1a. ⚠️  Models still not showing GPU memory allocation")
+                        
+                        # Additional debugging for lazy loading
+                        print("1a. 🔍 DEBUG: Investigating lazy loading...")
+                        
+                        # Check if models are actually on GPU by trying to access their parameters
+                        try:
+                            if hasattr(model, 'model') and hasattr(model.model, 'parameters'):
+                                print("1a. DEBUG: Checking UNET parameters device...")
+                                first_param = next(model.model.parameters())
+                                print(f"1a. DEBUG: UNET first parameter device: {first_param.device}")
+                            
+                            if hasattr(clip_model.patcher, 'model') and hasattr(clip_model.patcher.model, 'parameters'):
+                                print("1a. DEBUG: Checking CLIP parameters device...")
+                                first_param = next(clip_model.patcher.model.parameters())
+                                print(f"1a. DEBUG: CLIP first parameter device: {first_param.device}")
+                                
+                        except Exception as e:
+                            print(f"1a. DEBUG: Error checking parameters: {e}")
+                        
+                        # Check if this is expected behavior
+                        print("1a. 🔍 This behavior suggests:")
+                        print("    - ComfyUI using lazy loading (models loaded on-demand)")
+                        print("    - Models only consume GPU memory when actually used")
+                        print("    - This is normal for ComfyUI's memory management")
                         
                 except Exception as e:
                     print(f"1a. ⚠️  Error during explicit GPU loading: {e}")
@@ -707,6 +770,13 @@ class ReferenceVideoPipeline:
             print(f"   Memory Management: {'✅ PASS' if memory_management else '❌ FAIL'}")
             print(f"   Chunking Strategy: {'✅ PASS' if chunking_strategy else '❌ FAIL'}")
             
+            # Add note about ComfyUI lazy loading
+            print("\n   📝 NOTE: ComfyUI uses lazy loading strategy:")
+            print("      - Models are loaded to CPU initially")
+            print("      - GPU memory is only consumed when models are actually used")
+            print("      - This is normal behavior and optimizes memory usage")
+            print("      - Models will be moved to GPU automatically when needed")
+            
             if not all([model_placement, memory_management, chunking_strategy]):
                 print("   ⚠️  Some verifications failed - pipeline may have issues")
             else:
@@ -727,7 +797,7 @@ class ReferenceVideoPipeline:
                 print("2a. ModelPatcher automatically preserves LoRA patches")
                 
                 # OOM Checklist: Check memory after LoRA application
-                self._check_memory_usage('lora_application', expected_threshold=16000)
+                self._check_memory_usage('lora_application', expected_threshold=200)
                 
                 # COMPREHENSIVE VERIFICATION AFTER LoRA APPLICATION
                 print("\n" + "="*80)
@@ -827,7 +897,7 @@ class ReferenceVideoPipeline:
                 print("3a. ⚠️  CLIP ModelPatcher not available, skipping explicit memory management")
             
             # OOM Checklist: Check memory after text encoding
-            self._check_memory_usage('text_encoding', expected_threshold=8000)
+            self._check_memory_usage('text_encoding', expected_threshold=1000)
             
             # COMPREHENSIVE VERIFICATION AFTER TEXT ENCODING
             print("\n" + "="*80)
@@ -870,7 +940,7 @@ class ReferenceVideoPipeline:
             print("4a. ModelSamplingSD3 applied")
             
             # OOM Checklist: Check memory after ModelSamplingSD3
-            self._check_memory_usage('model_sampling', expected_threshold=12000)
+            self._check_memory_usage('model_sampling', expected_threshold=2000)
             
             # COMPREHENSIVE VERIFICATION AFTER MODEL SAMPLING
             print("\n" + "="*80)
