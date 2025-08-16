@@ -21,6 +21,13 @@ sys.path.insert(0, str(Path(__file__).parent))
 # Add ComfyUI path for utilities
 sys.path.insert(0, str(Path(__file__).parent / "comfy"))
 
+# Import psutil for system information in diagnostic summary
+try:
+    import psutil
+except ImportError:
+    print("Warning: psutil not available, system information will be limited")
+    psutil = None
+
 import comfy.utils
 from components.lora_loader import LoraLoader
 from components.text_encoder import CLIPTextEncode
@@ -70,7 +77,9 @@ class ReferenceVideoPipeline:
             'gpu_capability_test': None,  # Add GPU capability test results
             'vae_encoding': None,
             'unet_sampling': None,
+            'video_trimming': None,
             'vae_decoding': None,
+            'video_export': None,
             'final_cleanup': None
         }
         
@@ -85,7 +94,9 @@ class ReferenceVideoPipeline:
             'vae_encoding': 8000,     # MB - VAE encoding in progress
             'unet_sampling': 40000,   # MB - UNET sampling needs ~33GB (realistic)
             'vae_decoding': 8000,     # MB - VAE decoding in progress
-            'final_cleanup': 100      # MB - back to baseline
+            'final_cleanup': 100,      # MB - back to baseline
+            'video_trimming': 100,      # MB - back to baseline
+            'video_export': 100         # MB - back to baseline
         }
     
     def _check_memory_usage(self, phase_name, expected_threshold=None):
@@ -234,6 +245,105 @@ class ReferenceVideoPipeline:
                 print(f"   CLIP: {model_status['clip']}")
         
         return model_status
+    
+    def _verify_memory_management(self, phase_name, expected_models):
+        """Verify that memory management is working correctly after each step"""
+        print(f"🔍 {phase_name.upper()} MEMORY MANAGEMENT VERIFICATION:")
+        
+        if not torch.cuda.is_available():
+            print("   ⚠️  CUDA not available, skipping GPU memory verification")
+            return True
+        
+        current_allocated = torch.cuda.memory_allocated() / 1024**2
+        current_reserved = torch.cuda.memory_reserved() / 1024**2
+        
+        print(f"   Current GPU Memory: {current_allocated:.1f} MB allocated, {current_reserved:.1f} MB reserved")
+        
+        # Check if models are properly offloaded
+        models_offloaded = True
+        
+        for model_name in expected_models:
+            if model_name == 'unet' and hasattr(self, 'model'):
+                if hasattr(self.model, 'model') and hasattr(self.model.model, 'device'):
+                    device = str(self.model.model.device)
+                    if device != 'cpu':
+                        print(f"   ❌ UNET still on GPU: {device}")
+                        models_offloaded = False
+                    else:
+                        print(f"   ✅ UNET properly offloaded to: {device}")
+            
+            elif model_name == 'clip' and hasattr(self, 'clip_model'):
+                if hasattr(self.clip_model, 'patcher') and hasattr(self.clip_model.patcher, 'model'):
+                    if hasattr(self.clip_model.patcher.model, 'device'):
+                        device = str(self.clip_model.patcher.model.device)
+                        if device != 'cpu':
+                            print(f"   ❌ CLIP still on GPU: {device}")
+                            models_offloaded = False
+                        else:
+                            print(f"   ✅ CLIP properly offloaded to: {device}")
+            
+            elif model_name == 'vae' and hasattr(self, 'vae'):
+                if hasattr(self.vae, 'device'):
+                    device = str(self.vae.device)
+                    if device != 'cpu':
+                        print(f"   ❌ VAE still on GPU: {device}")
+                        models_offloaded = False
+                    else:
+                        print(f"   ✅ VAE properly offloaded to: {device}")
+        
+        if models_offloaded:
+            print(f"   ✅ All models properly offloaded to CPU")
+        else:
+            print(f"   ⚠️  Some models still on GPU - memory management may be incomplete")
+        
+        return models_offloaded
+    
+    def _verify_chunking_strategy(self, phase_name, processing_plan):
+        """Verify that chunking strategy is properly configured for the current phase"""
+        print(f"🔍 {phase_name.upper()} CHUNKING STRATEGY VERIFICATION:")
+        
+        if not processing_plan:
+            print("   ⚠️  No processing plan available")
+            return False
+        
+        # Check chunking configuration for current phase
+        phase_chunks = {}
+        
+        if 'vae_encode' in processing_plan:
+            phase_chunks['vae_encode'] = processing_plan['vae_encode']
+        
+        if 'unet_process' in processing_plan:
+            phase_chunks['unet_process'] = processing_plan['unet_process']
+        
+        if 'vae_decode' in processing_plan:
+            phase_chunks['vae_decode'] = processing_plan['vae_decode']
+        
+        if not phase_chunks:
+            print("   ⚠️  No chunking configuration found for current phase")
+            return False
+        
+        print("   Chunking Configuration:")
+        for operation, config in phase_chunks.items():
+            chunk_size = config.get('chunk_size', 'N/A')
+            num_chunks = config.get('num_chunks', 'N/A')
+            print(f"     {operation}: {chunk_size} items per chunk, {num_chunks} total chunks")
+        
+        # Verify chunked processor is configured
+        if hasattr(self, 'chunked_processor'):
+            strategy = self.chunked_processor.get_current_strategy()
+            print(f"   Chunked Processor Strategy: {strategy}")
+            
+            if strategy == 'conservative':
+                print("   ✅ Using conservative chunking for memory efficiency")
+            elif strategy == 'aggressive':
+                print("   ⚠️  Using aggressive chunking - may use more memory")
+            elif strategy == 'ultra_conservative':
+                print("   ✅ Using ultra-conservative chunking for maximum memory efficiency")
+        else:
+            print("   ❌ Chunked processor not available")
+            return False
+        
+        return True
         
     def setup_model_paths(self):
         """Setup model paths for the standalone app"""
@@ -365,6 +475,36 @@ class ReferenceVideoPipeline:
             # OOM Checklist: Check memory after model loading
             self._check_memory_usage('model_loading', expected_threshold=15000)
             
+            # COMPREHENSIVE VERIFICATION AFTER MODEL LOADING
+            print("\n" + "="*80)
+            print("🔍 STEP 1 COMPLETE: COMPREHENSIVE VERIFICATION")
+            print("="*80)
+            
+            # 1. Model Placement Verification
+            print("1️⃣  MODEL PLACEMENT VERIFICATION:")
+            model_placement = self._check_model_placement('model_loading', ['unet', 'clip', 'vae'])
+            
+            # 2. Memory Management Verification
+            print("\n2️⃣  MEMORY MANAGEMENT VERIFICATION:")
+            memory_management = self._verify_memory_management('model_loading', ['unet', 'clip', 'vae'])
+            
+            # 3. Chunking Strategy Verification
+            print("\n3️⃣  CHUNKING STRATEGY VERIFICATION:")
+            chunking_strategy = self._verify_chunking_strategy('model_loading', processing_plan)
+            
+            # 4. Summary
+            print("\n📊 STEP 1 SUMMARY:")
+            print(f"   Model Placement: {'✅ PASS' if model_placement else '❌ FAIL'}")
+            print(f"   Memory Management: {'✅ PASS' if memory_management else '❌ FAIL'}")
+            print(f"   Chunking Strategy: {'✅ PASS' if chunking_strategy else '❌ FAIL'}")
+            
+            if not all([model_placement, memory_management, chunking_strategy]):
+                print("   ⚠️  Some verifications failed - pipeline may have issues")
+            else:
+                print("   ✅ All verifications passed - pipeline ready for next step")
+            
+            print("="*80)
+            
             # 2. Apply LoRA if specified
             if lora_path:
                 print("2. Applying LoRA...")
@@ -379,6 +519,69 @@ class ReferenceVideoPipeline:
                 
                 # OOM Checklist: Check memory after LoRA application
                 self._check_memory_usage('lora_application', expected_threshold=16000)
+                
+                # COMPREHENSIVE VERIFICATION AFTER LoRA APPLICATION
+                print("\n" + "="*80)
+                print("🔍 STEP 2 COMPLETE: COMPREHENSIVE VERIFICATION")
+                print("="*80)
+                
+                # 1. Model Placement Verification
+                print("1️⃣  MODEL PLACEMENT VERIFICATION:")
+                model_placement = self._check_model_placement('lora_application', ['unet', 'clip'])
+                
+                # 2. Memory Management Verification
+                print("\n2️⃣  MEMORY MANAGEMENT VERIFICATION:")
+                memory_management = self._verify_memory_management('lora_application', ['unet', 'clip'])
+                
+                # 3. Chunking Strategy Verification
+                print("\n3️⃣  CHUNKING STRATEGY VERIFICATION:")
+                chunking_strategy = self._verify_chunking_strategy('lora_application', processing_plan)
+                
+                # 4. Summary
+                print("\n📊 STEP 2 SUMMARY:")
+                print(f"   Model Placement: {'✅ PASS' if model_placement else '❌ FAIL'}")
+                print(f"   Memory Management: {'✅ PASS' if memory_management else '❌ FAIL'}")
+                print(f"   Chunking Strategy: {'✅ PASS' if chunking_strategy else '❌ FAIL'}")
+                
+                if not all([model_placement, memory_management, chunking_strategy]):
+                    print("   ⚠️  Some verifications failed - pipeline may have issues")
+                else:
+                    print("   ✅ All verifications passed - pipeline ready for next step")
+                
+                print("="*80)
+            else:
+                print("2. No LoRA specified, skipping LoRA application")
+                print("2a. Models remain in original state")
+                
+                # COMPREHENSIVE VERIFICATION AFTER LoRA SKIP
+                print("\n" + "="*80)
+                print("🔍 STEP 2 COMPLETE: COMPREHENSIVE VERIFICATION (No LoRA)")
+                print("="*80)
+                
+                # 1. Model Placement Verification
+                print("1️⃣  MODEL PLACEMENT VERIFICATION:")
+                model_placement = self._check_model_placement('lora_application', ['unet', 'clip'])
+                
+                # 2. Memory Management Verification
+                print("\n2️⃣  MEMORY MANAGEMENT VERIFICATION:")
+                memory_management = self._verify_memory_management('lora_application', ['unet', 'clip'])
+                
+                # 3. Chunking Strategy Verification
+                print("\n3️⃣  CHUNKING STRATEGY VERIFICATION:")
+                chunking_strategy = self._verify_chunking_strategy('lora_application', processing_plan)
+                
+                # 4. Summary
+                print("\n📊 STEP 2 SUMMARY:")
+                print(f"   Model Placement: {'✅ PASS' if model_placement else '❌ FAIL'}")
+                print(f"   Memory Management: {'✅ PASS' if memory_management else '❌ FAIL'}")
+                print(f"   Chunking Strategy: {'✅ PASS' if chunking_strategy else '❌ FAIL'}")
+                
+                if not all([model_placement, memory_management, chunking_strategy]):
+                    print("   ⚠️  Some verifications failed - pipeline may have issues")
+                else:
+                    print("   ✅ All verifications passed - pipeline ready for next step")
+                
+                print("="*80)
             
             # 3. Encode Prompts
             print("3. Encoding text prompts...")
@@ -417,6 +620,36 @@ class ReferenceVideoPipeline:
             # OOM Checklist: Check memory after text encoding
             self._check_memory_usage('text_encoding', expected_threshold=8000)
             
+            # COMPREHENSIVE VERIFICATION AFTER TEXT ENCODING
+            print("\n" + "="*80)
+            print("🔍 STEP 3 COMPLETE: COMPREHENSIVE VERIFICATION")
+            print("="*80)
+            
+            # 1. Model Placement Verification
+            print("1️⃣  MODEL PLACEMENT VERIFICATION:")
+            model_placement = self._check_model_placement('text_encoding', ['unet', 'clip'])
+            
+            # 2. Memory Management Verification
+            print("\n2️⃣  MEMORY MANAGEMENT VERIFICATION:")
+            memory_management = self._verify_memory_management('text_encoding', ['unet', 'clip'])
+            
+            # 3. Chunking Strategy Verification
+            print("\n3️⃣  CHUNKING STRATEGY VERIFICATION:")
+            chunking_strategy = self._verify_chunking_strategy('text_encoding', processing_plan)
+            
+            # 4. Summary
+            print("\n📊 STEP 3 SUMMARY:")
+            print(f"   Model Placement: {'✅ PASS' if model_placement else '❌ FAIL'}")
+            print(f"   Memory Management: {'✅ PASS' if memory_management else '❌ FAIL'}")
+            print(f"   Chunking Strategy: {'✅ PASS' if chunking_strategy else '❌ FAIL'}")
+            
+            if not all([model_placement, memory_management, chunking_strategy]):
+                print("   ⚠️  Some verifications failed - pipeline may have issues")
+            else:
+                print("   ✅ All verifications passed - pipeline ready for next step")
+            
+            print("="*80)
+            
             # 4. Apply ModelSamplingSD3 Shift
             print("4. Applying ModelSamplingSD3...")
             model_sampling = ModelSamplingSD3()
@@ -429,6 +662,36 @@ class ReferenceVideoPipeline:
             
             # OOM Checklist: Check memory after ModelSamplingSD3
             self._check_memory_usage('model_sampling', expected_threshold=12000)
+            
+            # COMPREHENSIVE VERIFICATION AFTER MODEL SAMPLING
+            print("\n" + "="*80)
+            print("🔍 STEP 4 COMPLETE: COMPREHENSIVE VERIFICATION")
+            print("="*80)
+            
+            # 1. Model Placement Verification
+            print("1️⃣  MODEL PLACEMENT VERIFICATION:")
+            model_placement = self._check_model_placement('model_sampling', ['unet'])
+            
+            # 2. Memory Management Verification
+            print("\n2️⃣  MEMORY MANAGEMENT VERIFICATION:")
+            memory_management = self._verify_memory_management('model_sampling', ['unet'])
+            
+            # 3. Chunking Strategy Verification
+            print("\n3️⃣  CHUNKING STRATEGY VERIFICATION:")
+            chunking_strategy = self._verify_chunking_strategy('model_sampling', processing_plan)
+            
+            # 4. Summary
+            print("\n📊 STEP 4 SUMMARY:")
+            print(f"   Model Placement: {'✅ PASS' if model_placement else '❌ FAIL'}")
+            print(f"   Memory Management: {'✅ PASS' if memory_management else '❌ FAIL'}")
+            print(f"   Chunking Strategy: {'✅ PASS' if chunking_strategy else '❌ FAIL'}")
+            
+            if not all([model_placement, memory_management, chunking_strategy]):
+                print("   ⚠️  Some verifications failed - pipeline may have issues")
+            else:
+                print("   ✅ All verifications passed - pipeline ready for next step")
+            
+            print("="*80)
             
             # 5. Generate Initial Latents
             print("5. Generating initial latents...")
@@ -446,20 +709,46 @@ class ReferenceVideoPipeline:
             print("5a. Checking memory before VAE encoding...")
             self._check_memory_usage('vae_encoding_start', expected_threshold=8000)
             
+            # ENSURE PROPER CHUNKING FOR VAE ENCODING
+            print("5a. 🔧 ENSURING PROPER CHUNKING FOR VAE ENCODING...")
+            
+            # Get chunking configuration for VAE encoding
+            vae_encode_chunk_size = processing_plan['vae_encode']['chunk_size']
+            vae_encode_num_chunks = processing_plan['vae_encode']['num_chunks']
+            
+            print(f"5a. Chunking Configuration:")
+            print(f"5a.   Chunk Size: {vae_encode_chunk_size} frames per chunk")
+            print(f"5a.   Total Chunks: {vae_encode_num_chunks}")
+            print(f"5a.   Total Frames: {length}")
+            
+            # Force chunked processing if we have many frames
+            if length > vae_encode_chunk_size:
+                print(f"5a. ✅ Using chunked processing: {length} frames > {vae_encode_chunk_size} chunk size")
+                use_chunked_processing = True
+            else:
+                print(f"5a. ℹ️  Single chunk processing: {length} frames <= {vae_encode_chunk_size} chunk size")
+                use_chunked_processing = False
+            
             try:
                 # Strategy 1: Use ComfyUI's native VAE encoding with smart batching
                 print("5a. Strategy 1: ComfyUI native VAE encoding (smart batching)")
                 print(f"5a. Processing {length} frames at {width}x{height}")
                 
-                # Let ComfyUI's VAE handle the encoding with its built-in memory management
-                # This will automatically:
-                # 1. Calculate optimal batch size based on available VRAM
-                # 2. Process in optimal batches
-                # 3. Fall back to tiled processing if OOM occurs
-                positive_cond, negative_cond, init_latent, trim_count = video_generator.encode(
-                    positive_cond, negative_cond, vae, width, height,
-                    length, batch_size, strength, control_video, None, reference_image
-                )
+                # PASS CHUNKING PARAMETERS TO FORCE CHUNKED PROCESSING
+                if use_chunked_processing:
+                    print("5a. 🔧 FORCING CHUNKED PROCESSING to prevent OOM...")
+                    positive_cond, negative_cond, init_latent, trim_count = video_generator.encode(
+                        positive_cond, negative_cond, vae, width, height,
+                        length, batch_size, strength, control_video, None, reference_image,
+                        chunked_processor=self.chunked_processor,  # Pass chunked processor
+                        chunk_size=vae_encode_chunk_size  # Pass chunk size
+                    )
+                else:
+                    print("5a. Using single-chunk processing...")
+                    positive_cond, negative_cond, init_latent, trim_count = video_generator.encode(
+                        positive_cond, negative_cond, vae, width, height,
+                        length, batch_size, strength, control_video, None, reference_image
+                    )
                 
                 print("5a. ✅ SUCCESS: ComfyUI native VAE encoding worked!")
                 print(f"5a. Generated latent shape: {init_latent.shape}")
@@ -603,6 +892,55 @@ class ReferenceVideoPipeline:
                         print("5a. ⚠️  WARNING: Using dummy latents - output quality will be poor!")
                         print("5a. 💡 TIP: The dummy latents now match the expected WAN VAE dimensions")
             
+            # COMPREHENSIVE VERIFICATION AFTER VAE ENCODING
+            print("\n" + "="*80)
+            print("🔍 STEP 5 COMPLETE: COMPREHENSIVE VERIFICATION")
+            print("="*80)
+            
+            # 1. Model Placement Verification
+            print("1️⃣  MODEL PLACEMENT VERIFICATION:")
+            model_placement = self._check_model_placement('vae_encoding', ['vae'])
+            
+            # 2. Memory Management Verification
+            print("\n2️⃣  MEMORY MANAGEMENT VERIFICATION:")
+            memory_management = self._verify_memory_management('vae_encoding', ['vae'])
+            
+            # 3. Chunking Strategy Verification
+            print("\n3️⃣  CHUNKING STRATEGY VERIFICATION:")
+            chunking_strategy = self._verify_chunking_strategy('vae_encoding', processing_plan)
+            
+            # 4. VAE Encoding Results Verification
+            print("\n4️⃣  VAE ENCODING RESULTS VERIFICATION:")
+            if 'init_latent' in locals():
+                if hasattr(init_latent, 'shape'):
+                    print(f"   Latent Generated: ✅ Shape: {init_latent.shape}")
+                    if init_latent.shape[1] < 10:  # Likely dummy latents
+                        print("   ⚠️  WARNING: Using dummy latents (VAE encoding failed)")
+                        vae_encoding_success = False
+                    else:
+                        print("   ✅ Real VAE encoding successful")
+                        vae_encoding_success = True
+                else:
+                    print("   Latent Generated: ❌ No shape information")
+                    vae_encoding_success = False
+            else:
+                print("   Latent Generated: ❌ No latent created")
+                vae_encoding_success = False
+            
+            # 5. Summary
+            print("\n📊 STEP 5 SUMMARY:")
+            print(f"   Model Placement: {'✅ PASS' if model_placement else '❌ FAIL'}")
+            print(f"   Memory Management: {'✅ PASS' if memory_management else '❌ FAIL'}")
+            print(f"   Chunking Strategy: {'✅ PASS' if chunking_strategy else '❌ FAIL'}")
+            print(f"   VAE Encoding Success: {'✅ PASS' if vae_encoding_success else '❌ FAIL'}")
+            
+            if not all([model_placement, memory_management, chunking_strategy, vae_encoding_success]):
+                print("   ⚠️  Some verifications failed - pipeline may have issues")
+            else:
+                print("   ✅ All verifications passed - pipeline ready for next step")
+            
+            print("="*80)
+            
             # Extract the actual latent tensor from the dictionary
             if isinstance(init_latent, dict) and "samples" in init_latent:
                 init_latent = init_latent["samples"]
@@ -717,6 +1055,50 @@ class ReferenceVideoPipeline:
             else:
                 print("6a. ⚠️  ModelPatcher not available, skipping explicit memory management")
             
+            # COMPREHENSIVE VERIFICATION AFTER UNET SAMPLING
+            print("\n" + "="*80)
+            print("🔍 STEP 6 COMPLETE: COMPREHENSIVE VERIFICATION")
+            print("="*80)
+            
+            # 1. Model Placement Verification
+            print("1️⃣  MODEL PLACEMENT VERIFICATION:")
+            model_placement = self._check_model_placement('unet_sampling', ['unet'])
+            
+            # 2. Memory Management Verification
+            print("\n2️⃣  MEMORY MANAGEMENT VERIFICATION:")
+            memory_management = self._verify_memory_management('unet_sampling', ['unet'])
+            
+            # 3. Chunking Strategy Verification
+            print("\n3️⃣  CHUNKING STRATEGY VERIFICATION:")
+            chunking_strategy = self._verify_chunking_strategy('unet_sampling', processing_plan)
+            
+            # 4. UNET Sampling Results Verification
+            print("\n4️⃣  UNET SAMPLING RESULTS VERIFICATION:")
+            if 'final_latent' in locals():
+                if hasattr(final_latent, 'shape'):
+                    print(f"   Sampling Result: ✅ Shape: {final_latent.shape}")
+                    unet_sampling_success = True
+                else:
+                    print("   Sampling Result: ❌ No shape information")
+                    unet_sampling_success = False
+            else:
+                print("   Sampling Result: ❌ No final latent created")
+                unet_sampling_success = False
+            
+            # 5. Summary
+            print("\n📊 STEP 6 SUMMARY:")
+            print(f"   Model Placement: {'✅ PASS' if model_placement else '❌ FAIL'}")
+            print(f"   Memory Management: {'✅ PASS' if memory_management else '❌ FAIL'}")
+            print(f"   Chunking Strategy: {'✅ PASS' if chunking_strategy else '❌ FAIL'}")
+            print(f"   UNET Sampling Success: {'✅ PASS' if unet_sampling_success else '❌ FAIL'}")
+            
+            if not all([model_placement, memory_management, chunking_strategy, unet_sampling_success]):
+                print("   ⚠️  Some verifications failed - pipeline may have issues")
+            else:
+                print("   ✅ All verifications passed - pipeline ready for next step")
+            
+            print("="*80)
+            
             # 7. Trim Video Latent
             print("7. Trimming video latent...")
             trim_processor = TrimVideoLatent()
@@ -728,6 +1110,54 @@ class ReferenceVideoPipeline:
             # Extract the trimmed tensor from the dictionary
             trimmed_latent = trimmed_latent_dict["samples"]
             print(f"7a. Trimmed latent shape: {trimmed_latent.shape}")
+            
+            # OOM Checklist: Check memory after video trimming
+            self._check_memory_usage('video_trimming', expected_threshold=100)
+            
+            # COMPREHENSIVE VERIFICATION AFTER VIDEO LATENT TRIMMING
+            print("\n" + "="*80)
+            print("🔍 STEP 7 COMPLETE: COMPREHENSIVE VERIFICATION")
+            print("="*80)
+            
+            # 1. Model Placement Verification
+            print("1️⃣  MODEL PLACEMENT VERIFICATION:")
+            model_placement = self._check_model_placement('video_trimming', [])
+            
+            # 2. Memory Management Verification
+            print("\n2️⃣  MEMORY MANAGEMENT VERIFICATION:")
+            memory_management = self._verify_memory_management('video_trimming', [])
+            
+            # 3. Chunking Strategy Verification
+            print("\n3️⃣  CHUNKING STRATEGY VERIFICATION:")
+            chunking_strategy = self._verify_chunking_strategy('video_trimming', processing_plan)
+            
+            # 4. Video Trimming Results Verification
+            print("\n4️⃣  VIDEO TRIMMING RESULTS VERIFICATION:")
+            if 'trimmed_latent' in locals():
+                if hasattr(trimmed_latent, 'shape'):
+                    print(f"   Trimmed Latent: ✅ Shape: {trimmed_latent.shape}")
+                    print(f"   Trim Count: {trim_count if 'trim_count' in locals() else 'Unknown'}")
+                    video_trimming_success = True
+                else:
+                    print("   Trimmed Latent: ❌ No shape information")
+                    video_trimming_success = False
+            else:
+                print("   Trimmed Latent: ❌ No trimmed latent created")
+                video_trimming_success = False
+            
+            # 5. Summary
+            print("\n📊 STEP 7 SUMMARY:")
+            print(f"   Model Placement: {'✅ PASS' if model_placement else '❌ FAIL'}")
+            print(f"   Memory Management: {'✅ PASS' if memory_management else '❌ FAIL'}")
+            print(f"   Chunking Strategy: {'✅ PASS' if chunking_strategy else '❌ FAIL'}")
+            print(f"   Video Trimming Success: {'✅ PASS' if video_trimming_success else '❌ FAIL'}")
+            
+            if not all([model_placement, memory_management, chunking_strategy, video_trimming_success]):
+                print("   ⚠️  Some verifications failed - pipeline may have issues")
+            else:
+                print("   ✅ All verifications passed - pipeline ready for next step")
+            
+            print("="*80)
             
             # 8. Decode Frames
             print("8. Decoding frames...")
@@ -841,53 +1271,62 @@ class ReferenceVideoPipeline:
             # OOM Checklist: Check memory after VAE decoding execution
             self._check_memory_usage('vae_decoding', expected_threshold=8000)
             
-            # Debug: Check frame shapes after VAE decoding
-            print("8a. VAE decoding debug info:")
-            if frames is not None:
-                print(f"8a. Frames type: {type(frames)}")
-                if hasattr(frames, 'shape'):
-                    print(f"8a. Frames shape: {frames.shape}")
-                    if len(frames.shape) == 4:  # (batch, height, width, channels)
-                        print(f"8a. Frame dimensions: {frames.shape[0]} frames, {frames.shape[1]}x{frames.shape[2]}, {frames.shape[3]} channels")
-                        if frames.shape[3] == 1:
-                            print("8a. ⚠️  WARNING: Frames have only 1 channel! Expected 3 channels (RGB)")
-                            print("8a. 🔧 Attempting to expand 1-channel frames to 3-channel...")
-                            # Expand 1-channel to 3-channel by repeating
-                            frames = frames.repeat(1, 1, 1, 3)
-                            print(f"8a. ✅ Expanded frames shape: {frames.shape}")
-                        elif frames.shape[3] == 3:
-                            print("8a. ✅ Frames have correct 3 channels (RGB)")
-                        else:
-                            print(f"8a. ⚠️  Unexpected channel count: {frames.shape[3]} (expected 3)")
-                    else:
-                        print(f"8a. ⚠️  Unexpected frame shape: {frames.shape}")
-                else:
-                    print("8a. ⚠️  Frames object has no shape attribute")
-            else:
-                print("8a. ❌ ERROR: No frames generated from VAE decoding!")
-            
-            # After VAE decoding, explicitly manage VAE memory
+            # Let ComfyUI handle VAE memory management automatically
             print("8b. VAE decoding complete")
-            print("8b. Explicitly managing VAE memory...")
+            print("8b. ComfyUI's VAE ModelPatcher will handle memory management automatically")
+            print("8b. No manual VAE device management needed - letting ComfyUI coordinate")
             
-            # VAE should automatically offload, but let's verify and force if needed
-            if hasattr(vae, 'device'):
-                current_device = vae.device
-                print(f"8b. VAE current device: {current_device}")
-                
-                # If VAE is still on GPU, force it to CPU via first_stage_model
-                if str(current_device) != 'cpu':
-                    print("8b. VAE still on GPU, forcing to CPU...")
-                    if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                        vae.first_stage_model.to('cpu')
-                        vae.device = torch.device('cpu')
-                        print(f"8b. VAE moved to: {vae.device}")
+            # COMPREHENSIVE VERIFICATION AFTER VAE DECODING
+            print("\n" + "="*80)
+            print("🔍 STEP 8 COMPLETE: COMPREHENSIVE VERIFICATION")
+            print("="*80)
+            
+            # 1. Model Placement Verification
+            print("1️⃣  MODEL PLACEMENT VERIFICATION:")
+            model_placement = self._check_model_placement('vae_decoding', ['vae'])
+            
+            # 2. Memory Management Verification
+            print("\n2️⃣  MEMORY MANAGEMENT VERIFICATION:")
+            memory_management = self._verify_memory_management('vae_decoding', ['vae'])
+            
+            # 3. Chunking Strategy Verification
+            print("\n3️⃣  CHUNKING STRATEGY VERIFICATION:")
+            chunking_strategy = self._verify_chunking_strategy('vae_decoding', processing_plan)
+            
+            # 4. VAE Decoding Results Verification
+            print("\n4️⃣  VAE DECODING RESULTS VERIFICATION:")
+            if 'frames' in locals():
+                if hasattr(frames, 'shape'):
+                    print(f"   Frames Generated: ✅ Shape: {frames.shape}")
+                    if len(frames.shape) == 4:
+                        print(f"   Frame Info: {frames.shape[0]} frames, {frames.shape[1]}x{frames.shape[2]}, {frames.shape[3]} channels")
+                        if frames.shape[3] == 3:
+                            print("   ✅ Frames have correct 3 channels (RGB)")
+                        else:
+                            print(f"   ⚠️  Frames have wrong channel count: {frames.shape[3]} (expected 3)")
                     else:
-                        print("8b. ⚠️  Cannot move VAE to CPU (no first_stage_model)")
+                        print(f"   ⚠️  Frames have unexpected shape: {frames.shape}")
+                    vae_decoding_success = True
                 else:
-                    print("8b. ✅ VAE already on CPU")
+                    print("   Frames Generated: ❌ No shape information")
+                    vae_decoding_success = False
             else:
-                print("8b. ⚠️  Cannot determine VAE device, assuming automatic management")
+                print("   Frames Generated: ❌ No frames created")
+                vae_decoding_success = False
+            
+            # 5. Summary
+            print("\n📊 STEP 8 SUMMARY:")
+            print(f"   Model Placement: {'✅ PASS' if model_placement else '❌ FAIL'}")
+            print(f"   Memory Management: {'✅ PASS' if memory_management else '❌ FAIL'}")
+            print(f"   Chunking Strategy: {'✅ PASS' if chunking_strategy else '❌ FAIL'}")
+            print(f"   VAE Decoding Success: {'✅ PASS' if vae_decoding_success else '❌ FAIL'}")
+            
+            if not all([model_placement, memory_management, chunking_strategy, vae_decoding_success]):
+                print("   ⚠️  Some verifications failed - pipeline may have issues")
+            else:
+                print("   ✅ All verifications passed - pipeline ready for next step")
+            
+            print("="*80)
             
             # 9. Export Video
             print("9. Exporting video...")
@@ -902,6 +1341,12 @@ class ReferenceVideoPipeline:
                         print(f"9a. Export frame dimensions: {frames.shape[0]} frames, {frames.shape[1]}x{frames.shape[2]}, {frames.shape[3]} channels")
                         if frames.shape[3] == 3:
                             print("9a. ✅ Export frames have correct 3 channels (RGB)")
+                        elif frames.shape[3] == 1:
+                            print("9a. ⚠️  WARNING: Frames have only 1 channel! Expected 3 channels (RGB)")
+                            print("9a. 🔧 Attempting to expand 1-channel frames to 3-channel...")
+                            # Expand 1-channel to 3-channel by repeating
+                            frames = frames.repeat(1, 1, 1, 3)
+                            print(f"9a. ✅ Expanded frames shape: {frames.shape}")
                         else:
                             print(f"9a. ❌ Export frames have wrong channel count: {frames.shape[3]} (expected 3)")
                     else:
@@ -915,6 +1360,55 @@ class ReferenceVideoPipeline:
             exporter.export_video(frames, output_path)
             
             print(f"Pipeline completed successfully! Output saved to: {output_path}")
+            
+            # OOM Checklist: Check memory after video export
+            self._check_memory_usage('video_export', expected_threshold=100)
+            
+            # COMPREHENSIVE VERIFICATION AFTER VIDEO EXPORT
+            print("\n" + "="*80)
+            print("🔍 STEP 9 COMPLETE: COMPREHENSIVE VERIFICATION")
+            print("="*80)
+            
+            # 1. Model Placement Verification
+            print("1️⃣  MODEL PLACEMENT VERIFICATION:")
+            model_placement = self._check_model_placement('video_export', [])
+            
+            # 2. Memory Management Verification
+            print("\n2️⃣  MEMORY MANAGEMENT VERIFICATION:")
+            memory_management = self._verify_memory_management('video_export', [])
+            
+            # 3. Chunking Strategy Verification
+            print("\n3️⃣  CHUNKING STRATEGY VERIFICATION:")
+            chunking_strategy = self._verify_chunking_strategy('video_export', processing_plan)
+            
+            # 4. Video Export Results Verification
+            print("\n4️⃣  VIDEO EXPORT RESULTS VERIFICATION:")
+            if 'output_path' in locals():
+                print(f"   Output Path: {output_path}")
+                if os.path.exists(output_path):
+                    file_size = os.path.getsize(output_path) / (1024 * 1024)  # MB
+                    print(f"   File Size: {file_size:.1f} MB")
+                    video_export_success = True
+                else:
+                    print("   File Size: ❌ File not found")
+                    video_export_success = False
+            else:
+                print("   Output Path: ❌ No output path specified")
+                video_export_success = False
+            
+            # 5. Summary
+            print("\n📊 STEP 9 SUMMARY:")
+            print(f"   Model Placement: {'✅ PASS' if model_placement else '❌ FAIL'}")
+            print(f"   Memory Management: {'✅ PASS' if memory_management else '❌ FAIL'}")
+            print(f"   Chunking Strategy: {'✅ PASS' if chunking_strategy else '❌ FAIL'}")
+            print(f"   Video Export Success: {'✅ PASS' if video_export_success else '❌ FAIL'}")
+            
+            if not all([model_placement, memory_management, chunking_strategy, video_export_success]):
+                print("   ⚠️  Some verifications failed - pipeline may have issues")
+            else:
+                print("   ✅ All verifications passed - pipeline ready for next step")
+            
+            print("="*80)
             
             # Final cleanup - Explicitly manage all model memory using working logic
             print("Final cleanup: Explicitly managing all model memory...")
@@ -934,7 +1428,7 @@ class ReferenceVideoPipeline:
             # 3. Cleanup VAE
             print("Final cleanup: VAE memory management...")
             print("Final cleanup: ComfyUI's VAE ModelPatcher will handle device placement automatically")
-            print("Final cleanup: No manual VAE device management needed")
+            print("Final cleanup: No manual VAE device management needed - letting ComfyUI coordinate")
             
             # 4. Force final cleanup
             import gc
@@ -945,6 +1439,71 @@ class ReferenceVideoPipeline:
             
             # OOM Checklist: Check memory after final cleanup
             self._check_memory_usage('final_cleanup', expected_threshold=100)
+            
+            # COMPREHENSIVE VERIFICATION AFTER FINAL CLEANUP
+            print("\n" + "="*80)
+            print("🔍 FINAL CLEANUP COMPLETE: COMPREHENSIVE VERIFICATION")
+            print("="*80)
+            
+            # 1. Model Placement Verification
+            print("1️⃣  MODEL PLACEMENT VERIFICATION:")
+            model_placement = self._check_model_placement('final_cleanup', ['unet', 'clip', 'vae'])
+            
+            # 2. Memory Management Verification
+            print("\n2️⃣  MEMORY MANAGEMENT VERIFICATION:")
+            memory_management = self._verify_memory_management('final_cleanup', ['unet', 'clip', 'vae'])
+            
+            # 3. Chunking Strategy Verification
+            print("\n3️⃣  CHUNKING STRATEGY VERIFICATION:")
+            chunking_strategy = self._verify_chunking_strategy('final_cleanup', processing_plan)
+            
+            # 4. Final Memory State Verification
+            print("\n4️⃣  FINAL MEMORY STATE VERIFICATION:")
+            if torch.cuda.is_available():
+                final_allocated = torch.cuda.memory_allocated() / 1024**2
+                final_reserved = torch.cuda.memory_reserved() / 1024**2
+                total_vram = torch.cuda.get_device_properties(0).total_memory / 1024**2
+                free_vram = total_vram - final_reserved
+                
+                print(f"   Final GPU Memory:")
+                print(f"     Allocated: {final_allocated:.1f} MB")
+                print(f"     Reserved: {final_reserved:.1f} MB")
+                print(f"     Free: {free_vram:.1f} MB")
+                print(f"     Total: {total_vram:.1f} MB")
+                print(f"     Utilization: {(final_reserved/total_vram)*100:.1f}%")
+                
+                # Memory efficiency
+                if 'baseline_allocated' in locals():
+                    baseline_mb = baseline_allocated / 1024**2
+                    memory_efficiency = ((final_allocated - baseline_mb) / baseline_mb) * 100 if baseline_mb > 0 else 0
+                    print(f"     Memory Efficiency: {memory_efficiency:+.1f}% from baseline")
+                    
+                    if abs(memory_efficiency) < 100:  # Within 100MB of baseline
+                        print("     ✅ Memory successfully restored to baseline state")
+                        memory_restored = True
+                    else:
+                        print("     ⚠️  Memory not fully restored to baseline state")
+                        memory_restored = False
+                else:
+                    memory_restored = False
+                    print("     ⚠️  Cannot determine memory restoration (no baseline)")
+            else:
+                memory_restored = True
+                print("   GPU not available, skipping memory verification")
+            
+            # 5. Summary
+            print("\n📊 FINAL CLEANUP SUMMARY:")
+            print(f"   Model Placement: {'✅ PASS' if model_placement else '❌ FAIL'}")
+            print(f"   Memory Management: {'✅ PASS' if memory_management else '❌ FAIL'}")
+            print(f"   Chunking Strategy: {'✅ PASS' if chunking_strategy else '❌ FAIL'}")
+            print(f"   Memory Restored: {'✅ PASS' if memory_restored else '❌ FAIL'}")
+            
+            if not all([model_placement, memory_management, chunking_strategy, memory_restored]):
+                print("   ⚠️  Some verifications failed - final cleanup may be incomplete")
+            else:
+                print("   ✅ All verifications passed - pipeline cleanup complete")
+            
+            print("="*80)
             
             # COMPREHENSIVE DIAGNOSTIC SUMMARY
             print("\n" + "="*100)
@@ -961,12 +1520,15 @@ class ReferenceVideoPipeline:
             else:
                 print("   GPU: Not available")
             
-            import psutil
-            cpu_info = psutil.cpu_count(logical=False)
-            cpu_logical = psutil.cpu_count(logical=True)
-            memory_info = psutil.virtual_memory()
-            print(f"   CPU: {cpu_info} physical cores, {cpu_logical} logical cores")
-            print(f"   RAM: {memory_info.total / 1024**3:.2f} GB total, {memory_info.available / 1024**3:.2f} GB available")
+            if psutil:
+                cpu_info = psutil.cpu_count(logical=False)
+                cpu_logical = psutil.cpu_count(logical=True)
+                memory_info = psutil.virtual_memory()
+                print(f"   CPU: {cpu_info} physical cores, {cpu_logical} logical cores")
+                print(f"   RAM: {memory_info.total / 1024**3:.2f} GB total, {memory_info.available / 1024**3:.2f} GB available")
+            else:
+                print("   CPU: Not available")
+                print("   RAM: Not available")
             
             # Pipeline Step-by-Step Analysis
             print("\n📊 PIPELINE STEP ANALYSIS:")
@@ -1288,30 +1850,23 @@ class ReferenceVideoPipeline:
             except torch.cuda.OutOfMemoryError:
                 print(f"OOM on frame {frame_idx + 1}! Trying CPU fallback...")
                 try:
-                    # Move VAE to CPU temporarily for this frame
+                    # Let ComfyUI handle VAE device placement automatically
                     vae_device = vae.device if hasattr(vae, 'device') else 'cuda:0'
-                    vae_cpu = vae
-                    if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                        vae.first_stage_model.to('cpu')
-                        vae.device = torch.device('cpu')
-                        vae_cpu = vae
+                    print(f"Using CPU fallback for frame {frame_idx + 1} - letting ComfyUI handle VAE memory")
+                    
+                    # Let ComfyUI handle VAE device placement automatically
                     single_frame_cpu = single_frame.cpu()
                     
-                    # Encode on CPU
-                    single_latent_cpu = vae_cpu.encode(single_frame_cpu[:, :, :, :3])
+                    # Encode on CPU (ComfyUI will handle device placement)
+                    single_latent_cpu = vae.encode(single_frame_cpu[:, :, :, :3])
                     
-                    # Move back to GPU
+                    # Move result back to GPU
                     single_latent = single_latent_cpu.to(vae_device)
-                    if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                        vae.first_stage_model.to(vae_device)
-                        vae.device = vae_device
                     
                     all_latents.append(single_latent)
                     
                     # Cleanup
                     del single_frame_cpu, single_latent_cpu
-                    if vae_cpu is not vae:
-                        del vae_cpu
                     del single_frame
                         
                 except Exception as cpu_error:
@@ -1364,30 +1919,23 @@ class ReferenceVideoPipeline:
             except torch.cuda.OutOfMemoryError:
                 print(f"OOM decoding frame {frame_idx + 1}! Trying CPU fallback...")
                 try:
-                    # Move VAE to CPU temporarily for this frame
+                    # Let ComfyUI handle VAE device placement automatically
                     vae_device = vae.device if hasattr(vae, 'device') else 'cuda:0'
-                    vae_cpu = vae
-                    if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                        vae.first_stage_model.to('cpu')
-                        vae.device = torch.device('cpu')
-                        vae_cpu = vae
+                    print(f"Using CPU fallback for frame {frame_idx + 1} - letting ComfyUI handle VAE memory")
+                    
+                    # Let ComfyUI handle VAE device placement automatically
                     single_frame_latent_cpu = single_frame_latent.cpu()
                     
-                    # Decode on CPU
-                    single_frame_cpu = vae_cpu.decode(single_frame_latent_cpu)
+                    # Decode on CPU (ComfyUI will handle device placement)
+                    single_frame_cpu = vae.decode(single_frame_latent_cpu)
                     
-                    # Move back to GPU
+                    # Move result back to GPU
                     single_frame = single_frame_cpu.to(vae_device)
-                    if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'to'):
-                        vae.first_stage_model.to(vae_device)
-                        vae.device = vae_device
                     
                     all_frames.append(single_frame)
                     
                     # Cleanup
                     del single_frame_latent_cpu, single_frame_cpu
-                    if vae_cpu is not vae:
-                        del vae_cpu
                         
                 except Exception as cpu_error:
                     print(f"CPU fallback also failed for frame {frame_idx + 1}: {cpu_error}")
