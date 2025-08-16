@@ -560,9 +560,30 @@ class ReferenceVideoPipeline:
                         # Last resort: create dummy latents to continue pipeline
                         print("5a. 🚨 LAST RESORT: Creating dummy latents to continue pipeline...")
                         
-                        # Create minimal dummy latents
-                        dummy_latent_shape = (1, minimal_length, 4, minimal_height // 8, minimal_width // 8)
+                        # Create dummy latents with correct dimensions for WAN VAE
+                        # WAN VAE expects specific temporal dimensions - let's match the original length
+                        print(f"5a. Creating dummy latents matching original video length: {length} frames")
+                        
+                        # Calculate correct latent dimensions based on WAN VAE downscale ratio
+                        # WAN VAE typically has downscale_ratio = (4, 8, 8) for temporal/spatial
+                        temporal_downscale = 4  # WAN VAE temporal compression
+                        spatial_downscale = 8   # WAN VAE spatial compression
+                        
+                        # Calculate latent dimensions
+                        latent_frames = max(1, length // temporal_downscale)  # Ensure at least 1 frame
+                        latent_height = max(1, height // spatial_downscale)
+                        latent_width = max(1, width // spatial_downscale)
+                        
+                        print(f"5a. Calculated latent dimensions:")
+                        print(f"5a.   Original: {length} frames, {height}x{width}")
+                        print(f"5a.   Latent: {latent_frames} frames, {latent_height}x{latent_width}")
+                        print(f"5a.   Downscale ratios: temporal={temporal_downscale}, spatial={spatial_downscale}")
+                        
+                        # Create dummy latents with correct dimensions
+                        dummy_latent_shape = (1, latent_frames, 4, latent_height, latent_width)
                         init_latent = torch.randn(dummy_latent_shape, device='cpu') * 0.1
+                        
+                        print(f"5a. Created dummy latent shape: {init_latent.shape}")
                         
                         # Create dummy conditions in ComfyUI-compatible format
                         print("5a. Creating proper dummy CLIP conditions for ComfyUI compatibility...")
@@ -580,6 +601,7 @@ class ReferenceVideoPipeline:
                         
                         print(f"5a. Created dummy latent shape: {init_latent.shape}")
                         print("5a. ⚠️  WARNING: Using dummy latents - output quality will be poor!")
+                        print("5a. 💡 TIP: The dummy latents now match the expected WAN VAE dimensions")
             
             # Extract the actual latent tensor from the dictionary
             if isinstance(init_latent, dict) and "samples" in init_latent:
@@ -630,6 +652,25 @@ class ReferenceVideoPipeline:
             # Check memory before UNET sampling
             print("6a. Checking memory before UNET sampling...")
             self._check_memory_usage('unet_sampling_start', expected_threshold=15000)
+            
+            # Verify latent dimensions before sampling
+            print("6a. Verifying latent dimensions before UNET sampling...")
+            print(f"6a. Initial latent shape: {init_latent.shape}")
+            
+            # Ensure latent dimensions are compatible with UNET expectations
+            if len(init_latent.shape) == 5:  # (batch, frames, channels, height, width)
+                batch, frames, channels, height, width = init_latent.shape
+                print(f"6a. Latent dimensions: batch={batch}, frames={frames}, channels={channels}, height={height}, width={width}")
+                
+                # Check if dimensions are reasonable
+                if frames < 1:
+                    print("6a. ⚠️  Warning: Latent has 0 frames, this may cause issues")
+                if height < 1 or width < 1:
+                    print("6a. ⚠️  Warning: Latent has invalid spatial dimensions")
+                if channels != 4:
+                    print(f"6a. ⚠️  Warning: Expected 4 channels, got {channels}")
+            else:
+                print(f"6a. ⚠️  Warning: Unexpected latent shape: {init_latent.shape}")
             
             sampler = KSampler()
             final_latent = sampler.sample(
