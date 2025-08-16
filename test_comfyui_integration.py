@@ -58,13 +58,15 @@ def test_comfyui_model_loading():
             else:
                 print("❌ UNET is not properly wrapped in ModelPatcher")
             
-            if hasattr(clip_model, 'patches') and hasattr(clip_model, 'load_device') and hasattr(clip_model, 'offload_device'):
-                print("✅ CLIP is properly wrapped in ModelPatcher")
-                print(f"   Load device: {clip_model.load_device}")
-                print(f"   Offload device: {clip_model.offload_device}")
-                print(f"   Has patches: {len(clip_model.patches)}")
+            # CLIP objects have an internal ModelPatcher in .patcher
+            if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'patches'):
+                print("✅ CLIP has internal ModelPatcher")
+                print(f"   Load device: {clip_model.patcher.load_device}")
+                print(f"   Offload device: {clip_model.patcher.offload_device}")
+                print(f"   Has patches: {len(clip_model.patcher.patches)}")
+                print(f"   Is CLIP: {clip_model.patcher.is_clip}")
             else:
-                print("❌ CLIP is not properly wrapped in ModelPatcher")
+                print("❌ CLIP missing internal ModelPatcher")
             
             # Check VAE properties
             if hasattr(vae, 'device') and hasattr(vae, 'vae_dtype'):
@@ -94,16 +96,61 @@ def test_comfyui_model_loading():
                 print("   Testing UNET unloading...")
                 model.unpatch_model()
                 
+                # Force garbage collection and cache cleanup
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.ipc_collect()
+                
                 after_unload_memory = torch.cuda.memory_allocated() / 1024**2
-                print(f"   After UNET unload: {after_unload_memory:.1f} MB")
+                print(f"   After UNET unload + cleanup: {after_unload_memory:.1f} MB")
                 print(f"   Memory freed: {after_load_memory - after_unload_memory:.1f} MB")
                 
                 if after_unload_memory <= initial_memory + 100:  # Within 100MB of initial
                     print("✅ Memory management working correctly!")
                 else:
                     print("❌ Memory not properly freed!")
+                    print("   This may be normal for some models - checking if it's actually freed...")
+                    
+                    # Check if the model is actually on CPU
+                    if hasattr(model, 'model') and hasattr(model.model, 'device'):
+                        print(f"   UNET model device: {model.model.device}")
+                        if str(model.model.device) == 'cpu':
+                            print("   ✅ UNET is actually on CPU (memory may be cached)")
+                        else:
+                            print("   ❌ UNET is not on CPU")
             else:
                 print("   Skipping GPU memory tests (CUDA not available)")
+            
+            # Test CLIP memory management
+            print("\n🔄 Testing CLIP memory management...")
+            if torch.cuda.is_available():
+                clip_initial_memory = torch.cuda.memory_allocated() / 1024**2
+                print(f"   CLIP initial VRAM: {clip_initial_memory:.1f} MB")
+                
+                # Test CLIP loading to GPU
+                print("   Testing CLIP loading to GPU...")
+                clip_model.load_model()
+                
+                clip_after_load_memory = torch.cuda.memory_allocated() / 1024**2
+                print(f"   After CLIP load: {clip_after_load_memory:.1f} MB")
+                print(f"   CLIP memory increase: {clip_after_load_memory - clip_initial_memory:.1f} MB")
+                
+                # Test CLIP unloading
+                print("   Testing CLIP unloading...")
+                clip_model.patcher.unpatch_model()
+                
+                # Force cleanup
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.ipc_collect()
+                
+                clip_after_unload_memory = torch.cuda.memory_allocated() / 1024**2
+                print(f"   After CLIP unload + cleanup: {clip_after_unload_memory:.1f} MB")
+                print(f"   CLIP memory freed: {clip_after_load_memory - clip_after_unload_memory:.1f} MB")
             
             # Cleanup
             del model, clip_model, vae, vae_state_dict
