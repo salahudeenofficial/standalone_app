@@ -647,7 +647,8 @@ def model_config_from_unet(state_dict, unet_key_prefix, use_base_if_no_match=Fal
     return model_config
 
 def unet_prefix_from_state_dict(state_dict):
-    candidates = ["model.diffusion_model.", #ldm/sgm models
+    candidates = ["", #wan models (no prefix)
+                  "model.diffusion_model.", #ldm/sgm models
                   "model.model.", #audio models
                   "net.", #cosmos
                   ]
