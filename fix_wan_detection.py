@@ -35,7 +35,7 @@ def patch_comfyui_wan_detection():
         print("✅ Already patched!")
         return True
     
-    # Find the candidates list
+    # Find the candidates list - current format
     old_pattern = 'candidates = ["model.diffusion_model.", #ldm/sgm models\n                  "model.model.", #audio models\n                  "net.", #cosmos\n                  ]'
     
     new_pattern = 'candidates = ["", #wan models (no prefix)\n                  "model.diffusion_model.", #ldm/sgm models\n                  "model.model.", #audio models\n                  "net.", #cosmos\n                  ]'
