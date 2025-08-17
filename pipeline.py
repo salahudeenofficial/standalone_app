@@ -585,28 +585,35 @@ class ReferenceVideoPipeline:
             # This ensures proper model type detection and compatibility
             print("1a. Loading models using ComfyUI's CheckpointLoader approach...")
             
-            # Load all models together using checkpoint loading
-            print("1a. Loading models using checkpoint loading for proper WAN detection...")
-            from comfy.sd import load_checkpoint_guess_config
+            # Load models individually using the working approach from test_comfyui_integration.py
+            print("1a. Loading models individually using proven working approach...")
             
-            # For WAN models, we need to load from the UNET file which contains all model info
-            # The UNET file is actually a complete checkpoint with all components
-            print(f"1a. Loading WAN checkpoint from: {unet_model_path}")
-            checkpoint_output = load_checkpoint_guess_config(
-                unet_model_path, 
-                output_vae=True, 
-                output_clip=True, 
-                embedding_directory=None
-            )
+            # Load UNET using the working approach
+            print("1a. Loading UNET...")
+            model = comfy.sd.load_diffusion_model(unet_model_path)
             
-            # Extract models from checkpoint output
-            model = checkpoint_output[0]  # UNET
-            clip_model = checkpoint_output[1]  # CLIP
-            vae = checkpoint_output[2]  # VAE
+            print(f"1a. ✅ UNET loaded: {type(model)}")
             
-            print(f"1a. ✅ UNET loaded using checkpoint approach: {type(model)}")
-            print(f"1a. ✅ CLIP loaded using checkpoint approach: {type(clip_model)}")
-            print(f"1a. ✅ VAE loaded using checkpoint approach: {type(vae)}")
+            # Load CLIP with explicit WAN type (this was working before)
+            print("1a. Loading CLIP with WAN type...")
+            clip_model = comfy.sd.load_clip(ckpt_paths=[clip_model_path], clip_type=comfy.sd.CLIPType.WAN)
+            
+            if clip_model is None:
+                print("1a. ⚠️  CLIP loading failed, trying alternative approach...")
+                # Fallback: load CLIP state dict and create manually
+                clip_sd = comfy.utils.load_torch_file(clip_model_path)
+                from comfy.sd import CLIP
+                clip_model = CLIP(clip_sd, clip_type=comfy.sd.CLIPType.WAN)
+            
+            print(f"1a. ✅ CLIP loaded: {type(clip_model)}")
+            
+            # Load VAE
+            print("1a. Loading VAE...")
+            vae_sd = comfy.utils.load_torch_file(vae_model_path)
+            vae = comfy.sd.VAE(sd=vae_sd)
+            vae.throw_exception_if_invalid()
+            
+            print(f"1a. ✅ VAE loaded: {type(vae)}")
             
             # Verify that the models were loaded correctly
             print("1a. 🔍 DEBUG: Checking model loading status...")
