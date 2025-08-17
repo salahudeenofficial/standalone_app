@@ -21,6 +21,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 # Add ComfyUI path for utilities
 sys.path.insert(0, str(Path(__file__).parent / "comfy"))
 
+# Import ComfyUI modules in the same order as the working UNETLoader node
+import comfy.diffusers_load
+import comfy.samplers
+import comfy.sample
+import comfy.sd
+import comfy.utils
+import comfy.controlnet
+import comfy.model_management
+import comfy.clip_vision
+
 # Import psutil for system information in diagnostic summary
 try:
     import psutil
@@ -28,7 +38,6 @@ except ImportError:
     print("Warning: psutil not available, system information will be limited")
     psutil = None
 
-import comfy.utils
 from components.lora_loader import LoraLoader
 from components.text_encoder import CLIPTextEncode
 from components.model_sampling import ModelSamplingSD3
