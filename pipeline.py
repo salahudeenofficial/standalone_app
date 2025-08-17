@@ -581,49 +581,29 @@ class ReferenceVideoPipeline:
             if lora_path:
                 print(f"1a. LoRA file exists: {os.path.exists(lora_path)}")
             
-            # Use ComfyUI's native loading functions which return ModelPatcher objects
-            # ModelPatcher automatically handles all memory management
-            print("1a. Loading models using ComfyUI's individual component system...")
+            # Use ComfyUI's native UNETLoader, CLIPLoader, and VAELoader
+            # These are the same loaders used in ComfyUI workflows
+            print("1a. Loading models using ComfyUI's UNETLoader, CLIPLoader, and VAELoader...")
             
-            # Load UNET with proper WAN model detection
-            print("1a. Loading UNET with automatic WAN detection...")
-            unet_state_dict = comfy.utils.load_torch_file(unet_model_path)
+            # Load UNET using UNETLoader approach
+            print("1a. Loading UNET using UNETLoader approach...")
+            model = comfy.sd.load_diffusion_model(unet_model_path)
             
-            # Use ComfyUI's automatic model detection for UNET
-            # This will automatically detect WAN models and load them correctly
-            from comfy.sd import load_state_dict_guess_config
+            print(f"1a. ✅ UNET loaded using UNETLoader approach: {type(model)}")
             
-            # Load just the UNET with automatic detection
-            model, _, _, _ = load_state_dict_guess_config(
-                unet_state_dict, 
-                output_vae=False, 
-                output_clip=False, 
-                output_clipvision=False, 
-                embedding_directory=None, 
-                output_model=True
-            )
+            # Load CLIP using CLIPLoader approach with WAN type
+            print("1a. Loading CLIP using CLIPLoader approach with WAN type...")
+            clip_model = comfy.sd.load_clip(ckpt_paths=[clip_model_path], clip_type=comfy.sd.CLIPType.WAN)
             
-            print(f"1a. ✅ UNET loaded using ComfyUI's automatic detection: {type(model)}")
+            print(f"1a. ✅ CLIP loaded using CLIPLoader approach: {type(clip_model)}")
             
-            # Load CLIP separately with proper WAN type
-            print("1a. Loading CLIP with WAN type...")
-            clip_model = comfy.sd.load_clip([clip_model_path], clip_type=comfy.sd.CLIPType.WAN)
+            # Load VAE using VAELoader approach
+            print("1a. Loading VAE using VAELoader approach...")
+            vae_sd = comfy.utils.load_torch_file(vae_model_path)
+            vae = comfy.sd.VAE(sd=vae_sd)
+            vae.throw_exception_if_invalid()
             
-            if clip_model is None:
-                print("1a. ⚠️  CLIP loading failed, trying alternative approach...")
-                # Fallback: load CLIP state dict and create manually
-                clip_state_dict = comfy.utils.load_torch_file(clip_model_path)
-                from comfy.sd import CLIP
-                clip_model = CLIP(clip_state_dict, clip_type=comfy.sd.CLIPType.WAN)
-            
-            print(f"1a. ✅ CLIP loaded: {type(clip_model)}")
-            
-            # Load VAE separately
-            print("1a. Loading VAE...")
-            vae_state_dict = comfy.utils.load_torch_file(vae_model_path)
-            vae = comfy.sd.VAE(sd=vae_state_dict)
-            
-            print(f"1a. ✅ VAE loaded: {type(vae)}")
+            print(f"1a. ✅ VAE loaded using VAELoader approach: {type(vae)}")
             
             # Verify that the UNET was detected as WAN model
             if hasattr(model, 'model') and hasattr(model.model, 'model_type'):
