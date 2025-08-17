@@ -585,62 +585,33 @@ class ReferenceVideoPipeline:
             # This ensures proper model type detection and compatibility
             print("1a. Loading models using ComfyUI's CheckpointLoader approach...")
             
-            # Try to load models with proper WAN model detection
-            print("1a. Attempting to load models with proper WAN detection...")
+            # Use the simple approach - load_diffusion_model should work for WAN models
+            print("1a. Using simple load_diffusion_model approach for WAN models...")
             
-            # First, try to load as a complete checkpoint to get proper model detection
-            print("1a. Trying checkpoint loading approach for WAN model detection...")
-            from comfy.sd import load_checkpoint_guess_config
+            # Load UNET - this should work now that we understand the issue
+            print("1a. Loading UNET with load_diffusion_model...")
+            model = comfy.sd.load_diffusion_model(unet_model_path)
             
-            try:
-                # Try to load from the UNET file as a checkpoint
-                checkpoint_output = load_checkpoint_guess_config(
-                    unet_model_path, 
-                    output_vae=True, 
-                    output_clip=True, 
-                    embedding_directory=None
-                )
-                
-                # Check if we got all models
-                if len(checkpoint_output) >= 3 and checkpoint_output[1] is not None:
-                    model = checkpoint_output[0]  # UNET
-                    clip_model = checkpoint_output[1]  # CLIP
-                    vae = checkpoint_output[2]  # VAE
-                    
-                    print(f"1a. ✅ SUCCESS: All models loaded via checkpoint approach!")
-                    print(f"1a. ✅ UNET: {type(model)}")
-                    print(f"1a. ✅ CLIP: {type(clip_model)}")
-                    print(f"1a. ✅ VAE: {type(vae)}")
-                    
-                else:
-                    raise ValueError("Checkpoint loading didn't provide all models")
-                    
-            except Exception as checkpoint_error:
-                print(f"1a. ⚠️  Checkpoint loading failed: {checkpoint_error}")
-                print("1a. Falling back to individual component loading...")
-                
-                # Fallback: Load models individually
-                print("1a. Loading UNET...")
-                model = comfy.sd.load_diffusion_model(unet_model_path)
-                
-                print("1a. Loading CLIP with WAN type...")
-                clip_model = comfy.sd.load_clip(ckpt_paths=[clip_model_path], clip_type=comfy.sd.CLIPType.WAN)
-                
-                if clip_model is None:
-                    print("1a. ⚠️  CLIP loading failed, trying alternative approach...")
-                    clip_sd = comfy.utils.load_torch_file(clip_model_path)
-                    from comfy.sd import CLIP
-                    clip_model = CLIP(clip_sd, clip_type=comfy.sd.CLIPType.WAN)
-                
-                print("1a. Loading VAE...")
-                vae_sd = comfy.utils.load_torch_file(vae_model_path)
-                vae = comfy.sd.VAE(sd=vae_sd)
-                vae.throw_exception_if_invalid()
-                
-                print(f"1a. ✅ Fallback loading complete:")
-                print(f"1a. ✅ UNET: {type(model)}")
-                print(f"1a. ✅ CLIP: {type(clip_model)}")
-                print(f"1a. ✅ VAE: {type(vae)}")
+            print(f"1a. ✅ UNET loaded: {type(model)}")
+            
+            # Load CLIP with WAN type
+            print("1a. Loading CLIP with WAN type...")
+            clip_model = comfy.sd.load_clip(ckpt_paths=[clip_model_path], clip_type=comfy.sd.CLIPType.WAN)
+            
+            print(f"1a. ✅ CLIP loaded: {type(clip_model)}")
+            
+            # Load VAE
+            print("1a. Loading VAE...")
+            vae_sd = comfy.utils.load_torch_file(vae_model_path)
+            vae = comfy.sd.VAE(sd=vae_sd)
+            vae.throw_exception_if_invalid()
+            
+            print(f"1a. ✅ VAE loaded: {type(vae)}")
+            
+            # Note: The model type detection issue is in ComfyUI's model_detection.py
+            # The WAN model uses no prefix (keys like 'head.modulation') but the detection
+            # logic defaults to 'model.' prefix, causing it to be detected as FLOW instead of WAN
+            # This is a ComfyUI bug, not our pipeline issue
             
             # Verify that the models were loaded correctly
             print("1a. 🔍 DEBUG: Checking model loading status...")
