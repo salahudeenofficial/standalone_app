@@ -93,7 +93,24 @@ def test_wan_detection():
             # Check if it's detected as WAN
             if hasattr(model_config, 'image_model') and model_config.image_model == 'wan2.1':
                 print("   🎯 SUCCESS: WAN model correctly detected!")
-                return True
+                
+                # Now test if we can load the model with the correct type
+                print("   🧪 Testing model loading with detected config...")
+                try:
+                    model = model_config.get_model(sd, device=None)
+                    if model:
+                        print(f"   ✅ Model loaded successfully: {type(model)}")
+                        if hasattr(model, 'model_type'):
+                            print(f"   ✅ Final model type: {model.model_type}")
+                            if hasattr(model.model_type, 'name'):
+                                print(f"   ✅ Model type name: {model.model_type.name}")
+                        return True
+                    else:
+                        print("   ❌ Model loading failed")
+                        return False
+                except Exception as e:
+                    print(f"   ❌ Model loading error: {e}")
+                    return False
             else:
                 print("   ⚠️  Model detected but not as WAN")
                 return False
