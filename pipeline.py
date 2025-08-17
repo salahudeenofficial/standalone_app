@@ -581,31 +581,37 @@ class ReferenceVideoPipeline:
             if lora_path:
                 print(f"1a. LoRA file exists: {os.path.exists(lora_path)}")
             
-            # Use ComfyUI's native UNETLoader, CLIPLoader, and VAELoader
-            # These are the same loaders used in ComfyUI workflows
-            print("1a. Loading models using ComfyUI's UNETLoader, CLIPLoader, and VAELoader...")
+            # Use ComfyUI's CheckpointLoader approach - load all models together
+            # This ensures proper model type detection and compatibility
+            print("1a. Loading models using ComfyUI's CheckpointLoader approach...")
             
-            # Load UNET using UNETLoader approach
-            print("1a. Loading UNET using UNETLoader approach...")
-            model = comfy.sd.load_diffusion_model(unet_model_path)
+            # Load all models together using checkpoint loading
+            print("1a. Loading models using checkpoint loading for proper WAN detection...")
+            from comfy.sd import load_checkpoint_guess_config
             
-            print(f"1a. ✅ UNET loaded using UNETLoader approach: {type(model)}")
+            # For WAN models, we need to load from the UNET file which contains all model info
+            # The UNET file is actually a complete checkpoint with all components
+            print(f"1a. Loading WAN checkpoint from: {unet_model_path}")
+            checkpoint_output = load_checkpoint_guess_config(
+                unet_model_path, 
+                output_vae=True, 
+                output_clip=True, 
+                embedding_directory=None
+            )
             
-            # Load CLIP using CLIPLoader approach with WAN type
-            print("1a. Loading CLIP using CLIPLoader approach with WAN type...")
-            clip_model = comfy.sd.load_clip(ckpt_paths=[clip_model_path], clip_type=comfy.sd.CLIPType.WAN)
+            # Extract models from checkpoint output
+            model = checkpoint_output[0]  # UNET
+            clip_model = checkpoint_output[1]  # CLIP
+            vae = checkpoint_output[2]  # VAE
             
-            print(f"1a. ✅ CLIP loaded using CLIPLoader approach: {type(clip_model)}")
+            print(f"1a. ✅ UNET loaded using checkpoint approach: {type(model)}")
+            print(f"1a. ✅ CLIP loaded using checkpoint approach: {type(clip_model)}")
+            print(f"1a. ✅ VAE loaded using checkpoint approach: {type(vae)}")
             
-            # Load VAE using VAELoader approach
-            print("1a. Loading VAE using VAELoader approach...")
-            vae_sd = comfy.utils.load_torch_file(vae_model_path)
-            vae = comfy.sd.VAE(sd=vae_sd)
-            vae.throw_exception_if_invalid()
+            # Verify that the models were loaded correctly
+            print("1a. 🔍 DEBUG: Checking model loading status...")
             
-            print(f"1a. ✅ VAE loaded using VAELoader approach: {type(vae)}")
-            
-            # Verify that the UNET was detected as WAN model
+            # Check UNET
             if hasattr(model, 'model') and hasattr(model.model, 'model_type'):
                 print(f"1a. ✅ UNET model type detected: {model.model.model_type}")
                 if hasattr(model.model, 'image_model'):
@@ -613,19 +619,14 @@ class ReferenceVideoPipeline:
             else:
                 print("1a. ⚠️  UNET model type not accessible, but loaded successfully")
             
-            # DEBUG: Check if models are actually loaded to GPU
-            print("1a. 🔍 DEBUG: Checking model loading status...")
-            if hasattr(model, 'model') and hasattr(model.model, 'device'):
-                print(f"1a. DEBUG: UNET internal model device: {model.model.device}")
-            if hasattr(model, 'device'):
-                print(f"1a. DEBUG: UNET wrapper device: {model.device}")
-            
+            # Check CLIP
             if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'model'):
                 if hasattr(clip_model.patcher.model, 'device'):
                     print(f"1a. DEBUG: CLIP internal model device: {clip_model.patcher.model.device}")
             if hasattr(clip_model, 'device'):
                 print(f"1a. DEBUG: CLIP wrapper device: {clip_model.device}")
             
+            # Check VAE
             if hasattr(vae, 'device'):
                 print(f"1a. DEBUG: VAE wrapper device: {vae.device}")
             if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'device'):
