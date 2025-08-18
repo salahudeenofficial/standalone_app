@@ -605,9 +605,35 @@ class ReferenceVideoPipeline:
             
             # Load CLIP with WAN type
             print("1a. Loading CLIP with WAN type...")
-            clip_model = comfy.sd.load_clip(ckpt_paths=[clip_model_path], clip_type=comfy.sd.CLIPType.WAN)
+            print(f"1a. DEBUG: CLIP model path: {clip_model_path}")
+            print(f"1a. DEBUG: CLIP model path exists: {Path(clip_model_path).exists()}")
+            print(f"1a. DEBUG: CLIP type: {comfy.sd.CLIPType.WAN}")
+            
+            try:
+                clip_model = comfy.sd.load_clip(ckpt_paths=[clip_model_path], clip_type=comfy.sd.CLIPType.WAN)
+                print(f"1a. ✅ CLIP loaded successfully")
+            except Exception as e:
+                print(f"1a. ❌ ERROR loading CLIP: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
             
             print(f"1a. ✅ CLIP loaded: {type(clip_model)}")
+            
+            # Debug: Check what type of CLIP model was actually loaded
+            print(f"1a. DEBUG: CLIP model class: {clip_model.__class__.__name__}")
+            print(f"1a. DEBUG: CLIP model type: {type(clip_model)}")
+            
+            # Check if it's actually a WAN T5 model
+            if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'model'):
+                print(f"1a. DEBUG: CLIP patcher model class: {clip_model.patcher.model.__class__.__name__}")
+                if hasattr(clip_model.patcher.model, 'transformer'):
+                    print(f"1a. DEBUG: CLIP transformer class: {clip_model.patcher.model.transformer.__class__.__name__}")
+                    if hasattr(clip_model.patcher.model.transformer, 'shared'):
+                        print(f"1a. DEBUG: CLIP embedding size: {clip_model.patcher.model.transformer.shared.embedding_dim}")
+            
+            # Check available methods
+            print(f"1a. DEBUG: CLIP available methods: {[m for m in dir(clip_model) if not m.startswith('_') and 'encode' in m.lower()]}")
             
             # Load VAE
             print("1a. Loading VAE...")
@@ -854,9 +880,18 @@ class ReferenceVideoPipeline:
             print("3. Encoding text prompts...")
             text_encoder = CLIPTextEncode()
             
+            # Debug: Check the clip_model before encoding
+            print(f"3a. DEBUG: About to encode with clip_model type: {type(clip_model)}")
+            print(f"3a. DEBUG: clip_model class: {clip_model.__class__.__name__}")
+            if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'model'):
+                print(f"3a. DEBUG: clip_model.patcher.model class: {clip_model.patcher.model.__class__.__name__}")
+            
             # Encode prompts - CLIPTextEncode returns tuple like ComfyUI
+            print(f"3a. DEBUG: Calling text_encoder.encode()...")
             positive_cond_tuple = text_encoder.encode(clip_model, positive_prompt)
+            print(f"3a. DEBUG: Positive encoding complete, result type: {type(positive_cond_tuple)}")
             negative_cond_tuple = text_encoder.encode(clip_model, negative_prompt)
+            print(f"3a. DEBUG: Negative encoding complete, result type: {type(negative_cond_tuple)}")
             
             # Extract the conditioning from the tuple (matches ComfyUI's format)
             positive_cond = positive_cond_tuple[0]  # Extract first element from tuple
