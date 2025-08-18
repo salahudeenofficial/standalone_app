@@ -1599,9 +1599,18 @@ class ReferenceVideoPipeline:
                         print("8a. 🔧 Strategy 1: Tiled VAE decoding...")
                         if hasattr(vae, 'decode_tiled'):
                             print("8a. ✅ VAE supports tiled decoding - using it!")
+                            
+                            # Extract tensor from dict for tiled decoding
+                            if isinstance(latent_dict, dict) and "samples" in latent_dict:
+                                latent_tensor = latent_dict["samples"]
+                                print(f"8a. 🔍 Extracted tensor for tiled decoding: {latent_tensor.shape}")
+                            else:
+                                latent_tensor = latent_dict
+                                print(f"8a. 🔍 Using tensor directly for tiled decoding: {latent_tensor.shape}")
+                            
                             # Use tiled decoding with conservative tile sizes
                             frames = vae.decode_tiled(
-                                latent_dict,
+                                latent_tensor,  # Pass tensor, not dict
                                 tile_x=64,    # 64x64 spatial tiles
                                 tile_y=64,
                                 tile_t=4,     # 4 frames per temporal tile
@@ -1666,9 +1675,18 @@ class ReferenceVideoPipeline:
                         print("8a. 🔧 Strategy 1: Tiled VAE decoding...")
                         if hasattr(vae, 'decode_tiled'):
                             print("8a. ✅ VAE supports tiled decoding - using it!")
+                            
+                            # Extract tensor from dict for tiled decoding
+                            if isinstance(latent_dict, dict) and "samples" in latent_dict:
+                                latent_tensor = latent_dict["samples"]
+                                print(f"8a. 🔍 Extracted tensor for tiled decoding: {latent_tensor.shape}")
+                            else:
+                                latent_tensor = latent_dict
+                                print(f"8a. 🔍 Using tensor directly for tiled decoding: {latent_tensor.shape}")
+                            
                             # Use tiled decoding with conservative tile sizes
                             frames = vae.decode_tiled(
-                                latent_dict,
+                                latent_tensor,  # Pass tensor, not dict
                                 tile_x=64,    # 64x64 spatial tiles
                                 tile_y=64,
                                 tile_t=4,     # 4 frames per temporal tile
@@ -2352,13 +2370,34 @@ class ReferenceVideoPipeline:
                     
                     # Memory cleanup handled by ComfyUI
         
-        # Concatenate all frames
+        # Concatenate all frames - ensure all are on the same device
         if all_frames:
-            frames = torch.cat(all_frames, dim=0)
-            del all_frames
+            print(f"8a. 🔍 Concatenating {len(all_frames)} frames...")
+            
+            # Check device consistency
+            devices = [frame.device for frame in all_frames if hasattr(frame, 'device')]
+            if devices:
+                target_device = devices[0]  # Use first frame's device
+                print(f"8a. 🔍 Target device for concatenation: {target_device}")
+                
+                # Move all frames to the same device before concatenation
+                aligned_frames = []
+                for i, frame in enumerate(all_frames):
+                    if hasattr(frame, 'device') and frame.device != target_device:
+                        print(f"8a. 🔧 Moving frame {i+1} from {frame.device} to {target_device}")
+                        frame = frame.to(target_device)
+                    aligned_frames.append(frame)
+                
+                frames = torch.cat(aligned_frames, dim=0)
+                del all_frames, aligned_frames
+                print(f"8a. ✅ Concatenation successful on {target_device}")
+            else:
+                frames = torch.cat(all_frames, dim=0)
+                del all_frames
         else:
             # Create empty frames if all failed
-            frames = torch.zeros((frames, 3, height * 8, width * 8), device=vae.device)
+            vae_device = vae.device if hasattr(vae, 'device') else 'cuda:0'
+            frames = torch.zeros((frames, 3, height * 8, width * 8), device=vae_device)
         
         print(f"Single-frame fallback decoding complete. Output shape: {frames.shape}")
         return frames
