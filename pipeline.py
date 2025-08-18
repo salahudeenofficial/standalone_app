@@ -1128,21 +1128,16 @@ class ReferenceVideoPipeline:
                             print(f"5a. ✅ SUCCESS: Tiled VAE encoding worked!")
                             print(f"5a. Generated latent shape: {init_latent.shape}")
                             
-                            # Create dummy positive/negative conditions for compatibility
-                            # ComfyUI expects: [(tensor, dict)] format from CLIPTextEncode
-                            print("5a. Creating proper dummy CLIP conditions for ComfyUI compatibility...")
+                            # IMPORTANT: DO NOT overwrite the real conditioning from text encoding!
+                            # The real conditioning already has 4096 dimensions from WAN T5
+                            print("5a. ⚠️  WARNING: Tiled VAE encoding succeeded, but we need to preserve real conditioning!")
+                            print("5a. 💡 Real conditioning from WAN T5 has 4096 dimensions - don't overwrite with dummy!")
+                            print("5a. 🔍 Current positive_cond shape: {positive_cond[0][0].shape if positive_cond and len(positive_cond) > 0 and len(positive_cond[0]) > 0 else 'Unknown'}")
+                            print("5a. 🔍 Current negative_cond shape: {negative_cond[0][0].shape if negative_cond and len(negative_cond) > 0 and len(negative_cond[0]) > 0 else 'Unknown'}")
                             
-                            # Create dummy CLIP embeddings in the correct format
-                            # Format: [(tensor, dict)] - ComfyUI expects this format
-                            dummy_embedding = torch.randn((1, 77, 1280))  # Dummy CLIP embedding
-                            dummy_dict = {}  # Empty dict as expected by ComfyUI
-                            
-                            # Format: [(tensor, dict)] - ComfyUI expects this format
-                            positive_cond = [(dummy_embedding, dummy_dict)]
-                            negative_cond = [(dummy_embedding, dummy_dict)]
-                            
-                            print(f"5a. Created dummy conditions: positive={len(positive_cond)} tuples, negative={len(negative_cond)} tuples")
-                            print(f"5a. Each tuple format: (tensor, dict) where tensor shape: {dummy_embedding.shape}")
+                            # Keep the existing conditioning - don't overwrite with dummy!
+                            print("5a. ✅ Preserving real conditioning from WAN T5 text encoding")
+                            print("5a. 💡 This ensures 4096 dimensions reach the UNET correctly")
                             
                             trim_count = 0
                         else:
@@ -1223,17 +1218,16 @@ class ReferenceVideoPipeline:
                         
                         print(f"5a. Created dummy latent shape: {init_latent.shape}")
                         
-                        # Create dummy conditions in ComfyUI-compatible format
-                        print("5a. Creating proper dummy CLIP conditions for ComfyUI compatibility...")
-                        dummy_embedding = torch.randn((1, 77, 1280))  # Dummy CLIP embedding
-                        dummy_dict = {}  # Empty dict as expected by ComfyUI
+                        # IMPORTANT: DO NOT overwrite the real conditioning from text encoding!
+                        # The real conditioning already has 4096 dimensions from WAN T5
+                        print("5a. ⚠️  WARNING: CPU fallback succeeded, but we need to preserve real conditioning!")
+                        print("5a. 💡 Real conditioning from WAN T5 has 4096 dimensions - don't overwrite with dummy!")
+                        print("5a. 🔍 Current positive_cond shape: {positive_cond[0][0].shape if positive_cond and len(positive_cond) > 0 and len(positive_cond[0]) > 0 else 'Unknown'}")
+                        print("5a. 🔍 Current negative_cond shape: {negative_cond[0][0].shape if negative_cond and len(negative_cond) > 0 and len(negative_cond[0]) > 0 else 'Unknown'}")
                         
-                        # Format: [(tensor, dict)] - ComfyUI expects this format
-                        positive_cond = [(dummy_embedding, dummy_dict)]
-                        negative_cond = [(dummy_embedding, dummy_dict)]
-                        
-                        print(f"5a. Created dummy conditions: positive={len(positive_cond)} tuples, negative={len(negative_cond)} tuples")
-                        print(f"5a. Each tuple format: (tensor, dict) where tensor shape: {dummy_embedding.shape}")
+                        # Keep the existing conditioning - don't overwrite with dummy!
+                        print("5a. ✅ Preserving real conditioning from WAN T5 text encoding")
+                        print("5a. 💡 This ensures 4096 dimensions reach the UNET correctly")
                         
                         trim_count = 0
                         
