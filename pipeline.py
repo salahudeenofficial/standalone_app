@@ -1375,6 +1375,57 @@ class ReferenceVideoPipeline:
             print("6a. ✅ Letting ComfyUI handle UNET memory management automatically")
             print("6a. 💡 ComfyUI will move UNET to optimal device when needed")
             print("6a. 💡 No manual memory management required - ComfyUI knows best!")
+
+            # CRITICAL: Clean up memory before VAE decoding
+            print("6a. 🧹 CRITICAL: Cleaning up memory before VAE decoding...")
+            print("6a. 💡 UNET sampling used 33+ GB VRAM - need to free it up!")
+
+            # Gentle memory cleanup that works WITH ComfyUI, not against it
+            print("6a. 🧹 Gentle memory cleanup - working WITH ComfyUI...")
+            print("6a. 💡 ComfyUI handles memory optimally - we just help a little")
+            
+            try:
+                # Method 1: Gentle garbage collection (safe with ComfyUI)
+                print("6a. 🔧 Method 1: Gentle garbage collection...")
+                import gc
+                gc.collect()
+                print("6a. ✅ Garbage collection completed")
+                
+                # Method 2: Let ComfyUI handle CUDA cache (don't interfere)
+                print("6a. 🔧 Method 2: Letting ComfyUI handle CUDA cache...")
+                print("6a. 💡 ComfyUI will optimize memory patterns naturally")
+                
+                # Method 3: Check if ComfyUI has already moved UNET
+                if 'unet_model' in locals():
+                    print("6a. 🔧 Method 3: Checking ComfyUI's UNET placement...")
+                    if hasattr(unet_model, 'model'):
+                        device = next(unet_model.model.parameters()).device
+                        print(f"6a. 🔍 ComfyUI has UNET on: {device}")
+                        
+                        if device.type == 'cuda':
+                            print("6a. 💡 UNET still on GPU - ComfyUI may need it")
+                            print("6a. 💡 Trusting ComfyUI's memory management")
+                        else:
+                            print("6a. ✅ ComfyUI already moved UNET to CPU")
+                    else:
+                        print("6a. 💡 UNET model not accessible - trusting ComfyUI")
+                
+            except Exception as e:
+                print(f"6a. ⚠️  Warning: Memory cleanup error: {e}")
+                print("6a. 💡 Continuing with ComfyUI's natural memory management")
+
+
+
+            # Check memory after cleanup
+            if torch.cuda.is_available():
+                allocated = torch.cuda.memory_allocated() / 1024**2
+                reserved = torch.cuda.memory_reserved() / 1024**2
+                print(f"6a. 🔍 Memory after cleanup: {allocated:.1f} MB allocated, {reserved:.1f} MB reserved")
+                
+                if allocated < 10000:  # Less than 10 GB
+                    print("6a. ✅ SUCCESS: Sufficient memory freed for VAE decoding")
+                else:
+                    print("6a. ⚠️  WARNING: Still high memory usage - VAE decoding may fail")
             
             # COMPREHENSIVE VERIFICATION AFTER UNET SAMPLING
             print("\n" + "="*80)
@@ -1541,32 +1592,54 @@ class ReferenceVideoPipeline:
                     print("8a. Chunked VAE decoding successful!")
                     
                 except torch.cuda.OutOfMemoryError:
-                    print("OOM during chunked VAE decoding! Trying smaller chunks...")
+                    print("OOM during chunked VAE decoding! Trying tiled decoding...")
                     
-                    # Progressive fallback: reduce chunk size until it works
-                    chunk_sizes_to_try = [8, 4, 2, 1]
-                    frames = None
-                    
-                    for smaller_chunk_size in chunk_sizes_to_try:
-                        try:
-                            print(f"8a. Trying VAE decoding with chunk size: {smaller_chunk_size}")
+                    # Strategy 1: Try tiled VAE decoding (memory-efficient)
+                    try:
+                        print("8a. 🔧 Strategy 1: Tiled VAE decoding...")
+                        if hasattr(vae, 'decode_tiled'):
+                            print("8a. ✅ VAE supports tiled decoding - using it!")
+                            # Use tiled decoding with conservative tile sizes
+                            frames = vae.decode_tiled(
+                                latent_dict,
+                                tile_x=64,    # 64x64 spatial tiles
+                                tile_y=64,
+                                tile_t=4,     # 4 frames per temporal tile
+                                overlap=8     # 8px overlap for smooth blending
+                            )
+                            print("8a. ✅ Tiled VAE decoding successful!")
+                        else:
+                            print("8a. ⚠️  VAE does not support tiled decoding")
+                            raise RuntimeError("VAE does not support tiled decoding")
                             
-                            # Update processing plan with smaller chunk size
-                            processing_plan['vae_decode']['chunk_size'] = smaller_chunk_size
-                            processing_plan['vae_decode']['num_chunks'] = (length + smaller_chunk_size - 1) // smaller_chunk_size
-                            
-                            frames = self.chunked_processor.vae_decode_chunked(vae, latent_dict)
-                            print(f"8a. VAE decoding successful with chunk size: {smaller_chunk_size}")
-                            break
-                            
-                        except torch.cuda.OutOfMemoryError:
-                            print(f"8a. Still OOM with chunk size {smaller_chunk_size}, trying smaller...")
-                            continue
-                    
-                    if frames is None:
-                        print("8a. All chunk sizes failed! Using single-frame fallback...")
-                        # Final fallback: process one frame at a time
-                        frames = self._decode_single_frame_fallback(vae, latent_dict)
+                    except Exception as tiled_error:
+                        print(f"8a. ❌ Tiled decoding failed: {tiled_error}")
+                        print("8a. 🔧 Strategy 2: Progressive chunk size reduction...")
+                        
+                        # Progressive fallback: reduce chunk size until it works
+                        chunk_sizes_to_try = [8, 4, 2, 1]
+                        frames = None
+                        
+                        for smaller_chunk_size in chunk_sizes_to_try:
+                            try:
+                                print(f"8a. Trying VAE decoding with chunk size: {smaller_chunk_size}")
+                                
+                                # Update processing plan with smaller chunk size
+                                processing_plan['vae_decode']['chunk_size'] = smaller_chunk_size
+                                processing_plan['vae_decode']['num_chunks'] = (length + smaller_chunk_size - 1) // smaller_chunk_size
+                                
+                                frames = self.chunked_processor.vae_decode_chunked(vae, latent_dict)
+                                print(f"8a. VAE decoding successful with chunk size: {smaller_chunk_size}")
+                                break
+                                
+                            except torch.cuda.OutOfMemoryError:
+                                print(f"8a. Still OOM with chunk size {smaller_chunk_size}, trying smaller...")
+                                continue
+                        
+                        if frames is None:
+                            print("8a. All chunk sizes failed! Using single-frame fallback...")
+                            # Final fallback: process one frame at a time
+                            frames = self._decode_single_frame_fallback(vae, latent_dict)
             else:
                 print("Processing all frames at once (within chunk size limit)")
                 
@@ -1586,8 +1659,30 @@ class ReferenceVideoPipeline:
                     
                     frames = vae_decoder.decode(vae, latent_dict)
                 except torch.cuda.OutOfMemoryError:
-                    print("OOM during single-pass VAE decoding! Using single-frame fallback...")
-                    frames = self._decode_single_frame_fallback(vae, latent_dict)
+                    print("OOM during single-pass VAE decoding! Trying tiled decoding...")
+                    
+                    # Try tiled decoding first (more memory-efficient)
+                    try:
+                        print("8a. 🔧 Strategy 1: Tiled VAE decoding...")
+                        if hasattr(vae, 'decode_tiled'):
+                            print("8a. ✅ VAE supports tiled decoding - using it!")
+                            # Use tiled decoding with conservative tile sizes
+                            frames = vae.decode_tiled(
+                                latent_dict,
+                                tile_x=64,    # 64x64 spatial tiles
+                                tile_y=64,
+                                tile_t=4,     # 4 frames per temporal tile
+                                overlap=8     # 8px overlap for smooth blending
+                            )
+                            print("8a. ✅ Tiled VAE decoding successful!")
+                        else:
+                            print("8a. ⚠️  VAE does not support tiled decoding")
+                            raise RuntimeError("VAE does not support tiled decoding")
+                            
+                    except Exception as tiled_error:
+                        print(f"8a. ❌ Tiled decoding failed: {tiled_error}")
+                        print("8a. 🔧 Strategy 2: Single-frame fallback...")
+                        frames = self._decode_single_frame_fallback(vae, latent_dict)
             
             # OOM Checklist: Check memory after VAE decoding execution
             self._check_memory_usage('vae_decoding', expected_threshold=8000)
@@ -2195,9 +2290,18 @@ class ReferenceVideoPipeline:
         """Fallback method to decode latents one frame at a time with aggressive memory management"""
         print("Using single-frame fallback decoding with aggressive memory management...")
         
+        # Handle both tensor and dictionary inputs
+        if isinstance(latent, dict) and "samples" in latent:
+            latent_tensor = latent["samples"]
+            print(f"Extracted tensor from dictionary: {latent_tensor.shape}")
+        elif isinstance(latent, torch.Tensor):
+            latent_tensor = latent
+        else:
+            raise ValueError(f"Unexpected latent format: {type(latent)}. Expected tensor or dict with 'samples' key")
+        
         # Get latent dimensions
-        batch_size, channels, frames, height, width = latent.shape
-        print(f"Decoding {frames} frames individually from latent shape: {latent.shape}")
+        batch_size, channels, frames, height, width = latent_tensor.shape
+        print(f"Decoding {frames} frames individually from latent shape: {latent_tensor.shape}")
         
         # Process frames one by one
         all_frames = []
@@ -2207,7 +2311,7 @@ class ReferenceVideoPipeline:
             
             try:
                 # Extract single frame latent
-                single_frame_latent = latent[:, :, frame_idx:frame_idx+1, :, :]
+                single_frame_latent = latent_tensor[:, :, frame_idx:frame_idx+1, :, :]
                 
                 # Memory cleanup handled by ComfyUI
                 
