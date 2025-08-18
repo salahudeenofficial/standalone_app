@@ -863,32 +863,60 @@ class ReferenceVideoPipeline:
             negative_cond = negative_cond_tuple[0]  # Extract first element from tuple
             
             print(f"3a. Text encoding complete")
-            print(f"3a. Positive conditioning shape: {positive_cond[0].shape if positive_cond and len(positive_cond) > 0 else 'None'}")
-            print(f"3a. Negative conditioning shape: {negative_cond[0].shape if negative_cond and len(negative_cond) > 0 else 'None'}")
             
-            # Verify dimensions match WAN T5 expectations
+            # Debug: Show the actual structure of conditioning
+            print(f"3a. DEBUG: Positive conditioning type: {type(positive_cond)}")
+            print(f"3a. DEBUG: Positive conditioning length: {len(positive_cond) if positive_cond else 'None'}")
             if positive_cond and len(positive_cond) > 0:
-                positive_shape = positive_cond[0].shape
-                if len(positive_shape) >= 2:
-                    if positive_shape[-1] == 4096:
-                        print(f"3a. ✅ SUCCESS: Positive conditioning has correct 4096 dimensions (WAN T5)")
-                    elif positive_shape[-1] == 1280:
-                        print(f"3a. ❌ ERROR: Positive conditioning has 1280 dimensions (SD1/SDXL) instead of 4096 (WAN T5)")
+                print(f"3a. DEBUG: Positive conditioning[0] type: {type(positive_cond[0])}")
+                if isinstance(positive_cond[0], (list, tuple)) and len(positive_cond[0]) > 0:
+                    print(f"3a. DEBUG: Positive conditioning[0][0] type: {type(positive_cond[0][0])}")
+                    if hasattr(positive_cond[0][0], 'shape'):
+                        print(f"3a. DEBUG: Positive conditioning[0][0] shape: {positive_cond[0][0].shape}")
+            
+            print(f"3a. DEBUG: Negative conditioning type: {type(negative_cond)}")
+            print(f"3a. DEBUG: Negative conditioning length: {len(negative_cond) if negative_cond else 'None'}")
+            if negative_cond and len(negative_cond) > 0:
+                print(f"3a. DEBUG: Negative conditioning[0] type: {type(negative_cond[0])}")
+                if isinstance(negative_cond[0], (list, tuple)) and len(negative_cond[0]) > 0:
+                    print(f"3a. DEBUG: Negative conditioning[0][0] type: {type(negative_cond[0][0])}")
+                    if hasattr(negative_cond[0][0], 'shape'):
+                        print(f"3a. DEBUG: Negative conditioning[0][0] shape: {negative_cond[0][0].shape}")
+            
+            # Verify dimensions match WAN T5 expectations (with proper structure handling)
+            if positive_cond and len(positive_cond) > 0:
+                if isinstance(positive_cond[0], (list, tuple)) and len(positive_cond[0]) > 0:
+                    if hasattr(positive_cond[0][0], 'shape'):
+                        positive_shape = positive_cond[0][0].shape
+                        if len(positive_shape) >= 2:
+                            if positive_shape[-1] == 4096:
+                                print(f"3a. ✅ SUCCESS: Positive conditioning has correct 4096 dimensions (WAN T5)")
+                            elif positive_shape[-1] == 1280:
+                                print(f"3a. ❌ ERROR: Positive conditioning has 1280 dimensions (SD1/SDXL) instead of 4096 (WAN T5)")
+                            else:
+                                print(f"3a. ⚠️  WARNING: Positive conditioning has unexpected dimensions: {positive_shape[-1]}")
                     else:
-                        print(f"3a. ⚠️  WARNING: Positive conditioning has unexpected dimensions: {positive_shape[-1]}")
+                        print(f"3a. ⚠️  Positive conditioning[0][0] has no shape attribute")
+                else:
+                    print(f"3a. ⚠️  Positive conditioning[0] is not a list/tuple or is empty")
             
             if negative_cond and len(negative_cond) > 0:
-                negative_shape = negative_cond[0].shape
-                if len(negative_shape) >= 2:
-                    if negative_shape[-1] == 4096:
-                        print(f"3a. ✅ SUCCESS: Negative conditioning has correct 4096 dimensions (WAN T5)")
-                    elif negative_shape[-1] == 1280:
-                        print(f"3a. ❌ ERROR: Negative conditioning has 1280 dimensions (SD1/SDXL) instead of 4096 (WAN T5)")
+                if isinstance(negative_cond[0], (list, tuple)) and len(negative_cond[0]) > 0:
+                    if hasattr(negative_cond[0][0], 'shape'):
+                        negative_shape = negative_cond[0][0].shape
+                        if len(negative_shape) >= 2:
+                            if negative_shape[-1] == 4096:
+                                print(f"3a. ✅ SUCCESS: Negative conditioning has correct 4096 dimensions (WAN T5)")
+                            elif negative_shape[-1] == 1280:
+                                print(f"3a. ❌ ERROR: Negative conditioning has 1280 dimensions (SD1/SDXL) instead of 4096 (WAN T5)")
+                            else:
+                                print(f"3a. ⚠️  WARNING: Negative conditioning has unexpected dimensions: {negative_shape[-1]}")
                     else:
-                        print(f"3a. ⚠️  WARNING: Negative conditioning has unexpected dimensions: {negative_shape[-1]}")
+                        print(f"3a. ⚠️  Negative conditioning[0][0] has no shape attribute")
+                else:
+                    print(f"3a. ⚠️  Negative conditioning[0] is not a list/tuple or is empty")
             
             # ComfyUI automatically manages encoded prompts through ModelPatcher
-            print("3a. Text encoding complete")
             
             # Let ComfyUI handle CLIP memory management automatically
             print("3a. ✅ Letting ComfyUI handle CLIP memory management automatically")
