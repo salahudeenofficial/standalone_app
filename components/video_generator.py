@@ -472,6 +472,7 @@ class WanVaceToVideo:
         return (positive, negative, out_latent, trim_latent)
     
     def _set_conditioning_values(self, conditioning, values, append=True):
-        """Helper to set conditioning values"""
-        # Simplified version - in full implementation this would use node_helpers
-        return conditioning 
+        """Helper to set conditioning values - uses ComfyUI's node_helpers exactly"""
+        # Import and use ComfyUI's conditioning_set_values function
+        from comfy.node_helpers import conditioning_set_values
+        return conditioning_set_values(conditioning, values, append) 

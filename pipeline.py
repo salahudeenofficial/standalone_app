@@ -853,8 +853,39 @@ class ReferenceVideoPipeline:
             # 3. Encode Prompts
             print("3. Encoding text prompts...")
             text_encoder = CLIPTextEncode()
-            positive_cond = text_encoder.encode(clip_model, positive_prompt)
-            negative_cond = text_encoder.encode(clip_model, negative_prompt)
+            
+            # Encode prompts - CLIPTextEncode returns tuple like ComfyUI
+            positive_cond_tuple = text_encoder.encode(clip_model, positive_prompt)
+            negative_cond_tuple = text_encoder.encode(clip_model, negative_prompt)
+            
+            # Extract the conditioning from the tuple (matches ComfyUI's format)
+            positive_cond = positive_cond_tuple[0]  # Extract first element from tuple
+            negative_cond = negative_cond_tuple[0]  # Extract first element from tuple
+            
+            print(f"3a. Text encoding complete")
+            print(f"3a. Positive conditioning shape: {positive_cond[0].shape if positive_cond and len(positive_cond) > 0 else 'None'}")
+            print(f"3a. Negative conditioning shape: {negative_cond[0].shape if negative_cond and len(negative_cond) > 0 else 'None'}")
+            
+            # Verify dimensions match WAN T5 expectations
+            if positive_cond and len(positive_cond) > 0:
+                positive_shape = positive_cond[0].shape
+                if len(positive_shape) >= 2:
+                    if positive_shape[-1] == 4096:
+                        print(f"3a. ✅ SUCCESS: Positive conditioning has correct 4096 dimensions (WAN T5)")
+                    elif positive_shape[-1] == 1280:
+                        print(f"3a. ❌ ERROR: Positive conditioning has 1280 dimensions (SD1/SDXL) instead of 4096 (WAN T5)")
+                    else:
+                        print(f"3a. ⚠️  WARNING: Positive conditioning has unexpected dimensions: {positive_shape[-1]}")
+            
+            if negative_cond and len(negative_cond) > 0:
+                negative_shape = negative_cond[0].shape
+                if len(negative_shape) >= 2:
+                    if negative_shape[-1] == 4096:
+                        print(f"3a. ✅ SUCCESS: Negative conditioning has correct 4096 dimensions (WAN T5)")
+                    elif negative_shape[-1] == 1280:
+                        print(f"3a. ❌ ERROR: Negative conditioning has 1280 dimensions (SD1/SDXL) instead of 4096 (WAN T5)")
+                    else:
+                        print(f"3a. ⚠️  WARNING: Negative conditioning has unexpected dimensions: {negative_shape[-1]}")
             
             # ComfyUI automatically manages encoded prompts through ModelPatcher
             print("3a. Text encoding complete")
