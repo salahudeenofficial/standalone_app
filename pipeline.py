@@ -1771,8 +1771,16 @@ class ReferenceVideoPipeline:
                 print(f"9a. Export frames type: {type(frames)}")
                 if hasattr(frames, 'shape'):
                     print(f"9a. Export frames shape: {frames.shape}")
-                    if len(frames.shape) == 4:  # (batch, height, width, channels)
-                        print(f"9a. Export frame dimensions: {frames.shape[0]} frames, {frames.shape[1]}x{frames.shape[2]}, {frames.shape[3]} channels")
+                    
+                    # CRITICAL FIX: Remove extra batch dimension if present
+                    if len(frames.shape) == 5:  # (batch, frames, height, width, channels)
+                        print(f"9a. ⚠️  WARNING: Frames have 5D shape with batch dimension!")
+                        print(f"9a. 🔧 Removing batch dimension: {frames.shape[0]} -> {frames.shape[1]} frames")
+                        frames = frames.squeeze(0)  # Remove batch dimension
+                        print(f"9a. ✅ Fixed frames shape: {frames.shape}")
+                    
+                    if len(frames.shape) == 4:  # (frames, height, width, channels)
+                        print(f"9a. ✅ Export frame dimensions: {frames.shape[0]} frames, {frames.shape[1]}x{frames.shape[2]}, {frames.shape[3]} channels")
                         if frames.shape[3] == 3:
                             print("9a. ✅ Export frames have correct 3 channels (RGB)")
                         elif frames.shape[3] == 1:
@@ -1785,6 +1793,19 @@ class ReferenceVideoPipeline:
                             print(f"9a. ❌ Export frames have wrong channel count: {frames.shape[3]} (expected 3)")
                     else:
                         print(f"9a. ⚠️  Export frames have unexpected shape: {frames.shape}")
+                        print("9a. 🔧 Attempting to fix frame shape...")
+                        
+                        # Try to fix common shape issues
+                        if len(frames.shape) == 3:  # (frames, height, width) - missing channels
+                            print("9a. 🔧 Adding missing channel dimension...")
+                            frames = frames.unsqueeze(-1).repeat(1, 1, 1, 3)
+                            print(f"9a. ✅ Fixed frames shape: {frames.shape}")
+                        elif len(frames.shape) == 2:  # (frames, height) - missing width and channels
+                            print("9a. 🔧 Adding missing width and channel dimensions...")
+                            frames = frames.unsqueeze(-1).unsqueeze(-1).repeat(1, 1, 1, 3)
+                            print(f"9a. ✅ Fixed frames shape: {frames.shape}")
+                        else:
+                            print(f"9a. ❌ Cannot fix unexpected frame shape: {frames.shape}")
                 else:
                     print("9a. ⚠️  Export frames object has no shape attribute")
             else:
