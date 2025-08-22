@@ -489,11 +489,6 @@ class ReferenceVideoPipeline:
         - VAE moved to GPU for operations, then to CPU for memory management
         - Explicit memory management calls using proven working logic
         """
-        print("Starting Reference Video Pipeline...")
-        print("🚀 FULLY LEVERAGING COMFYUI'S PROVEN MEMORY MANAGEMENT SYSTEM")
-        print("🎯 Pipeline now works exactly like a ComfyUI node - simple, clean, and efficient!")
-        print("💡 All memory management handled automatically by ComfyUI")
-        print("💡 No manual intervention needed - ComfyUI knows best!")
         
         # Establish baseline memory state for OOM debugging
         print("🔍 ESTABLISHING BASELINE MEMORY STATE...")
@@ -559,6 +554,7 @@ class ReferenceVideoPipeline:
         self.chunked_processor.print_processing_plan(processing_plan)
         
         try:
+            # === STEP 1 START: MODEL LOADING ===
             # 1. Load Diffusion Model Components using ComfyUI's native system
             print("1. Loading diffusion model components using ComfyUI...")
             
@@ -649,155 +645,19 @@ class ReferenceVideoPipeline:
             # This is a ComfyUI bug, not our pipeline issue
             
             # Verify that the models were loaded correctly
-            print("1a. 🔍 DEBUG: Checking model loading status...")
-            
-            # Check UNET
-            if hasattr(model, 'model') and hasattr(model.model, 'model_type'):
-                print(f"1a. ✅ UNET model type detected: {model.model.model_type}")
-                if hasattr(model.model, 'image_model'):
-                    print(f"1a. ✅ UNET image model: {model.model.image_model}")
-            else:
-                print("1a. ⚠️  UNET model type not accessible, but loaded successfully")
-            
-            # Check CLIP
-            if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'model'):
-                if hasattr(clip_model.patcher.model, 'device'):
-                    print(f"1a. DEBUG: CLIP internal model device: {clip_model.patcher.model.device}")
-            if hasattr(clip_model, 'device'):
-                print(f"1a. DEBUG: CLIP wrapper device: {clip_model.device}")
-            
-            # Check VAE
-            if hasattr(vae, 'device'):
-                print(f"1a. DEBUG: VAE wrapper device: {vae.device}")
-            if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'device'):
-                print(f"1a. DEBUG: VAE internal model device: {vae.first_stage_model.device}")
-            
-            # Check memory after model loading
-            if torch.cuda.is_available():
-                after_loading_allocated = torch.cuda.memory_allocated() / 1024**2
-                after_loading_reserved = torch.cuda.memory_reserved() / 1024**2
-                print(f"1a. DEBUG: Memory after loading - Allocated: {after_loading_allocated:.1f} MB, Reserved: {after_loading_reserved:.1f} MB")
-                
-                if after_loading_allocated == 0.0:
-                    print("1a. ⚠️  WARNING: Models loaded but GPU memory still shows 0.0 MB!")
-                    print("1a. 🔍 This suggests models may not be loaded to GPU yet")
-                    print("1a. 💡 ComfyUI may be using lazy loading or CPU-first strategy")
-            
-            # OOM Checklist: Check memory after model loading
-            # Note: ComfyUI uses lazy loading, so models may not consume GPU memory until used
-            self._check_memory_usage('model_loading', expected_threshold=100)  # Much lower threshold for lazy loading
-            
+
             # Check if models need to be explicitly loaded to GPU
-            print("1a. 🔍 Letting ComfyUI handle model loading naturally...")
-            print("1a. ComfyUI will load models to GPU when they're actually needed")
-            print("1a. No manual patching needed - ComfyUI's ModelPatcher system handles everything")
-            
-            # Check ComfyUI's model management system
-            print("1a. 🔍 Checking ComfyUI's model management system...")
-            try:
-                import comfy.model_management
-                
-                # Check what device ComfyUI thinks models should be on
-                if hasattr(comfy.model_management, 'get_torch_device'):
-                    comfy_device = comfy.model_management.get_torch_device()
-                    print(f"1a. ComfyUI device: {comfy_device}")
-                
-                if hasattr(comfy.model_management, 'vae_device'):
-                    vae_device = comfy.model_management.vae_device()
-                    print(f"1a. ComfyUI VAE device: {vae_device}")
-                
-                if hasattr(comfy.model_management, 'model_device'):
-                    model_device = comfy.model_management.model_device()
-                    print(f"1a. ComfyUI model device: {model_device}")
-                
-                print("1a. ComfyUI model management system is available")
-                print("1a. ✅ Trusting ComfyUI to handle all memory management automatically")
-                
-            except Exception as e:
-                print(f"1a. ⚠️  Could not check ComfyUI model management: {e}")
-            
+         
             # Check memory after letting ComfyUI handle loading
-            if torch.cuda.is_available():
-                after_loading_allocated = torch.cuda.memory_allocated() / 1024**2
-                after_loading_reserved = torch.cuda.memory_reserved() / 1024**2
-                print(f"1a. Memory after ComfyUI loading - Allocated: {after_loading_allocated:.1f} MB, Reserved: {after_loading_reserved:.1f} MB")
-                
-                if after_loading_allocated == 0.0:
-                    print("1a. ✅ This is normal - ComfyUI uses lazy loading")
-                    print("1a. 💡 Models will be loaded to GPU when actually needed")
-                    print("1a. 💡 This prevents unnecessary memory usage")
-                else:
-                    print("1a. ✅ Models are now loaded to GPU by ComfyUI")
-            
+      
             # OOM Checklist: Check memory after model loading
-            # Note: ComfyUI uses lazy loading, so models may not consume GPU memory until used
-            self._check_memory_usage('model_loading', expected_threshold=100)  # Much lower threshold for lazy loading
-            
-            # ComfyUI will handle all model loading automatically
-            print("1a. ✅ Trusting ComfyUI's automatic model management system")
-            print("1a. 💡 Models will be loaded to GPU when needed for operations")
-            print("1a. 💡 No manual intervention required - ComfyUI knows best!")
-            
-            # Check ComfyUI's model management system
-            print("1a. 🔍 Checking ComfyUI's model management system...")
-            try:
-                import comfy.model_management
-                
-                # Check what device ComfyUI thinks models should be on
-                if hasattr(comfy.model_management, 'get_torch_device'):
-                    comfy_device = comfy.model_management.get_torch_device()
-                    print(f"1a. ComfyUI device: {comfy_device}")
-                
-                if hasattr(comfy.model_management, 'vae_device'):
-                    vae_device = comfy.model_management.vae_device()
-                    print(f"1a. ComfyUI VAE device: {vae_device}")
-                
-                if hasattr(comfy.model_management, 'model_device'):
-                    model_device = comfy.model_management.model_device()
-                    print(f"1a. ComfyUI model device: {model_device}")
-                
-                print("1a. ComfyUI model management system is available")
-                
-            except Exception as e:
-                print(f"1a. ⚠️  Could not check ComfyUI model management: {e}")
-            
-            # COMPREHENSIVE VERIFICATION AFTER MODEL LOADING
-            print("\n" + "="*80)
-            print("🔍 STEP 1 COMPLETE: COMPREHENSIVE VERIFICATION")
+
             print("="*80)
             
-            # 1. Model Placement Verification
-            print("1️⃣  MODEL PLACEMENT VERIFICATION:")
-            model_placement = self._check_model_placement('model_loading', ['unet', 'clip', 'vae'])
+            print("✅ Step 1 completed: Model Loading")
+            # === STEP 1 END: MODEL LOADING ===
             
-            # 2. Memory Management Verification
-            print("\n2️⃣  MEMORY MANAGEMENT VERIFICATION:")
-            memory_management = self._verify_memory_management('model_loading', ['unet', 'clip', 'vae'])
-            
-            # 3. Chunking Strategy Verification
-            print("\n3️⃣  CHUNKING STRATEGY VERIFICATION:")
-            chunking_strategy = self._verify_chunking_strategy('model_loading', processing_plan)
-            
-            # 4. Summary
-            print("\n📊 STEP 1 SUMMARY:")
-            print(f"   Model Placement: {'✅ PASS' if model_placement else '❌ FAIL'}")
-            print(f"   Memory Management: {'✅ PASS' if memory_management else '❌ FAIL'}")
-            print(f"   Chunking Strategy: {'✅ PASS' if chunking_strategy else '❌ FAIL'}")
-            
-            # Add note about ComfyUI's proven system
-            print("\n   📝 NOTE: Pipeline now fully leverages ComfyUI's proven system:")
-            print("      - All memory management handled automatically by ComfyUI")
-            print("      - No manual model patching or cleanup needed")
-            print("      - ComfyUI prevents memory fragmentation naturally")
-            print("      - Models are loaded/unloaded optimally by ComfyUI")
-            
-            if not all([model_placement, memory_management, chunking_strategy]):
-                print("   ⚠️  Some verifications failed - pipeline may have issues")
-            else:
-                print("   ✅ All verifications passed - pipeline ready for next step")
-            
-            print("="*80)
-            
+            # === STEP 2 START: LORA APPLICATION ===
             # 2. Apply LoRA if specified
             if lora_path:
                 print("2. Applying LoRA...")
@@ -876,6 +736,10 @@ class ReferenceVideoPipeline:
                 
                 print("="*80)
             
+            print("✅ Step 2 completed: LoRA Application")
+            # === STEP 2 END: LORA APPLICATION ===
+            
+            # === STEP 3 START: TEXT ENCODING ===
             # 3. Encode Prompts
             print("3. Encoding text prompts...")
             text_encoder = CLIPTextEncode()
@@ -991,6 +855,10 @@ class ReferenceVideoPipeline:
             
             print("="*80)
             
+            print("✅ Step 3 completed: Text Encoding")
+            # === STEP 3 END: TEXT ENCODING ===
+            
+            # === STEP 4 START: MODEL SAMPLING ===
             # 4. Apply ModelSamplingSD3 Shift
             print("4. Applying ModelSamplingSD3...")
             model_sampling = ModelSamplingSD3()
@@ -1034,6 +902,10 @@ class ReferenceVideoPipeline:
             
             print("="*80)
             
+            print("✅ Step 4 completed: Model Sampling")
+            # === STEP 4 END: MODEL SAMPLING ===
+            
+            # === STEP 5 START: INITIAL LATENT GENERATION ===
             # 5. Generate Initial Latents
             print("5. Generating initial latents...")
             video_generator = WanVaceToVideo()
@@ -1302,6 +1174,10 @@ class ReferenceVideoPipeline:
             print("5b. VAE encoding complete")
             print("5b. ComfyUI's VAE ModelPatcher will handle memory management automatically")
             
+            print("✅ Step 5 completed: Initial Latent Generation")
+            # === STEP 5 END: INITIAL LATENT GENERATION ===
+            
+            # === STEP 6 START: UNET SAMPLING ===
             # 6. Run KSampler
             print("6. Running KSampler...")
             
@@ -1471,6 +1347,10 @@ class ReferenceVideoPipeline:
             
             print("="*80)
             
+            print("✅ Step 6 completed: UNET Sampling")
+            # === STEP 6 END: UNET SAMPLING ===
+            
+            # === STEP 7 START: VIDEO TRIMMING ===
             # 7. Trim Video Latent
             print("7. Trimming video latent...")
             trim_processor = TrimVideoLatent()
@@ -1531,6 +1411,10 @@ class ReferenceVideoPipeline:
             
             print("="*80)
             
+            print("✅ Step 7 completed: Video Trimming")
+            # === STEP 7 END: VIDEO TRIMMING ===
+            
+            # === STEP 8 START: VAE DECODING ===
             # 8. Decode Frames
             print("8. Decoding frames...")
             
@@ -1762,6 +1646,10 @@ class ReferenceVideoPipeline:
             
             print("="*80)
             
+            print("✅ Step 8 completed: VAE Decoding")
+            # === STEP 8 END: VAE DECODING ===
+            
+            # === STEP 9 START: VIDEO EXPORT ===
             # 9. Export Video
             print("9. Exporting video...")
             
@@ -1771,6 +1659,28 @@ class ReferenceVideoPipeline:
                 print(f"9a. Export frames type: {type(frames)}")
                 if hasattr(frames, 'shape'):
                     print(f"9a. Export frames shape: {frames.shape}")
+                    
+                    # CRITICAL DEBUG: Check frame content quality
+                    print("9a. 🔍 CRITICAL: Checking frame content quality...")
+                    if hasattr(frames, 'min') and hasattr(frames, 'max'):
+                        print(f"9a. 🔍 Frame value range: [{frames.min():.4f}, {frames.max():.4f}]")
+                        
+                        # Check if frames are just noise/static
+                        if frames.min() == frames.max():
+                            print("9a. 🚨 CRITICAL ERROR: All frames have identical values - this is static/noise!")
+                            print("9a. 🚨 This indicates VAE decoding failed to produce actual video content!")
+                        elif frames.max() - frames.min() < 0.01:
+                            print("9a. ⚠️  WARNING: Very low frame variation - frames may be mostly noise!")
+                        else:
+                            print("9a. ✅ Frame variation looks normal")
+                    
+                    # Check first few frames for content
+                    if len(frames.shape) >= 4:
+                        print("9a. 🔍 Analyzing first 3 frames for content...")
+                        for i in range(min(3, frames.shape[0])):
+                            frame = frames[i] if len(frames.shape) == 4 else frames[0, i]
+                            if hasattr(frame, 'min') and hasattr(frame, 'max'):
+                                print(f"9a. 🔍 Frame {i+1}: range=[{frame.min():.4f}, {frame.max():.4f}], mean={frame.mean():.4f}")
                     
                     # CRITICAL FIX: Remove extra batch dimension if present
                     if len(frames.shape) == 5:  # (batch, frames, height, width, channels)
@@ -1815,6 +1725,10 @@ class ReferenceVideoPipeline:
             exporter.export_video(frames, output_path)
             
             print(f"Pipeline completed successfully! Output saved to: {output_path}")
+            
+            print("✅ Step 9 completed: Video Export")
+            print("🎉 All workflow steps completed successfully!")
+            # === STEP 9 END: VIDEO EXPORT ===
             
             # OOM Checklist: Check memory after video export
             self._check_memory_usage('video_export', expected_threshold=100)
