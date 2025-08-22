@@ -917,7 +917,12 @@ class ReferenceVideoPipeline:
             
             print("✅ Step 1 completed: Model Loading")
             # === STEP 1 END: MODEL LOADING ===
-            # === STEP 1 END: MODEL LOADING ===
+            
+            # 🛑 STOPPING EXECUTION AFTER STEP 1 (MODEL LOADING)
+            print("🛑 STOPPING EXECUTION AFTER STEP 1 (MODEL LOADING)")
+            print("🔍 All model loading debugging information has been displayed above.")
+            print("📊 Check the monitoring data above to analyze model loading performance.")
+            return
             
             # === STEP 2 START: LORA APPLICATION ===
             # 2. Apply LoRA if specified
