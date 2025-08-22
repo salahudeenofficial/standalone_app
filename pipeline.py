@@ -153,6 +153,23 @@ class ReferenceVideoPipeline:
         
         return allocated <= threshold
     
+    def _get_ram_usage(self):
+        """Get current RAM usage in GB"""
+        try:
+            import psutil
+            return psutil.virtual_memory().used / (1024**3)
+        except ImportError:
+            return 0.0
+    
+    def _get_gpu_memory_usage(self):
+        """Get current GPU memory usage in MB"""
+        if not torch.cuda.is_available():
+            return 0.0
+        try:
+            return torch.cuda.memory_allocated() / (1024**2)
+        except:
+            return 0.0
+    
     def _print_oom_checklist(self):
         """Print the complete OOM debugging checklist"""
         print("\n" + "="*80)
@@ -561,16 +578,12 @@ class ReferenceVideoPipeline:
             # Import ComfyUI's model loading functions
             import comfy.sd
             import comfy.model_management
+            import time
             
-            # Establish baseline memory state
-            print("1a. Establishing baseline memory state...")
-            if torch.cuda.is_available():
-                baseline_allocated = torch.cuda.memory_allocated() / 1024**2
-                baseline_reserved = torch.cuda.memory_reserved() / 1024**2
-                print(f"Baseline VRAM - Allocated: {baseline_allocated:.1f} MB, Reserved: {baseline_reserved:.1f} MB")
-            
-            # Load the models using ComfyUI's native functions
-            print("1a. Loading individual components...")
+            # Establish baseline memory state for Step 1
+            baseline_ram = self._get_ram_usage()
+            baseline_gpu = self._get_gpu_memory_usage()
+            print(f"🔍 STEP 1 BASELINE - RAM: {baseline_ram:.1f} GB used, GPU: {baseline_gpu:.1f} MB allocated")
             
             # Debug: Show the actual paths being used
             print(f"1a. Current working directory: {os.getcwd()}")
@@ -586,20 +599,87 @@ class ReferenceVideoPipeline:
             if lora_path:
                 print(f"1a. LoRA file exists: {os.path.exists(lora_path)}")
             
-            # Use ComfyUI's CheckpointLoader approach - load all models together
-            # This ensures proper model type detection and compatibility
-            print("1a. Loading models using ComfyUI's CheckpointLoader approach...")
+            # Load UNET with comprehensive monitoring
+            print("\n🔍 STARTING MONITORING FOR: UNET_LOADING")
+            unet_start_time = time.time()
+            unet_start_ram = self._get_ram_usage()
+            unet_start_gpu = self._get_gpu_memory_usage()
             
-            # Use the simple approach - load_diffusion_model should work for WAN models
-            print("1a. Using simple load_diffusion_model approach for WAN models...")
-            
-            # Load UNET - this should work now that we understand the issue
             print("1a. Loading UNET with load_diffusion_model...")
             model = comfy.sd.load_diffusion_model(unet_model_path)
-            
             print(f"1a. ✅ UNET loaded: {type(model)}")
             
-            # Load CLIP with WAN type
+            unet_end_time = time.time()
+            unet_end_ram = self._get_ram_usage()
+            unet_end_gpu = self._get_gpu_memory_usage()
+            
+            # UNET debugging complete
+            print("🔍 UNET_LOADING DEBUGGING COMPLETE")
+            print("="*60)
+            print(f"⏱️  PERFORMANCE:")
+            print(f"   Loading Time: {unet_end_time - unet_start_time:.3f} seconds")
+            print(f"💾 MEMORY ANALYSIS:")
+            print(f"   RAM Change: +{(unet_end_ram - unet_start_ram) * 1024:.1f} MB")
+            print(f"   Current RAM: {unet_end_ram:.1f} GB used")
+            print(f"   GPU Change: +{unet_end_gpu - unet_start_gpu:.1f} MB allocated")
+            print(f"   Current GPU: {unet_end_gpu:.1f} MB allocated")
+            
+            # Enhanced UNET information
+            print(f"🔧 ENHANCED MODEL INFORMATION:")
+            print(f"   Model Type: UNET")
+            print(f"   Result Type: {type(model)}")
+            print(f"   Model Class: {model.__class__.__name__}")
+            print(f"   Device: {getattr(model, 'device', 'unknown')}")
+            
+            # Get model parameters and size
+            if hasattr(model, 'model') and hasattr(model.model, 'parameters'):
+                total_params = sum(p.numel() for p in model.model.parameters())
+                model_size_mb = total_params * 4 / (1024**2)  # Assuming float32
+                print(f"   Parameters: {total_params:,}")
+                print(f"   Model Size: {model_size_mb:.1f} MB")
+            else:
+                print(f"   Parameters: Unable to determine")
+                print(f"   Model Size: Unable to determine")
+            
+            # State dict keys count
+            if hasattr(model, 'state_dict'):
+                state_dict_keys = len(model.state_dict())
+                print(f"   State Dict Keys: {state_dict_keys}")
+            else:
+                print(f"   State Dict Keys: Unable to determine")
+            
+            # UNET specific details
+            print(f"   🧠 UNET SPECIFIC DETAILS:")
+            if hasattr(model, 'model') and hasattr(model.model, 'model_type'):
+                print(f"     Model Type: {model.model.model_type}")
+            else:
+                print(f"     Model Type: Unable to determine")
+            
+            # Memory efficiency analysis
+            if hasattr(model, 'model') and hasattr(model.model, 'parameters'):
+                if model_size_mb > 10000:
+                    size_category = "Large"
+                    recommendation = "Consider GPU offloading for memory efficiency"
+                elif model_size_mb > 1000:
+                    size_category = "Medium"
+                    recommendation = "Should fit comfortably in memory"
+                else:
+                    size_category = "Small"
+                    recommendation = "Should fit comfortably in memory"
+                
+                print(f"   💡 MEMORY EFFICIENCY ANALYSIS:")
+                print(f"     Model Size: {size_category} ({model_size_mb:.1f} MB)")
+                print(f"     Recommendation: {recommendation}")
+                print(f"     Device Placement: {getattr(model, 'device', 'unknown')} ({'faster inference, higher memory usage' if getattr(model, 'device', 'unknown') == 'cuda:0' else 'memory efficient, slower inference'})")
+            
+            print("="*60)
+            
+            # Load CLIP with comprehensive monitoring
+            print("\n🔍 STARTING MONITORING FOR: CLIP_LOADING")
+            clip_start_time = time.time()
+            clip_start_ram = self._get_ram_usage()
+            clip_start_gpu = self._get_gpu_memory_usage()
+            
             print("1a. Loading CLIP with WAN type...")
             print(f"1a. DEBUG: CLIP model path: {clip_model_path}")
             print(f"1a. DEBUG: CLIP model path exists: {Path(clip_model_path).exists()}")
@@ -616,22 +696,93 @@ class ReferenceVideoPipeline:
             
             print(f"1a. ✅ CLIP loaded: {type(clip_model)}")
             
-            # Debug: Check what type of CLIP model was actually loaded
-            print(f"1a. DEBUG: CLIP model class: {clip_model.__class__.__name__}")
-            print(f"1a. DEBUG: CLIP model type: {type(clip_model)}")
+            clip_end_time = time.time()
+            clip_end_ram = self._get_ram_usage()
+            clip_end_gpu = self._get_gpu_memory_usage()
+            
+            # CLIP debugging complete
+            print("🔍 CLIP_LOADING DEBUGGING COMPLETE")
+            print("="*60)
+            print(f"⏱️  PERFORMANCE:")
+            print(f"   Loading Time: {clip_end_time - clip_start_time:.3f} seconds")
+            print(f"💾 MEMORY ANALYSIS:")
+            print(f"   RAM Change: +{(clip_end_ram - clip_start_ram) * 1024:.1f} MB")
+            print(f"   Current RAM: {clip_end_ram:.1f} GB used")
+            print(f"   GPU Change: +{clip_end_gpu - clip_start_gpu:.1f} MB allocated")
+            print(f"   Current GPU: {clip_end_gpu:.1f} MB allocated")
+            
+            # Enhanced CLIP information
+            print(f"🔧 ENHANCED MODEL INFORMATION:")
+            print(f"   Model Type: CLIP")
+            print(f"   Result Type: {type(clip_model)}")
+            print(f"   Model Class: {clip_model.__class__.__name__}")
+            print(f"   Device: {getattr(clip_model, 'device', 'unknown')}")
+            
+            # Get CLIP parameters and size
+            if hasattr(clip_model, 'model') and hasattr(clip_model.model, 'parameters'):
+                total_params = sum(p.numel() for p in clip_model.model.parameters())
+                model_size_mb = total_params * 4 / (1024**2)  # Assuming float32
+                print(f"   Parameters: {total_params:,}")
+                print(f"   Model Size: {model_size_mb:.1f} MB")
+            else:
+                print(f"   Parameters: Unable to determine")
+                print(f"   Model Size: Unable to determine")
+            
+            # State dict keys count
+            if hasattr(clip_model, 'state_dict'):
+                state_dict_keys = len(clip_model.state_dict())
+                print(f"   State Dict Keys: {state_dict_keys}")
+            else:
+                print(f"   State Dict Keys: Unable to determine")
+            
+            # CLIP specific details
+            print(f"   📝 CLIP SPECIFIC DETAILS:")
+            if hasattr(clip_model, 'patcher'):
+                print(f"     Has ModelPatcher: ✅")
+            else:
+                print(f"     Has ModelPatcher: ❌")
+            
+            if hasattr(clip_model, 'model') and hasattr(clip_model.model, 'model_type'):
+                print(f"     Model Type: {clip_model.model.model_type}")
+            else:
+                print(f"     Model Type: Unable to determine")
             
             # Check if it's actually a WAN T5 model
             if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'model'):
-                print(f"1a. DEBUG: CLIP patcher model class: {clip_model.patcher.model.__class__.__name__}")
+                print(f"     CLIP Patcher Model Class: {clip_model.patcher.model.__class__.__name__}")
                 if hasattr(clip_model.patcher.model, 'transformer'):
-                    print(f"1a. DEBUG: CLIP transformer class: {clip_model.patcher.model.transformer.__class__.__name__}")
+                    print(f"     CLIP Transformer Class: {clip_model.patcher.model.transformer.__class__.__name__}")
                     if hasattr(clip_model.patcher.model.transformer, 'shared'):
-                        print(f"1a. DEBUG: CLIP embedding size: {clip_model.patcher.model.transformer.shared.embedding_dim}")
+                        print(f"     CLIP Embedding Size: {clip_model.patcher.model.transformer.shared.embedding_dim}")
             
             # Check available methods
-            print(f"1a. DEBUG: CLIP available methods: {[m for m in dir(clip_model) if not m.startswith('_') and 'encode' in m.lower()]}")
+            print(f"     Available Encode Methods: {[m for m in dir(clip_model) if not m.startswith('_') and 'encode' in m.lower()]}")
             
-            # Load VAE
+            # Memory efficiency analysis
+            if hasattr(clip_model, 'model') and hasattr(clip_model.model, 'parameters'):
+                if model_size_mb > 10000:
+                    size_category = "Large"
+                    recommendation = "Consider GPU offloading for memory efficiency"
+                elif model_size_mb > 1000:
+                    size_category = "Medium"
+                    recommendation = "Should fit comfortably in memory"
+                else:
+                    size_category = "Small"
+                    recommendation = "Should fit comfortably in memory"
+                
+                print(f"   💡 MEMORY EFFICIENCY ANALYSIS:")
+                print(f"     Model Size: {size_category} ({model_size_mb:.1f} MB)")
+                print(f"     Recommendation: {recommendation}")
+                print(f"     Device Placement: {getattr(clip_model, 'device', 'unknown')} ({'faster inference, higher memory usage' if getattr(clip_model, 'device', 'unknown') == 'cuda:0' else 'memory efficient, slower inference'})")
+            
+            print("="*60)
+            
+            # Load VAE with comprehensive monitoring
+            print("\n🔍 STARTING MONITORING FOR: VAE_LOADING")
+            vae_start_time = time.time()
+            vae_start_ram = self._get_ram_usage()
+            vae_start_gpu = self._get_gpu_memory_usage()
+            
             print("1a. Loading VAE...")
             vae_sd = comfy.utils.load_torch_file(vae_model_path)
             vae = comfy.sd.VAE(sd=vae_sd)
@@ -639,22 +790,133 @@ class ReferenceVideoPipeline:
             
             print(f"1a. ✅ VAE loaded: {type(vae)}")
             
+            vae_end_time = time.time()
+            vae_end_ram = self._get_ram_usage()
+            vae_end_gpu = self._get_gpu_memory_usage()
+            
+            # VAE debugging complete
+            print("🔍 VAE_LOADING DEBUGGING COMPLETE")
+            print("="*60)
+            print(f"⏱️  PERFORMANCE:")
+            print(f"   Loading Time: {vae_end_time - vae_start_time:.3f} seconds")
+            print(f"💾 MEMORY ANALYSIS:")
+            print(f"   RAM Change: +{(vae_end_ram - vae_start_ram) * 1024:.1f} MB")
+            print(f"   Current RAM: {vae_end_ram:.1f} GB used")
+            print(f"   GPU Change: +{vae_end_gpu - vae_start_gpu:.1f} MB allocated")
+            print(f"   Current GPU: {vae_end_gpu:.1f} MB allocated")
+            
+            # Enhanced VAE information
+            print(f"🔧 ENHANCED MODEL INFORMATION:")
+            print(f"   Model Type: VAE")
+            print(f"   Result Type: {type(vae)}")
+            print(f"   Model Class: {vae.__class__.__name__}")
+            print(f"   Device: {getattr(vae, 'device', 'unknown')}")
+            
+            # Get VAE parameters and size
+            if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'parameters'):
+                total_params = sum(p.numel() for p in vae.first_stage_model.parameters())
+                model_size_mb = total_params * 4 / (1024**2)  # Assuming float32
+                print(f"   Parameters: {total_params:,}")
+                print(f"   Model Size: {model_size_mb:.1f} MB")
+            else:
+                print(f"   Parameters: Unable to determine")
+                print(f"   Model Size: Unable to determine")
+            
+            # State dict keys count
+            if hasattr(vae, 'state_dict'):
+                state_dict_keys = len(vae.state_dict())
+                print(f"   State Dict Keys: {state_dict_keys}")
+            else:
+                print(f"   State Dict Keys: Unable to determine")
+            
+            # VAE specific details
+            print(f"   🎨 VAE SPECIFIC DETAILS:")
+            if hasattr(vae, 'latent_channels'):
+                print(f"     Latent Channels: {vae.latent_channels}")
+            else:
+                print(f"     Latent Channels: Unable to determine")
+            
+            if hasattr(vae, 'downscale_ratio'):
+                print(f"     Downscale Ratio: {vae.downscale_ratio}")
+            else:
+                print(f"     Downscale Ratio: Unable to determine")
+            
+            if hasattr(vae, 'upscale_ratio'):
+                print(f"     Upscale Ratio: {vae.upscale_ratio}")
+            else:
+                print(f"     Upscale Ratio: Unable to determine")
+            
+            if hasattr(vae, 'first_stage_model'):
+                print(f"     Has First Stage Model: ✅")
+            else:
+                print(f"     Has First Stage Model: ❌")
+            
+            # VAE type detection
+            print(f"     🔍 VAE TYPE DETECTION:")
+            if hasattr(vae, 'model_type'):
+                print(f"       Detected: {vae.model_type}")
+            else:
+                print(f"       Detected: Unable to determine")
+            
+            if hasattr(vae, 'capabilities'):
+                print(f"       Capabilities: {vae.capabilities}")
+            else:
+                print(f"       Capabilities: Unable to determine")
+            
+            # Memory efficiency analysis
+            if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'parameters'):
+                if model_size_mb > 1000:
+                    size_category = "Large"
+                    recommendation = "Consider GPU offloading for memory efficiency"
+                elif model_size_mb > 100:
+                    size_category = "Medium"
+                    recommendation = "Should fit comfortably in memory"
+                else:
+                    size_category = "Small"
+                    recommendation = "Should fit comfortably in memory"
+                
+                print(f"   💡 MEMORY EFFICIENCY ANALYSIS:")
+                print(f"     Model Size: {size_category} ({model_size_mb:.1f} MB)")
+                print(f"     Recommendation: {recommendation}")
+                print(f"     Device Placement: {getattr(vae, 'device', 'unknown')} ({'faster inference, higher memory usage' if getattr(vae, 'device', 'unknown') == 'cuda:0' else 'memory efficient, slower inference'})")
+            
+            print("="*60)
+            
+            # Step 1 Summary
+            total_loading_time = (unet_end_time - unet_start_time) + (clip_end_time - clip_start_time) + (vae_end_time - vae_start_time)
+            total_ram_change = (vae_end_ram - baseline_ram) * 1024
+            
+            print(f"\n📊 STEP 1 MODEL LOADING SUMMARY")
+            print("="*80)
+            print(f"⏱️  Total Loading Time: {total_loading_time:.3f} seconds")
+            print(f"💾 Total RAM Change: +{total_ram_change:.1f} MB")
+            print()
+            print(f"🔍 UNET_LOADING:")
+            print(f"   Model: UNET")
+            print(f"   Time: {unet_end_time - unet_start_time:.3f}s")
+            print(f"   RAM: +{(unet_end_ram - unet_start_ram) * 1024:.1f} MB")
+            print(f"   GPU: +{unet_end_gpu - unet_start_gpu:.1f} MB allocated")
+            print()
+            print(f"🔍 CLIP_LOADING:")
+            print(f"   Model: CLIP")
+            print(f"   Time: {clip_end_time - clip_start_time:.3f}s")
+            print(f"   RAM: +{(clip_end_ram - clip_start_ram) * 1024:.1f} MB")
+            print(f"   GPU: +{clip_end_gpu - clip_start_gpu:.1f} MB allocated")
+            print()
+            print(f"🔍 VAE_LOADING:")
+            print(f"   Model: VAE")
+            print(f"   Time: {vae_end_time - vae_start_time:.3f}s")
+            print(f"   RAM: +{(vae_end_ram - vae_start_ram) * 1024:.1f} MB")
+            print(f"   GPU: +{vae_end_gpu - vae_start_gpu:.1f} MB allocated")
+            print("="*80)
+            
             # Note: The model type detection issue is in ComfyUI's model_detection.py
             # The WAN model uses no prefix (keys like 'head.modulation') but the detection
             # logic defaults to 'model.' prefix, causing it to be detected as FLOW instead of WAN
             # This is a ComfyUI bug, not our pipeline issue
             
-            # Verify that the models were loaded correctly
-
-            # Check if models need to be explicitly loaded to GPU
-         
-            # Check memory after letting ComfyUI handle loading
-      
-            # OOM Checklist: Check memory after model loading
-
-            print("="*80)
-            
             print("✅ Step 1 completed: Model Loading")
+            # === STEP 1 END: MODEL LOADING ===
             # === STEP 1 END: MODEL LOADING ===
             
             # === STEP 2 START: LORA APPLICATION ===
