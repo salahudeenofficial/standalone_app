@@ -2842,26 +2842,59 @@ class ReferenceVideoPipeline:
             total_params = 0
             state_dict_keys = 0
             
-            if hasattr(model, 'state_dict'):
+            # Try different ways to access model parameters for ComfyUI ModelPatcher
+            if hasattr(model, 'model') and hasattr(model.model, 'state_dict'):
+                # Access underlying model if it's a ModelPatcher
+                state_dict = model.model.state_dict()
+                state_dict_keys = len(state_dict)
+                
+                for param in state_dict.values():
+                    if hasattr(param, 'numel'):
+                        total_params += param.numel()
+            elif hasattr(model, 'state_dict'):
+                # Direct state_dict access
                 state_dict = model.state_dict()
                 state_dict_keys = len(state_dict)
                 
                 for param in state_dict.values():
                     if hasattr(param, 'numel'):
                         total_params += param.numel()
+            elif hasattr(model, 'parameters'):
+                # Try parameters() method
+                for param in model.parameters():
+                    if hasattr(param, 'numel'):
+                        total_params += param.numel()
+                state_dict_keys = total_params  # Rough estimate
             
             # Calculate model size in MB (rough estimate)
             model_size_mb = (total_params * 4) / (1024**2)  # Assuming float32 (4 bytes)
             
-            # Get device information
-            device = getattr(model, 'device', 'unknown')
+            # Get device information - try multiple approaches
+            device = 'unknown'
+            if hasattr(model, 'device'):
+                device = str(model.device)
+            elif hasattr(model, 'model') and hasattr(model.model, 'device'):
+                device = str(model.model.device)
+            elif hasattr(model, 'parameters'):
+                # Try to get device from first parameter
+                try:
+                    first_param = next(model.parameters())
+                    device = str(first_param.device)
+                except:
+                    device = 'unknown'
+            
+            # Debug info
+            debug_info = f"Model class: {type(model).__name__}"
+            if hasattr(model, 'model'):
+                debug_info += f", Underlying model: {type(model.model).__name__}"
             
             return {
                 'total_parameters': total_params,
                 'model_size_mb': model_size_mb,
                 'state_dict_keys': state_dict_keys,
-                'device': str(device),
-                'model_type': model_type
+                'device': device,
+                'model_type': model_type,
+                'debug_info': debug_info
             }
         except Exception as e:
             return {
@@ -2870,7 +2903,8 @@ class ReferenceVideoPipeline:
                 'state_dict_keys': 0,
                 'device': 'unknown',
                 'model_type': model_type,
-                'error': str(e)
+                'error': str(e),
+                'debug_info': f"Error: {str(e)}"
             }
     
     def _calculate_memory_efficiency(self, memory_info):
@@ -2998,6 +3032,10 @@ class ReferenceVideoPipeline:
         print(f"   Parameters: {model_info['total_parameters']:,}")
         print(f"   Model Size: {model_info['model_size_mb']:.1f} MB")
         print(f"   State Dict Keys: {model_info['state_dict_keys']}")
+        
+        # Add debug information
+        if 'debug_info' in model_info:
+            print(f"   🔍 Debug Info: {model_info['debug_info']}")
         
         # Memory efficiency recommendations
         print(f"   💡 MEMORY EFFICIENCY ANALYSIS:")
