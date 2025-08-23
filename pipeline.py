@@ -841,12 +841,73 @@ class ReferenceVideoPipeline:
                     original_model = model
                     original_clip_model = clip_model
                     
+                    # DEBUG: Check model state before LoRA
+                    print(f"\n🔍 DEBUG: Pre-LoRA Model State:")
+                    print(f"   UNET Model Type: {type(model).__name__}")
+                    print(f"   UNET Model Class: {model.__class__}")
+                    if hasattr(model, 'model'):
+                        print(f"   UNET Underlying Model: {type(model.model).__name__}")
+                        print(f"   UNET Model Config: {getattr(model.model, 'model_config', 'No config')}")
+                    print(f"   CLIP Model Type: {type(clip_model).__name__}")
+                    print(f"   CLIP Model Class: {clip_model.__class__}")
+                    if hasattr(clip_model, 'cond_stage_model'):
+                        print(f"   CLIP Underlying Model: {type(clip_model.cond_stage_model).__name__}")
+                    
+                    # DEBUG: Manually load LoRA to see key mapping
+                    print(f"\n🔍 DEBUG: Manual LoRA Key Mapping Analysis:")
+                    import comfy.utils
+                    import comfy.lora
+                    lora_data = comfy.utils.load_torch_file(lora_path, safe_load=True)
+                    
+                    # Show LoRA file contents
+                    lora_keys = list(lora_data.keys())
+                    print(f"   LoRA File Keys: {len(lora_keys)} total")
+                    print(f"   Sample LoRA Keys (first 5): {lora_keys[:5]}")
+                    
+                    # Show key mapping for UNET
+                    unet_key_map = {}
+                    if model is not None:
+                        unet_key_map = comfy.lora.model_lora_keys_unet(model.model, unet_key_map)
+                    print(f"   UNET Key Mappings: {len(unet_key_map)} mappings")
+                    print(f"   Sample UNET Mappings (first 5): {dict(list(unet_key_map.items())[:5])}")
+                    
+                    # Show key mapping for CLIP
+                    clip_key_map = {}
+                    if clip_model is not None:
+                        clip_key_map = comfy.lora.model_lora_keys_clip(clip_model.cond_stage_model, clip_key_map)
+                    print(f"   CLIP Key Mappings: {len(clip_key_map)} mappings")
+                    print(f"   Sample CLIP Mappings (first 5): {dict(list(clip_key_map.items())[:5])}")
+                    
+                    # Check which LoRA keys will actually be loaded
+                    all_key_map = {**unet_key_map, **clip_key_map}
+                    matching_keys = []
+                    for lora_key in lora_keys:
+                        base_key = lora_key.replace('.lora_up.weight', '').replace('.lora_down.weight', '').replace('.alpha', '').replace('.diff', '')
+                        if base_key in all_key_map or lora_key in all_key_map:
+                            matching_keys.append(lora_key)
+                    
+                    print(f"   Matching LoRA Keys: {len(matching_keys)} will be loaded")
+                    print(f"   Sample Matching Keys: {matching_keys[:5]}")
+                    
                     # Apply LoRA
                     model, clip_model = lora_loader.load_lora(
                         model, clip_model, lora_path, 0.5, 1.0
                     )
                     
                     print("✅ LoRA applied successfully")
+                    
+                    # DEBUG: Check model state after LoRA
+                    print(f"\n🔍 DEBUG: Post-LoRA Model State:")
+                    print(f"   UNET Patches Count: {len(getattr(model, 'patches', {}))}")
+                    print(f"   CLIP Patches Count: {len(getattr(clip_model.patcher, 'patches', {})) if hasattr(clip_model, 'patcher') else 0}")
+                    
+                    if hasattr(model, 'patches') and len(model.patches) > 0:
+                        patch_keys = list(model.patches.keys())
+                        print(f"   Sample UNET Patch Keys: {patch_keys[:5]}")
+                    
+                    if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'patches') and len(clip_model.patcher.patches) > 0:
+                        clip_patch_keys = list(clip_model.patcher.patches.keys())
+                        print(f"   Sample CLIP Patch Keys: {clip_patch_keys[:5]}")
                     
                     # End step monitoring and get final metrics
                     elapsed_time, step_end_memory = self._end_step_monitoring("lora_application", step_start_time, step_start_memory)
