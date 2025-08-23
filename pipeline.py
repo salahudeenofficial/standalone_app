@@ -786,12 +786,35 @@ class ReferenceVideoPipeline:
                 print("\n🔍 LORA APPLICATION MONITORING SYSTEM ACTIVATED")
                 print("="*80)
                 
+                # Debug: Check if monitoring methods exist
+                print("🔍 DEBUG: Checking monitoring methods...")
+                if hasattr(self, '_start_step_monitoring'):
+                    print("✅ _start_step_monitoring method exists")
+                else:
+                    print("❌ _start_step_monitoring method MISSING")
+                
+                if hasattr(self, '_capture_lora_baseline'):
+                    print("✅ _capture_lora_baseline method exists")
+                else:
+                    print("❌ _capture_lora_baseline method MISSING")
+                
                 # Start step monitoring with timing and memory baseline
-                step_start_time, step_start_memory = self._start_step_monitoring("lora_application")
+                try:
+                    step_start_time, step_start_memory = self._start_step_monitoring("lora_application")
+                    print("✅ Step monitoring started successfully")
+                except Exception as e:
+                    print(f"❌ Step monitoring failed: {e}")
+                    step_start_time = time.time()
+                    step_start_memory = {'ram_used_mb': 0, 'gpu_allocated_mb': 0}
                 
                 # Capture baseline state before LoRA application
                 print("\n📊 CAPTURING BASELINE STATE (Before LoRA)...")
-                lora_baseline = self._capture_lora_baseline(model, clip_model, lora_path)
+                try:
+                    lora_baseline = self._capture_lora_baseline(model, clip_model, lora_path)
+                    print("✅ Baseline captured successfully")
+                except Exception as e:
+                    print(f"❌ Baseline capture failed: {e}")
+                    lora_baseline = {'unet': {'model_id': 0, 'patches_count': 0}, 'clip': {'model_id': 0, 'patcher_patches_count': 0}, 'lora_file': {'full_path': lora_path, 'file_exists': False, 'file_size_mb': 0}}
                 
                 # Display baseline information
                 print(f"   📁 LoRA File: {lora_baseline['lora_file']['full_path']}")
