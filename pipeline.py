@@ -925,25 +925,8 @@ class ReferenceVideoPipeline:
                 print("🔍 FINAL WORKFLOW MONITORING SUMMARY")
                 print("="*80)
                 
-                # Stop execution after Step 2 for debugging purposes
-                print("\n🛑 STOPPING EXECUTION AFTER STEP 2 (LORA APPLICATION)")
-                print("🔍 All LoRA application debugging information has been displayed above.")
-                print("📊 Check the monitoring data above to analyze LoRA application performance.")
-                
-                # Print step completion status
-                print(f"\n🔍 Step 1: Model Loading - COMPLETED")
-                print(f"🔍 Step 2: LoRA Application - COMPLETED")
-                print(f"🔍 Steps 3-9: SKIPPED for debugging purposes")
-                
-                # Print final workflow summary
-                if hasattr(self, 'step_results'):
-                    self._print_final_workflow_summary(self.step_results)
-                
-                print("="*80)
-                print("🔍 FINAL WORKFLOW MONITORING SUMMARY")
-                print("="*80)
-                
                 # Return early to stop execution
+                print("🚫 EXECUTION STOPPED - Pipeline will not continue to Step 3")
                 return "pipeline_stopped_after_step_2_for_debugging"
             else:
                 print("2. No LoRA specified, skipping LoRA application")
