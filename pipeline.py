@@ -786,26 +786,31 @@ class ReferenceVideoPipeline:
                 print("\n🔍 LORA APPLICATION MONITORING SYSTEM ACTIVATED")
                 print("="*80)
                 
+                # Start step monitoring with timing and memory baseline
+                step_start_time, step_start_memory = self._start_step_monitoring("lora_application")
+                
                 # Capture baseline state before LoRA application
-                print("📊 CAPTURING BASELINE STATE (Before LoRA)...")
+                print("\n📊 CAPTURING BASELINE STATE (Before LoRA)...")
                 lora_baseline = self._capture_lora_baseline(model, clip_model, lora_path)
                 
                 # Display baseline information
-                print(f"   UNET Model ID: {lora_baseline['unet']['model_id']}")
-                print(f"   UNET Class: {lora_baseline['unet']['class']}")
-                print(f"   UNET Patches: {lora_baseline['unet']['patches_count']}")
-                print(f"   CLIP Model ID: {lora_baseline['clip']['model_id']}")
-                print(f"   CLIP Class: {lora_baseline['clip']['class']}")
-                print(f"   CLIP Patches: {lora_baseline['clip']['patcher_patches_count']}")
-                print(f"   LoRA File: {lora_baseline['lora_file']['filename']}")
-                print(f"   LoRA Size: {lora_baseline['lora_file']['file_size_mb']:.1f} MB")
-                print(f"   Baseline Memory: {lora_baseline['unet']['memory_allocated_mb']:.1f} MB allocated, {lora_baseline['unet']['memory_reserved_mb']:.1f} MB reserved")
+                print(f"   📁 LoRA File: {lora_baseline['lora_file']['full_path']}")
+                print(f"   📁 File Exists: {'✅ YES' if lora_baseline['lora_file']['file_exists'] else '❌ NO'}")
+                print(f"   📁 File Size: {lora_baseline['lora_file']['file_size_mb']:.2f} MB")
+                print(f"   ✅ UNET Baseline captured - ID: {lora_baseline['unet']['model_id']}, Patches: {lora_baseline['unet']['patches_count']}")
+                print(f"   ✅ CLIP Baseline captured - ID: {lora_baseline['clip']['model_id']}, Patches: {lora_baseline['clip']['patcher_patches_count']}")
+                
+                # Display baseline memory state
+                print(f"\n   💾 BASELINE MEMORY STATE:")
+                print(f"      🖥️  RAM: {step_start_memory['ram_used_mb']:.1f} MB used / {step_start_memory['ram_total_mb']:.1f} MB total ({step_start_memory['ram_percent']:.1f}%)")
+                print(f"      🎮 GPU: {step_start_memory['gpu_allocated_mb']:.1f} MB allocated / {step_start_memory['gpu_total_mb']:.1f} MB total")
+                print(f"      🎮 GPU Device: {step_start_memory['gpu_device_name']}")
                 
                 print("✅ Baseline captured successfully")
                 print("="*80)
                 
                 # Apply LoRA with monitoring
-                print("🔧 APPLYING LoRA WITH MONITORING...")
+                print("🔧 APPLYING LORA TO MODELS...")
                 lora_loader = LoraLoader()
                 
                 try:
@@ -820,8 +825,38 @@ class ReferenceVideoPipeline:
                     
                     print("✅ LoRA applied successfully")
                     
+                    # End step monitoring and get final metrics
+                    elapsed_time, step_end_memory = self._end_step_monitoring("lora_application", step_start_time, step_start_memory)
+                    
+                    # Calculate memory changes
+                    ram_change = step_end_memory['ram_used_mb'] - step_start_memory['ram_used_mb']
+                    gpu_change = step_end_memory['gpu_allocated_mb'] - step_start_memory['gpu_allocated_mb']
+                    
+                    # Store step results for workflow monitoring
+                    if not hasattr(self, 'step_results'):
+                        self.step_results = {}
+                    
+                    self.step_results['lora_application'] = {
+                        'elapsed_time': elapsed_time,
+                        'ram_change': ram_change,
+                        'gpu_change': gpu_change,
+                        'success': True,
+                        'skipped': True,
+                        'baseline_memory': step_start_memory,
+                        'end_memory': step_end_memory
+                    }
+                    
+                    # Print enhanced model summary
+                    self._print_enhanced_model_summary(model, "LoRA_Result")
+                    
+                    # Print comprehensive memory breakdown
+                    self._print_comprehensive_memory_breakdown(step_start_memory, step_end_memory, step_start_time, time.time())
+                    
+                    # Print peak memory summary
+                    self._print_peak_memory_summary(step_start_memory, step_end_memory, step_start_time, time.time())
+                    
                     # Analyze LoRA application results
-                    print("\n🔍 ANALYZING LoRA APPLICATION RESULTS...")
+                    print("\n🔍 ANALYZING LORA APPLICATION RESULTS...")
                     lora_analysis = self._analyze_lora_application_results(
                         lora_baseline, original_model, original_clip_model, 
                         model, clip_model, [model, clip_model]
@@ -831,8 +866,34 @@ class ReferenceVideoPipeline:
                     self._print_lora_analysis_summary(lora_analysis)
                     
                 except Exception as e:
-                    print(f"❌ LoRA application failed: {e}")
+                    print(f"❌ ERROR during LoRA application: {e}")
+                    print("🔍 LoRA application failed - check error details above")
+                    
+                    # End step monitoring even on error
+                    elapsed_time, step_end_memory = self._end_step_monitoring("lora_application", step_start_time, step_start_memory)
+                    
+                    # Calculate memory changes
+                    ram_change = step_end_memory['ram_used_mb'] - step_start_memory['ram_used_mb']
+                    gpu_change = step_end_memory['gpu_allocated_mb'] - step_start_memory['gpu_allocated_mb']
+                    
+                    # Store step results for workflow monitoring
+                    if not hasattr(self, 'step_results'):
+                        self.step_results = {}
+                    
+                    self.step_results['lora_application'] = {
+                        'elapsed_time': elapsed_time,
+                        'ram_change': ram_change,
+                        'gpu_change': gpu_change,
+                        'success': False,
+                        'error': str(e),
+                        'baseline_memory': step_start_memory,
+                        'end_memory': step_end_memory
+                    }
+                    
+                    # Print error summary
+                    print(f"\n❌ LoRA application failed after {elapsed_time:.3f} seconds")
                     print("⚠️  Continuing with original models...")
+                    
                     # Keep original models if LoRA fails
                     model = original_model
                     clip_model = original_clip_model
@@ -842,16 +903,101 @@ class ReferenceVideoPipeline:
                 print("="*80)
                 # === LORA APPLICATION MONITORING SYSTEM END ===
                 
-                # ComfyUI automatically tracks these modified models through ModelPatcher
-                print("2a. LoRA applied, models updated")
-                print("2a. ModelPatcher automatically preserves LoRA patches")
+                # Print workflow monitoring summary
+                if hasattr(self, 'step_results') and 'lora_application' in self.step_results:
+                    self._print_workflow_monitoring_summary(self.step_results)
                 
-                # OOM Checklist: Check memory after LoRA application
-                self._check_memory_usage('lora_application', expected_threshold=200)
+                # Stop execution after Step 2 for debugging purposes
+                print("\n🛑 STOPPING EXECUTION AFTER STEP 2 (LORA APPLICATION)")
+                print("🔍 All LoRA application debugging information has been displayed above.")
+                print("📊 Check the monitoring data above to analyze LoRA application performance.")
                 
-                # COMPREHENSIVE VERIFICATION AFTER LoRA APPLICATION
+                # Print step completion status
+                print(f"\n🔍 Step 1: Model Loading - COMPLETED")
+                print(f"🔍 Step 2: LoRA Application - COMPLETED")
+                print(f"🔍 Steps 3-9: SKIPPED for debugging purposes")
+                
+                # Print final workflow summary
+                if hasattr(self, 'step_results'):
+                    self._print_final_workflow_summary(self.step_results)
+                
+                print("="*80)
+                print("🔍 FINAL WORKFLOW MONITORING SUMMARY")
+                print("="*80)
+                
+                # Stop execution after Step 2 for debugging purposes
+                print("\n🛑 STOPPING EXECUTION AFTER STEP 2 (LORA APPLICATION)")
+                print("🔍 All LoRA application debugging information has been displayed above.")
+                print("📊 Check the monitoring data above to analyze LoRA application performance.")
+                
+                # Print step completion status
+                print(f"\n🔍 Step 1: Model Loading - COMPLETED")
+                print(f"🔍 Step 2: LoRA Application - COMPLETED")
+                print(f"🔍 Steps 3-9: SKIPPED for debugging purposes")
+                
+                # Print final workflow summary
+                if hasattr(self, 'step_results'):
+                    self._print_final_workflow_summary(self.step_results)
+                
+                print("="*80)
+                print("🔍 FINAL WORKFLOW MONITORING SUMMARY")
+                print("="*80)
+                
+                # Return early to stop execution
+                return "pipeline_stopped_after_step_2_for_debugging"
+            else:
+                print("2. No LoRA specified, skipping LoRA application")
+                print("2a. Models remain in original state")
+                
+                # === LORA APPLICATION MONITORING SYSTEM START (No LoRA) ===
+                print("\n🔍 LORA APPLICATION MONITORING SYSTEM ACTIVATED (No LoRA)")
+                print("="*80)
+                
+                # Start step monitoring with timing and memory baseline
+                step_start_time, step_start_memory = self._start_step_monitoring("lora_application")
+                
+                # Capture baseline state even without LoRA for comparison
+                print("📊 CAPTURING BASELINE STATE (No LoRA - Models in Original State)...")
+                no_lora_baseline = self._capture_lora_baseline(model, clip_model, "N/A")
+                
+                # Display baseline information
+                print(f"   📁 LoRA File: None (skipping LoRA application)")
+                print(f"   ✅ UNET Baseline captured - ID: {no_lora_baseline['unet']['model_id']}, Patches: {no_lora_baseline['unet']['patches_count']}")
+                print(f"   ✅ CLIP Baseline captured - ID: {no_lora_baseline['clip']['model_id']}, Patches: {no_lora_baseline['clip']['patcher_patches_count']}")
+                
+                # Display baseline memory state
+                print(f"\n   💾 BASELINE MEMORY STATE:")
+                print(f"      🖥️  RAM: {step_start_memory['ram_used_mb']:.1f} MB used / {step_start_memory['ram_total_mb']:.1f} MB total ({step_start_memory['ram_percent']:.1f}%)")
+                print(f"      🎮 GPU: {step_start_memory['gpu_allocated_mb']:.1f} MB allocated / {step_start_memory['gpu_total_mb']:.1f} MB total")
+                print(f"      🎮 GPU Device: {step_start_memory['gpu_device_name']}")
+                
+                print("✅ Baseline captured successfully (No LoRA)")
+                
+                # End step monitoring and get final metrics
+                elapsed_time, step_end_memory = self._end_step_monitoring("lora_application", step_start_time, step_start_memory)
+                
+                # Print enhanced model summary
+                self._print_enhanced_model_summary(model, "Original_UNET")
+                self._print_enhanced_model_summary(clip_model, "Original_CLIP")
+                
+                # Print comprehensive memory breakdown
+                self._print_comprehensive_memory_breakdown(step_start_memory, step_end_memory, step_start_time, time.time())
+                
+                # Print peak memory summary
+                self._print_peak_memory_summary(step_start_memory, step_end_memory, step_start_time, time.time())
+                
+                print("="*80)
+                print("🔍 LORA APPLICATION MONITORING SYSTEM COMPLETE (No LoRA)")
+                print("="*80)
+                # === LORA APPLICATION MONITORING SYSTEM END (No LoRA) ===
+                
+                # Print workflow monitoring summary
+                if hasattr(self, 'step_results') and 'lora_application' in self.step_results:
+                    self._print_workflow_monitoring_summary(self.step_results)
+                
+                # COMPREHENSIVE VERIFICATION AFTER LoRA SKIP
                 print("\n" + "="*80)
-                print("🔍 STEP 2 COMPLETE: COMPREHENSIVE VERIFICATION")
+                print("🔍 STEP 2 COMPLETE: COMPREHENSIVE VERIFICATION (No LoRA)")
                 print("="*80)
                 
                 # 1. Model Placement Verification
@@ -886,25 +1032,47 @@ class ReferenceVideoPipeline:
                 print("\n🔍 LORA APPLICATION MONITORING SYSTEM ACTIVATED (No LoRA)")
                 print("="*80)
                 
+                # Start step monitoring with timing and memory baseline
+                step_start_time, step_start_memory = self._start_step_monitoring("lora_application")
+                
                 # Capture baseline state even without LoRA for comparison
                 print("📊 CAPTURING BASELINE STATE (No LoRA - Models in Original State)...")
                 no_lora_baseline = self._capture_lora_baseline(model, clip_model, "N/A")
                 
                 # Display baseline information
-                print(f"   UNET Model ID: {no_lora_baseline['unet']['model_id']}")
-                print(f"   UNET Class: {no_lora_baseline['unet']['class']}")
-                print(f"   UNET Patches: {no_lora_baseline['unet']['patches_count']}")
-                print(f"   CLIP Model ID: {no_lora_baseline['clip']['model_id']}")
-                print(f"   CLIP Class: {no_lora_baseline['clip']['class']}")
-                print(f"   CLIP Patches: {no_lora_baseline['clip']['patcher_patches_count']}")
-                print(f"   LoRA File: None (skipping LoRA application)")
-                print(f"   Baseline Memory: {no_lora_baseline['unet']['memory_allocated_mb']:.1f} MB allocated, {no_lora_baseline['unet']['memory_reserved_mb']:.1f} MB reserved")
+                print(f"   📁 LoRA File: None (skipping LoRA application)")
+                print(f"   ✅ UNET Baseline captured - ID: {no_lora_baseline['unet']['model_id']}, Patches: {no_lora_baseline['unet']['patches_count']}")
+                print(f"   ✅ CLIP Baseline captured - ID: {no_lora_baseline['clip']['model_id']}, Patches: {no_lora_baseline['clip']['patcher_patches_count']}")
+                
+                # Display baseline memory state
+                print(f"\n   💾 BASELINE MEMORY STATE:")
+                print(f"      🖥️  RAM: {step_start_memory['ram_used_mb']:.1f} MB used / {step_start_memory['ram_total_mb']:.1f} MB total ({step_start_memory['ram_percent']:.1f}%)")
+                print(f"      🎮 GPU: {step_start_memory['gpu_allocated_mb']:.1f} MB allocated / {step_start_memory['gpu_total_mb']:.1f} MB total")
+                print(f"      🎮 GPU Device: {step_start_memory['gpu_device_name']}")
                 
                 print("✅ Baseline captured successfully (No LoRA)")
+                
+                # End step monitoring and get final metrics
+                elapsed_time, step_end_memory = self._end_step_monitoring("lora_application", step_start_time, step_start_memory)
+                
+                # Print enhanced model summary
+                self._print_enhanced_model_summary(model, "Original_UNET")
+                self._print_enhanced_model_summary(clip_model, "Original_CLIP")
+                
+                # Print comprehensive memory breakdown
+                self._print_comprehensive_memory_breakdown(step_start_memory, step_end_memory, step_start_time, time.time())
+                
+                # Print peak memory summary
+                self._print_peak_memory_summary(step_start_memory, step_end_memory, step_start_time, time.time())
+                
                 print("="*80)
                 print("🔍 LORA APPLICATION MONITORING SYSTEM COMPLETE (No LoRA)")
                 print("="*80)
                 # === LORA APPLICATION MONITORING SYSTEM END (No LoRA) ===
+                
+                # Print workflow monitoring summary
+                if hasattr(self, 'step_results') and 'lora_application' in self.step_results:
+                    self._print_workflow_monitoring_summary(self.step_results)
                 
                 # COMPREHENSIVE VERIFICATION AFTER LoRA SKIP
                 print("\n" + "="*80)
@@ -2607,6 +2775,388 @@ class ReferenceVideoPipeline:
             print(f"   CLIP Memory Change: {clip_memory['allocated_change_mb']:+.1f} MB allocated, {clip_memory['reserved_change_mb']:+.1f} MB reserved")
         
         print("=" * 80)
+    
+    # ============================================
+    # ENHANCED SYSTEM MONITORING METHODS
+    # ============================================
+    
+    def _get_system_memory_info(self):
+        """Get comprehensive system memory information"""
+        try:
+            import psutil
+            memory = psutil.virtual_memory()
+            return {
+                'ram_used_mb': memory.used / (1024**2),
+                'ram_available_mb': memory.available / (1024**2),
+                'ram_total_mb': memory.total / (1024**2),
+                'ram_percent': memory.percent
+            }
+        except ImportError:
+            return {
+                'ram_used_mb': 0,
+                'ram_available_mb': 0,
+                'ram_total_mb': 0,
+                'ram_percent': 0
+            }
+    
+    def _get_gpu_memory_info(self):
+        """Get comprehensive GPU memory information"""
+        try:
+            if torch.cuda.is_available():
+                allocated = torch.cuda.memory_allocated() / (1024**2)
+                reserved = torch.cuda.memory_reserved() / (1024**2)
+                total = torch.cuda.get_device_properties(0).total_memory / (1024**2)
+                available = total - reserved
+                
+                return {
+                    'gpu_allocated_mb': allocated,
+                    'gpu_reserved_mb': reserved,
+                    'gpu_total_mb': total,
+                    'gpu_available_mb': available,
+                    'gpu_device_name': torch.cuda.get_device_name(0)
+                }
+            else:
+                return {
+                    'gpu_allocated_mb': 0,
+                    'gpu_reserved_mb': 0,
+                    'gpu_total_mb': 0,
+                    'gpu_available_mb': 0,
+                    'gpu_device_name': 'No GPU'
+                }
+        except Exception as e:
+            return {
+                'gpu_allocated_mb': 0,
+                'gpu_reserved_mb': 0,
+                'gpu_total_mb': 0,
+                'gpu_available_mb': 0,
+                'gpu_device_name': f'Error: {e}'
+            }
+    
+    def _get_enhanced_model_info(self, model, model_type):
+        """Get enhanced model information including parameters, size, etc."""
+        try:
+            # Count parameters
+            total_params = 0
+            state_dict_keys = 0
+            
+            if hasattr(model, 'state_dict'):
+                state_dict = model.state_dict()
+                state_dict_keys = len(state_dict)
+                
+                for param in state_dict.values():
+                    if hasattr(param, 'numel'):
+                        total_params += param.numel()
+            
+            # Calculate model size in MB (rough estimate)
+            model_size_mb = (total_params * 4) / (1024**2)  # Assuming float32 (4 bytes)
+            
+            # Get device information
+            device = getattr(model, 'device', 'unknown')
+            
+            return {
+                'total_parameters': total_params,
+                'model_size_mb': model_size_mb,
+                'state_dict_keys': state_dict_keys,
+                'device': str(device),
+                'model_type': model_type
+            }
+        except Exception as e:
+            return {
+                'total_parameters': 0,
+                'model_size_mb': 0,
+                'state_dict_keys': 0,
+                'device': 'unknown',
+                'model_type': model_type,
+                'error': str(e)
+            }
+    
+    def _calculate_memory_efficiency(self, memory_info):
+        """Calculate memory efficiency metrics"""
+        try:
+            if memory_info['gpu_total_mb'] > 0:
+                allocated_efficiency = (memory_info['gpu_allocated_mb'] / memory_info['gpu_total_mb']) * 100
+                reserved_efficiency = (memory_info['gpu_reserved_mb'] / memory_info['gpu_total_mb']) * 100
+            else:
+                allocated_efficiency = 0
+                reserved_efficiency = 0
+            
+            return {
+                'allocated_efficiency_percent': allocated_efficiency,
+                'reserved_efficiency_percent': reserved_efficiency
+            }
+        except Exception:
+            return {
+                'allocated_efficiency_percent': 0,
+                'reserved_efficiency_percent': 0
+            }
+    
+    def _print_comprehensive_memory_breakdown(self, baseline_memory, current_memory, baseline_time, current_time):
+        """Print comprehensive memory breakdown with detailed analysis"""
+        print(f"\n💾 DETAILED MEMORY BREAKDOWN:")
+        
+        # RAM Breakdown
+        print(f"   🖥️  RAM MEMORY BREAKDOWN:")
+        print(f"      Baseline State:")
+        print(f"         Used: {baseline_memory['ram_used_mb']:.1f} MB")
+        print(f"         Available: {baseline_memory['ram_available_mb']:.1f} MB")
+        print(f"         Usage: {baseline_memory['ram_percent']:.1f}%")
+        print(f"      Current State:")
+        print(f"         Used: {current_memory['ram_used_mb']:.1f} MB")
+        print(f"         Available: {current_memory['ram_available_mb']:.1f} MB")
+        print(f"         Usage: {current_memory['ram_percent']:.1f}%")
+        
+        # Calculate RAM changes
+        ram_used_change = current_memory['ram_used_mb'] - baseline_memory['ram_used_mb']
+        ram_available_change = current_memory['ram_available_mb'] - baseline_memory['ram_available_mb']
+        ram_percent_change = current_memory['ram_percent'] - baseline_memory['ram_percent']
+        
+        print(f"      Changes:")
+        print(f"         Used Change: {ram_used_change:+.1f} MB ({ram_used_change/baseline_memory['ram_used_mb']*100:+.1f}%)")
+        print(f"         Available Change: {ram_available_change:+.1f} MB")
+        print(f"         Usage Change: {ram_percent_change:+.1f}%")
+        
+        # GPU Breakdown
+        print(f"\n   🎮 GPU MEMORY BREAKDOWN:")
+        print(f"      Baseline State:")
+        print(f"         Allocated: {baseline_memory['gpu_allocated_mb']:.1f} MB")
+        print(f"         Reserved: {baseline_memory['gpu_reserved_mb']:.1f} MB")
+        print(f"         Total VRAM: {baseline_memory['gpu_total_mb']:.1f} MB")
+        print(f"         Available VRAM: {baseline_memory['gpu_available_mb']:.1f} MB")
+        print(f"      Current State:")
+        print(f"         Allocated: {current_memory['gpu_allocated_mb']:.1f} MB")
+        print(f"         Reserved: {current_memory['gpu_reserved_mb']:.1f} MB")
+        print(f"         Total VRAM: {current_memory['gpu_total_mb']:.1f} MB")
+        print(f"         Available VRAM: {current_memory['gpu_available_mb']:.1f} MB")
+        
+        # Calculate GPU changes
+        gpu_allocated_change = current_memory['gpu_allocated_mb'] - baseline_memory['gpu_allocated_mb']
+        gpu_reserved_change = current_memory['gpu_reserved_mb'] - baseline_memory['gpu_reserved_mb']
+        gpu_available_change = current_memory['gpu_available_mb'] - baseline_memory['gpu_available_mb']
+        
+        print(f"      Changes:")
+        if baseline_memory['gpu_allocated_mb'] > 0:
+            allocated_change_percent = (gpu_allocated_change / baseline_memory['gpu_allocated_mb']) * 100
+        else:
+            allocated_change_percent = 0
+            
+        if baseline_memory['gpu_reserved_mb'] > 0:
+            reserved_change_percent = (gpu_reserved_change / baseline_memory['gpu_reserved_mb']) * 100
+        else:
+            reserved_change_percent = 0
+        
+        print(f"         Allocated Change: {gpu_allocated_change:+.1f} MB ({allocated_change_percent:+.1f}%)")
+        print(f"         Reserved Change: {gpu_reserved_change:+.1f} MB ({reserved_change_percent:+.1f}%)")
+        print(f"         Available VRAM Change: {gpu_available_change:+.1f} MB")
+        
+        # Memory Efficiency
+        baseline_efficiency = self._calculate_memory_efficiency(baseline_memory)
+        current_efficiency = self._calculate_memory_efficiency(current_memory)
+        
+        print(f"      Memory Efficiency:")
+        print(f"         Baseline: {baseline_efficiency['allocated_efficiency_percent']:.1f}% (allocated/reserved)")
+        print(f"         Current: {current_efficiency['allocated_efficiency_percent']:.1f}% (allocated/reserved)")
+        efficiency_change = current_efficiency['allocated_efficiency_percent'] - baseline_efficiency['allocated_efficiency_percent']
+        print(f"         Efficiency Change: {efficiency_change:+.1f}%")
+    
+    def _print_peak_memory_summary(self, baseline_memory, current_memory, baseline_time, current_time):
+        """Print peak memory summary with timestamps"""
+        print(f"\n📊 PEAK MEMORY DURING LORA APPLICATION:")
+        
+        # RAM Peak
+        ram_peak = max(baseline_memory['ram_used_mb'], current_memory['ram_used_mb'])
+        print(f"   🖥️  RAM Peak: {ram_peak:.1f} MB")
+        
+        # GPU Peak
+        gpu_allocated_peak = max(baseline_memory['gpu_allocated_mb'], current_memory['gpu_allocated_mb'])
+        gpu_reserved_peak = max(baseline_memory['gpu_reserved_mb'], current_memory['gpu_reserved_mb'])
+        print(f"   🎮 GPU Allocated Peak: {gpu_allocated_peak:.1f} MB")
+        print(f"   🎮 GPU Reserved Peak: {gpu_reserved_peak:.1f} MB")
+        
+        # Peak Timestamps
+        print(f"   ⏱️  Peak Timestamps:")
+        if ram_peak == baseline_memory['ram_used_mb']:
+            print(f"      ram: {ram_peak:.1f} MB at baseline")
+        else:
+            print(f"      ram: {ram_peak:.1f} MB at {current_time - baseline_time:.2f}s")
+        
+        if gpu_allocated_peak == baseline_memory['gpu_allocated_mb']:
+            print(f"      gpu_allocated: {gpu_allocated_peak:.1f} MB at baseline")
+        else:
+            print(f"      gpu_allocated: {gpu_allocated_peak:.1f} MB at {current_time - baseline_time:.2f}s")
+    
+    def _print_enhanced_model_summary(self, model, model_type):
+        """Print enhanced model information summary"""
+        model_info = self._get_enhanced_model_info(model, model_type)
+        
+        print(f"\n🔧 ENHANCED MODEL INFORMATION:")
+        print(f"   Model Type: {model_info['model_type']}")
+        print(f"   Model Class: {type(model).__name__}")
+        print(f"   Device: {model_info['device']}")
+        print(f"   Parameters: {model_info['total_parameters']:,}")
+        print(f"   Model Size: {model_info['model_size_mb']:.1f} MB")
+        print(f"   State Dict Keys: {model_info['state_dict_keys']}")
+        
+        # Memory efficiency recommendations
+        print(f"   💡 MEMORY EFFICIENCY ANALYSIS:")
+        if model_info['model_size_mb'] > 10000:
+            size_category = "Very Large"
+            recommendation = "Consider aggressive GPU offloading and chunked processing"
+        elif model_info['model_size_mb'] > 5000:
+            size_category = "Large"
+            recommendation = "Consider GPU offloading for memory efficiency"
+        elif model_info['model_size_mb'] > 1000:
+            size_category = "Medium"
+            recommendation = "Monitor memory usage, consider GPU offloading if needed"
+        else:
+            size_category = "Small"
+            recommendation = "Memory efficient, can stay in GPU"
+        
+        print(f"     Model Size: {size_category} ({model_info['model_size_mb']:.1f} MB)")
+        print(f"     Recommendation: {recommendation}")
+        
+        if model_info['device'] == 'cpu':
+            print(f"     Device Placement: CPU (memory efficient, slower inference)")
+        else:
+            print(f"     Device Placement: GPU (faster inference, higher memory usage)")
+    
+    def _start_step_monitoring(self, step_name):
+        """Start monitoring a specific step with timing and memory baseline"""
+        start_time = time.time()
+        start_memory = {
+            **self._get_system_memory_info(),
+            **self._get_gpu_memory_info()
+        }
+        
+        print(f"\n🔍 STARTING MONITORING FOR: {step_name.upper()}")
+        print(f"   Baseline RAM: {start_memory['ram_used_mb']:.1f} GB used, {start_memory['ram_available_mb']:.1f} GB available")
+        print(f"   Baseline GPU: {start_memory['gpu_allocated_mb']:.1f} MB allocated, {start_memory['gpu_reserved_mb']:.1f} MB reserved")
+        
+        return start_time, start_memory
+    
+    def _end_step_monitoring(self, step_name, start_time, start_memory):
+        """End monitoring and calculate comprehensive metrics"""
+        end_time = time.time()
+        end_memory = {
+            **self._get_system_memory_info(),
+            **self._get_gpu_memory_info()
+        }
+        
+        elapsed_time = end_time - start_time
+        
+        print(f"\n🔍 {step_name.upper()} DEBUGGING COMPLETE")
+        print("=" * 60)
+        
+        # Performance timing
+        print(f"⏱️  PERFORMANCE:")
+        print(f"   Loading Time: {elapsed_time:.3f} seconds")
+        
+        # Memory analysis
+        print(f"💾 MEMORY ANALYSIS:")
+        ram_change = end_memory['ram_used_mb'] - start_memory['ram_used_mb']
+        gpu_allocated_change = end_memory['gpu_allocated_mb'] - start_memory['gpu_allocated_mb']
+        gpu_reserved_change = end_memory['gpu_reserved_mb'] - start_memory['gpu_reserved_mb']
+        
+        print(f"   RAM Change: {ram_change:+.1f} MB")
+        print(f"   Current RAM: {end_memory['ram_used_mb']:.1f} GB used, {end_memory['ram_available_mb']:.1f} GB available")
+        print(f"   GPU Change: {gpu_allocated_change:+.1f} MB allocated, {gpu_reserved_change:+.1f} MB reserved")
+        print(f"   Current GPU: {end_memory['gpu_allocated_mb']:.1f} MB allocated, {end_memory['gpu_reserved_mb']:.1f} MB reserved")
+        
+        return elapsed_time, end_memory
+    
+    # ============================================
+    # WORKFLOW MONITORING INTEGRATION
+    # ============================================
+    
+    def _print_workflow_monitoring_summary(self, step_results):
+        """Print comprehensive workflow monitoring summary"""
+        print(f"\n📊 COMPREHENSIVE WORKFLOW MONITORING SUMMARY")
+        print("=" * 80)
+        
+        # Step 1: Model Loading Summary
+        if 'model_loading' in step_results:
+            print(f"🔍 STEP 1: MODEL LOADING")
+            model_loading = step_results['model_loading']
+            print(f"   ⏱️  Total Loading Time: {model_loading.get('elapsed_time', 0):.3f} seconds")
+            print(f"   💾 Total RAM Change: {model_loading.get('ram_change', 0):+.1f} MB")
+            print(f"   🎮 Total GPU Change: {model_loading.get('gpu_change', 0):+.1f} MB")
+        
+        # Step 2: LoRA Application Summary
+        if 'lora_application' in step_results:
+            print(f"\n🔍 STEP 2: LORA APPLICATION")
+            lora_app = step_results['lora_application']
+            print(f"   ⏱️  Total Time: {lora_app.get('elapsed_time', 0):.3f}s")
+            print(f"   💾 RAM Change: {lora_app.get('ram_change', 0):+.1f} MB")
+            print(f"   🎮 GPU Change: {lora_app.get('gpu_change', 0):+.1f} MB")
+            print(f"   ✅ Success: {'YES' if lora_app.get('success', False) else 'NO'}")
+        
+        print("=" * 80)
+    
+    def _print_final_workflow_summary(self, step_results):
+        """Print final workflow summary with all steps"""
+        print(f"\n🔍 FINAL WORKFLOW MONITORING SUMMARY")
+        print("=" * 80)
+        
+        # Summary of all completed steps
+        completed_steps = []
+        total_time = 0
+        total_ram_change = 0
+        total_gpu_change = 0
+        
+        for step_name, step_data in step_results.items():
+            if step_data:
+                completed_steps.append(step_name)
+                total_time += step_data.get('elapsed_time', 0)
+                total_ram_change += step_data.get('ram_change', 0)
+                total_gpu_change += step_data.get('gpu_change', 0)
+        
+        print(f"📊 WORKFLOW SUMMARY:")
+        print(f"   ✅ Completed Steps: {len(completed_steps)}")
+        print(f"   ⏱️  Total Time: {total_time:.3f} seconds")
+        print(f"   💾 Total RAM Change: {total_ram_change:+.1f} MB")
+        print(f"   🎮 Total GPU Change: {total_gpu_change:+.1f} MB")
+        
+        print(f"\n📋 STEP BREAKDOWN:")
+        for i, step_name in enumerate(completed_steps, 1):
+            step_data = step_results[step_name]
+            print(f"   {i}. {step_name.replace('_', ' ').title()}")
+            print(f"      Time: {step_data.get('elapsed_time', 0):.3f}s")
+            print(f"      RAM: {step_data.get('ram_change', 0):+.1f} MB")
+            print(f"      GPU: {step_data.get('gpu_change', 0):+.1f} MB")
+            if 'success' in step_data:
+                print(f"      Status: {'✅ SUCCESS' if step_data['success'] else '❌ FAILED'}")
+        
+        print("=" * 80)
+    
+    def _stop_execution_after_step(self, step_name, step_results, error_message=None):
+        """Stop execution after a specific step for debugging purposes"""
+        print(f"\n🛑 STOPPING EXECUTION AFTER STEP {step_name.upper()}")
+        
+        if error_message:
+            print(f"🔍 {error_message}")
+        
+        print("🔍 All debugging information has been displayed above.")
+        print("📊 Check the monitoring data above to analyze performance.")
+        
+        # Print step completion status
+        completed_steps = []
+        for step_name, step_data in step_results.items():
+            if step_data:
+                completed_steps.append(step_name)
+        
+        print(f"\n🔍 Step {completed_steps.index(step_name) + 1}: {step_name.replace('_', ' ').title()} - COMPLETED")
+        
+        # Show which steps were completed and which were skipped
+        for i, step in enumerate(['model_loading', 'lora_application', 'text_encoding', 'model_sampling', 
+                                'video_generation', 'sampling', 'video_processing', 'vae_decoding', 'video_export'], 1):
+            if step in completed_steps:
+                print(f"🔍 Step {i}: {step.replace('_', ' ').title()} - COMPLETED")
+            else:
+                print(f"🔍 Steps {i}-9: SKIPPED for debugging purposes")
+        
+        # Print final workflow summary
+        self._print_final_workflow_summary(step_results)
+        
+        return False  # Signal to stop execution
 
 def main():
     """Main function to run the pipeline"""
