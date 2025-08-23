@@ -14,22 +14,13 @@ import torch
 import os
 import sys
 from pathlib import Path
+import time
 
 # Add the current directory to Python path
 sys.path.insert(0, str(Path(__file__).parent))
 
 # Add ComfyUI path for utilities
 sys.path.insert(0, str(Path(__file__).parent / "comfy"))
-
-# Import ComfyUI modules in the same order as the working UNETLoader node
-import comfy.diffusers_load
-import comfy.samplers
-import comfy.sample
-import comfy.sd
-import comfy.utils
-import comfy.controlnet
-import comfy.model_management
-import comfy.clip_vision
 
 # Import psutil for system information in diagnostic summary
 try:
@@ -38,6 +29,7 @@ except ImportError:
     print("Warning: psutil not available, system information will be limited")
     psutil = None
 
+import comfy.utils
 from components.lora_loader import LoraLoader
 from components.text_encoder import CLIPTextEncode
 from components.model_sampling import ModelSamplingSD3
@@ -152,23 +144,6 @@ class ReferenceVideoPipeline:
             print(f"   💡 This phase may be at risk of OOM errors")
         
         return allocated <= threshold
-    
-    def _get_ram_usage(self):
-        """Get current RAM usage in GB"""
-        try:
-            import psutil
-            return psutil.virtual_memory().used / (1024**3)
-        except ImportError:
-            return 0.0
-    
-    def _get_gpu_memory_usage(self):
-        """Get current GPU memory usage in MB"""
-        if not torch.cuda.is_available():
-            return 0.0
-        try:
-            return torch.cuda.memory_allocated() / (1024**2)
-        except:
-            return 0.0
     
     def _print_oom_checklist(self):
         """Print the complete OOM debugging checklist"""
@@ -506,6 +481,11 @@ class ReferenceVideoPipeline:
         - VAE moved to GPU for operations, then to CPU for memory management
         - Explicit memory management calls using proven working logic
         """
+        print("Starting Reference Video Pipeline...")
+        print("🚀 FULLY LEVERAGING COMFYUI'S PROVEN MEMORY MANAGEMENT SYSTEM")
+        print("🎯 Pipeline now works exactly like a ComfyUI node - simple, clean, and efficient!")
+        print("💡 All memory management handled automatically by ComfyUI")
+        print("💡 No manual intervention needed - ComfyUI knows best!")
         
         # Establish baseline memory state for OOM debugging
         print("🔍 ESTABLISHING BASELINE MEMORY STATE...")
@@ -571,19 +551,22 @@ class ReferenceVideoPipeline:
         self.chunked_processor.print_processing_plan(processing_plan)
         
         try:
-            # === STEP 1 START: MODEL LOADING ===
             # 1. Load Diffusion Model Components using ComfyUI's native system
             print("1. Loading diffusion model components using ComfyUI...")
             
             # Import ComfyUI's model loading functions
             import comfy.sd
             import comfy.model_management
-            import time
             
-            # Establish baseline memory state for Step 1
-            baseline_ram = self._get_ram_usage()
-            baseline_gpu = self._get_gpu_memory_usage()
-            print(f"🔍 STEP 1 BASELINE - RAM: {baseline_ram:.1f} GB used, GPU: {baseline_gpu:.1f} MB allocated")
+            # Establish baseline memory state
+            print("1a. Establishing baseline memory state...")
+            if torch.cuda.is_available():
+                baseline_allocated = torch.cuda.memory_allocated() / 1024**2
+                baseline_reserved = torch.cuda.memory_reserved() / 1024**2
+                print(f"Baseline VRAM - Allocated: {baseline_allocated:.1f} MB, Reserved: {baseline_reserved:.1f} MB")
+            
+            # Load the models using ComfyUI's native functions
+            print("1a. Loading individual components...")
             
             # Debug: Show the actual paths being used
             print(f"1a. Current working directory: {os.getcwd()}")
@@ -599,339 +582,265 @@ class ReferenceVideoPipeline:
             if lora_path:
                 print(f"1a. LoRA file exists: {os.path.exists(lora_path)}")
             
-            # Load UNET with comprehensive monitoring
-            print("\n🔍 STARTING MONITORING FOR: UNET_LOADING")
-            unet_start_time = time.time()
-            unet_start_ram = self._get_ram_usage()
-            unet_start_gpu = self._get_gpu_memory_usage()
+            # Use ComfyUI's native loading functions which return ModelPatcher objects
+            # ModelPatcher automatically handles all memory management
+            print("1a. Loading models using ComfyUI's individual component system...")
             
-            print("1a. Loading UNET with load_diffusion_model...")
-            model = comfy.sd.load_diffusion_model(unet_model_path)
-            print(f"1a. ✅ UNET loaded: {type(model)}")
+            # Load UNET with proper WAN model detection
+            print("1a. Loading UNET with automatic WAN detection...")
+            unet_state_dict = comfy.utils.load_torch_file(unet_model_path)
             
-            unet_end_time = time.time()
-            unet_end_ram = self._get_ram_usage()
-            unet_end_gpu = self._get_gpu_memory_usage()
+            # Use ComfyUI's automatic model detection for UNET
+            # This will automatically detect WAN models and load them correctly
+            from comfy.sd import load_state_dict_guess_config
             
-            # UNET debugging complete
-            print("🔍 UNET_LOADING DEBUGGING COMPLETE")
-            print("="*60)
-            print(f"⏱️  PERFORMANCE:")
-            print(f"   Loading Time: {unet_end_time - unet_start_time:.3f} seconds")
-            print(f"💾 MEMORY ANALYSIS:")
-            print(f"   RAM Change: +{(unet_end_ram - unet_start_ram) * 1024:.1f} MB")
-            print(f"   Current RAM: {unet_end_ram:.1f} GB used")
-            print(f"   GPU Change: +{unet_end_gpu - unet_start_gpu:.1f} MB allocated")
-            print(f"   Current GPU: {unet_end_gpu:.1f} MB allocated")
+            # Load just the UNET with automatic detection
+            model, _, _, _ = load_state_dict_guess_config(
+                unet_state_dict, 
+                output_vae=False, 
+                output_clip=False, 
+                output_clipvision=False, 
+                embedding_directory=None, 
+                output_model=True
+            )
             
-            # Enhanced UNET information
-            print(f"🔧 ENHANCED MODEL INFORMATION:")
-            print(f"   Model Type: UNET")
-            print(f"   Result Type: {type(model)}")
-            print(f"   Model Class: {model.__class__.__name__}")
-            print(f"   Device: {getattr(model, 'device', 'unknown')}")
+            print(f"1a. ✅ UNET loaded using ComfyUI's automatic detection: {type(model)}")
             
-            # Get model parameters and size
-            if hasattr(model, 'model') and hasattr(model.model, 'parameters'):
-                total_params = sum(p.numel() for p in model.model.parameters())
-                model_size_mb = total_params * 4 / (1024**2)  # Assuming float32
-                print(f"   Parameters: {total_params:,}")
-                print(f"   Model Size: {model_size_mb:.1f} MB")
-            else:
-                print(f"   Parameters: Unable to determine")
-                print(f"   Model Size: Unable to determine")
-            
-            # State dict keys count
-            if hasattr(model, 'state_dict'):
-                state_dict_keys = len(model.state_dict())
-                print(f"   State Dict Keys: {state_dict_keys}")
-            else:
-                print(f"   State Dict Keys: Unable to determine")
-            
-            # UNET specific details
-            print(f"   🧠 UNET SPECIFIC DETAILS:")
-            if hasattr(model, 'model') and hasattr(model.model, 'model_type'):
-                print(f"     Model Type: {model.model.model_type}")
-            else:
-                print(f"     Model Type: Unable to determine")
-            
-            # Memory efficiency analysis
-            if hasattr(model, 'model') and hasattr(model.model, 'parameters'):
-                if model_size_mb > 10000:
-                    size_category = "Large"
-                    recommendation = "Consider GPU offloading for memory efficiency"
-                elif model_size_mb > 1000:
-                    size_category = "Medium"
-                    recommendation = "Should fit comfortably in memory"
-                else:
-                    size_category = "Small"
-                    recommendation = "Should fit comfortably in memory"
-                
-                print(f"   💡 MEMORY EFFICIENCY ANALYSIS:")
-                print(f"     Model Size: {size_category} ({model_size_mb:.1f} MB)")
-                print(f"     Recommendation: {recommendation}")
-                print(f"     Device Placement: {getattr(model, 'device', 'unknown')} ({'faster inference, higher memory usage' if getattr(model, 'device', 'unknown') == 'cuda:0' else 'memory efficient, slower inference'})")
-            
-            print("="*60)
-            
-            # Load CLIP with comprehensive monitoring
-            print("\n🔍 STARTING MONITORING FOR: CLIP_LOADING")
-            clip_start_time = time.time()
-            clip_start_ram = self._get_ram_usage()
-            clip_start_gpu = self._get_gpu_memory_usage()
-            
+            # Load CLIP separately with proper WAN type
             print("1a. Loading CLIP with WAN type...")
-            print(f"1a. DEBUG: CLIP model path: {clip_model_path}")
-            print(f"1a. DEBUG: CLIP model path exists: {Path(clip_model_path).exists()}")
-            print(f"1a. DEBUG: CLIP type: {comfy.sd.CLIPType.WAN}")
+            clip_model = comfy.sd.load_clip([clip_model_path], clip_type=comfy.sd.CLIPType.WAN)
             
-            try:
-                clip_model = comfy.sd.load_clip(ckpt_paths=[clip_model_path], clip_type=comfy.sd.CLIPType.WAN)
-                print(f"1a. ✅ CLIP loaded successfully")
-            except Exception as e:
-                print(f"1a. ❌ ERROR loading CLIP: {e}")
-                import traceback
-                traceback.print_exc()
-                raise
+            if clip_model is None:
+                print("1a. ⚠️  CLIP loading failed, trying alternative approach...")
+                # Fallback: load CLIP state dict and create manually
+                clip_state_dict = comfy.utils.load_torch_file(clip_model_path)
+                from comfy.sd import CLIP
+                clip_model = CLIP(clip_state_dict, clip_type=comfy.sd.CLIPType.WAN)
             
             print(f"1a. ✅ CLIP loaded: {type(clip_model)}")
             
-            clip_end_time = time.time()
-            clip_end_ram = self._get_ram_usage()
-            clip_end_gpu = self._get_gpu_memory_usage()
-            
-            # CLIP debugging complete
-            print("🔍 CLIP_LOADING DEBUGGING COMPLETE")
-            print("="*60)
-            print(f"⏱️  PERFORMANCE:")
-            print(f"   Loading Time: {clip_end_time - clip_start_time:.3f} seconds")
-            print(f"💾 MEMORY ANALYSIS:")
-            print(f"   RAM Change: +{(clip_end_ram - clip_start_ram) * 1024:.1f} MB")
-            print(f"   Current RAM: {clip_end_ram:.1f} GB used")
-            print(f"   GPU Change: +{clip_end_gpu - clip_start_gpu:.1f} MB allocated")
-            print(f"   Current GPU: {clip_end_gpu:.1f} MB allocated")
-            
-            # Enhanced CLIP information
-            print(f"🔧 ENHANCED MODEL INFORMATION:")
-            print(f"   Model Type: CLIP")
-            print(f"   Result Type: {type(clip_model)}")
-            print(f"   Model Class: {clip_model.__class__.__name__}")
-            print(f"   Device: {getattr(clip_model, 'device', 'unknown')}")
-            
-            # Get CLIP parameters and size
-            if hasattr(clip_model, 'model') and hasattr(clip_model.model, 'parameters'):
-                total_params = sum(p.numel() for p in clip_model.model.parameters())
-                model_size_mb = total_params * 4 / (1024**2)  # Assuming float32
-                print(f"   Parameters: {total_params:,}")
-                print(f"   Model Size: {model_size_mb:.1f} MB")
-            else:
-                print(f"   Parameters: Unable to determine")
-                print(f"   Model Size: Unable to determine")
-            
-            # State dict keys count
-            if hasattr(clip_model, 'state_dict'):
-                state_dict_keys = len(clip_model.state_dict())
-                print(f"   State Dict Keys: {state_dict_keys}")
-            else:
-                print(f"   State Dict Keys: Unable to determine")
-            
-            # CLIP specific details
-            print(f"   📝 CLIP SPECIFIC DETAILS:")
-            if hasattr(clip_model, 'patcher'):
-                print(f"     Has ModelPatcher: ✅")
-            else:
-                print(f"     Has ModelPatcher: ❌")
-            
-            if hasattr(clip_model, 'model') and hasattr(clip_model.model, 'model_type'):
-                print(f"     Model Type: {clip_model.model.model_type}")
-            else:
-                print(f"     Model Type: Unable to determine")
-            
-            # Check if it's actually a WAN T5 model
-            if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'model'):
-                print(f"     CLIP Patcher Model Class: {clip_model.patcher.model.__class__.__name__}")
-                if hasattr(clip_model.patcher.model, 'transformer'):
-                    print(f"     CLIP Transformer Class: {clip_model.patcher.model.transformer.__class__.__name__}")
-                    if hasattr(clip_model.patcher.model.transformer, 'shared'):
-                        print(f"     CLIP Embedding Size: {clip_model.patcher.model.transformer.shared.embedding_dim}")
-            
-            # Check available methods
-            print(f"     Available Encode Methods: {[m for m in dir(clip_model) if not m.startswith('_') and 'encode' in m.lower()]}")
-            
-            # Memory efficiency analysis
-            if hasattr(clip_model, 'model') and hasattr(clip_model.model, 'parameters'):
-                if model_size_mb > 10000:
-                    size_category = "Large"
-                    recommendation = "Consider GPU offloading for memory efficiency"
-                elif model_size_mb > 1000:
-                    size_category = "Medium"
-                    recommendation = "Should fit comfortably in memory"
-                else:
-                    size_category = "Small"
-                    recommendation = "Should fit comfortably in memory"
-                
-                print(f"   💡 MEMORY EFFICIENCY ANALYSIS:")
-                print(f"     Model Size: {size_category} ({model_size_mb:.1f} MB)")
-                print(f"     Recommendation: {recommendation}")
-                print(f"     Device Placement: {getattr(clip_model, 'device', 'unknown')} ({'faster inference, higher memory usage' if getattr(clip_model, 'device', 'unknown') == 'cuda:0' else 'memory efficient, slower inference'})")
-            
-            print("="*60)
-            
-            # Load VAE with comprehensive monitoring
-            print("\n🔍 STARTING MONITORING FOR: VAE_LOADING")
-            vae_start_time = time.time()
-            vae_start_ram = self._get_ram_usage()
-            vae_start_gpu = self._get_gpu_memory_usage()
-            
+            # Load VAE separately
             print("1a. Loading VAE...")
-            vae_sd = comfy.utils.load_torch_file(vae_model_path)
-            vae = comfy.sd.VAE(sd=vae_sd)
-            vae.throw_exception_if_invalid()
+            vae_state_dict = comfy.utils.load_torch_file(vae_model_path)
+            vae = comfy.sd.VAE(sd=vae_state_dict)
             
             print(f"1a. ✅ VAE loaded: {type(vae)}")
             
-            vae_end_time = time.time()
-            vae_end_ram = self._get_ram_usage()
-            vae_end_gpu = self._get_gpu_memory_usage()
-            
-            # VAE debugging complete
-            print("🔍 VAE_LOADING DEBUGGING COMPLETE")
-            print("="*60)
-            print(f"⏱️  PERFORMANCE:")
-            print(f"   Loading Time: {vae_end_time - vae_start_time:.3f} seconds")
-            print(f"💾 MEMORY ANALYSIS:")
-            print(f"   RAM Change: +{(vae_end_ram - vae_start_ram) * 1024:.1f} MB")
-            print(f"   Current RAM: {vae_end_ram:.1f} GB used")
-            print(f"   GPU Change: +{vae_end_gpu - vae_start_gpu:.1f} MB allocated")
-            print(f"   Current GPU: {vae_end_gpu:.1f} MB allocated")
-            
-            # Enhanced VAE information
-            print(f"🔧 ENHANCED MODEL INFORMATION:")
-            print(f"   Model Type: VAE")
-            print(f"   Result Type: {type(vae)}")
-            print(f"   Model Class: {vae.__class__.__name__}")
-            print(f"   Device: {getattr(vae, 'device', 'unknown')}")
-            
-            # Get VAE parameters and size
-            if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'parameters'):
-                total_params = sum(p.numel() for p in vae.first_stage_model.parameters())
-                model_size_mb = total_params * 4 / (1024**2)  # Assuming float32
-                print(f"   Parameters: {total_params:,}")
-                print(f"   Model Size: {model_size_mb:.1f} MB")
+            # Verify that the UNET was detected as WAN model
+            if hasattr(model, 'model') and hasattr(model.model, 'model_type'):
+                print(f"1a. ✅ UNET model type detected: {model.model.model_type}")
+                if hasattr(model.model, 'image_model'):
+                    print(f"1a. ✅ UNET image model: {model.model.image_model}")
             else:
-                print(f"   Parameters: Unable to determine")
-                print(f"   Model Size: Unable to determine")
+                print("1a. ⚠️  UNET model type not accessible, but loaded successfully")
             
-            # State dict keys count
-            if hasattr(vae, 'state_dict'):
-                state_dict_keys = len(vae.state_dict())
-                print(f"   State Dict Keys: {state_dict_keys}")
-            else:
-                print(f"   State Dict Keys: Unable to determine")
+            # DEBUG: Check if models are actually loaded to GPU
+            print("1a. 🔍 DEBUG: Checking model loading status...")
+            if hasattr(model, 'model') and hasattr(model.model, 'device'):
+                print(f"1a. DEBUG: UNET internal model device: {model.model.device}")
+            if hasattr(model, 'device'):
+                print(f"1a. DEBUG: UNET wrapper device: {model.device}")
             
-            # VAE specific details
-            print(f"   🎨 VAE SPECIFIC DETAILS:")
-            if hasattr(vae, 'latent_channels'):
-                print(f"     Latent Channels: {vae.latent_channels}")
-            else:
-                print(f"     Latent Channels: Unable to determine")
+            if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'model'):
+                if hasattr(clip_model.patcher.model, 'device'):
+                    print(f"1a. DEBUG: CLIP internal model device: {clip_model.patcher.model.device}")
+            if hasattr(clip_model, 'device'):
+                print(f"1a. DEBUG: CLIP wrapper device: {clip_model.device}")
             
-            if hasattr(vae, 'downscale_ratio'):
-                print(f"     Downscale Ratio: {vae.downscale_ratio}")
-            else:
-                print(f"     Downscale Ratio: Unable to determine")
+            if hasattr(vae, 'device'):
+                print(f"1a. DEBUG: VAE wrapper device: {vae.device}")
+            if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'device'):
+                print(f"1a. DEBUG: VAE internal model device: {vae.first_stage_model.device}")
             
-            if hasattr(vae, 'upscale_ratio'):
-                print(f"     Upscale Ratio: {vae.upscale_ratio}")
-            else:
-                print(f"     Upscale Ratio: Unable to determine")
-            
-            if hasattr(vae, 'first_stage_model'):
-                print(f"     Has First Stage Model: ✅")
-            else:
-                print(f"     Has First Stage Model: ❌")
-            
-            # VAE type detection
-            print(f"     🔍 VAE TYPE DETECTION:")
-            if hasattr(vae, 'model_type'):
-                print(f"       Detected: {vae.model_type}")
-            else:
-                print(f"       Detected: Unable to determine")
-            
-            if hasattr(vae, 'capabilities'):
-                print(f"       Capabilities: {vae.capabilities}")
-            else:
-                print(f"       Capabilities: Unable to determine")
-            
-            # Memory efficiency analysis
-            if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'parameters'):
-                if model_size_mb > 1000:
-                    size_category = "Large"
-                    recommendation = "Consider GPU offloading for memory efficiency"
-                elif model_size_mb > 100:
-                    size_category = "Medium"
-                    recommendation = "Should fit comfortably in memory"
-                else:
-                    size_category = "Small"
-                    recommendation = "Should fit comfortably in memory"
+            # Check memory after model loading
+            if torch.cuda.is_available():
+                after_loading_allocated = torch.cuda.memory_allocated() / 1024**2
+                after_loading_reserved = torch.cuda.memory_reserved() / 1024**2
+                print(f"1a. DEBUG: Memory after loading - Allocated: {after_loading_allocated:.1f} MB, Reserved: {after_loading_reserved:.1f} MB")
                 
-                print(f"   💡 MEMORY EFFICIENCY ANALYSIS:")
-                print(f"     Model Size: {size_category} ({model_size_mb:.1f} MB)")
-                print(f"     Recommendation: {recommendation}")
-                print(f"     Device Placement: {getattr(vae, 'device', 'unknown')} ({'faster inference, higher memory usage' if getattr(vae, 'device', 'unknown') == 'cuda:0' else 'memory efficient, slower inference'})")
+                if after_loading_allocated == 0.0:
+                    print("1a. ⚠️  WARNING: Models loaded but GPU memory still shows 0.0 MB!")
+                    print("1a. 🔍 This suggests models may not be loaded to GPU yet")
+                    print("1a. 💡 ComfyUI may be using lazy loading or CPU-first strategy")
             
-            print("="*60)
+            # OOM Checklist: Check memory after model loading
+            # Note: ComfyUI uses lazy loading, so models may not consume GPU memory until used
+            self._check_memory_usage('model_loading', expected_threshold=100)  # Much lower threshold for lazy loading
             
-            # Step 1 Summary
-            total_loading_time = (unet_end_time - unet_start_time) + (clip_end_time - clip_start_time) + (vae_end_time - vae_start_time)
-            total_ram_change = (vae_end_ram - baseline_ram) * 1024
+            # Check if models need to be explicitly loaded to GPU
+            print("1a. 🔍 Letting ComfyUI handle model loading naturally...")
+            print("1a. ComfyUI will load models to GPU when they're actually needed")
+            print("1a. No manual patching needed - ComfyUI's ModelPatcher system handles everything")
             
-            print(f"\n📊 STEP 1 MODEL LOADING SUMMARY")
+            # Check ComfyUI's model management system
+            print("1a. 🔍 Checking ComfyUI's model management system...")
+            try:
+                import comfy.model_management
+                
+                # Check what device ComfyUI thinks models should be on
+                if hasattr(comfy.model_management, 'get_torch_device'):
+                    comfy_device = comfy.model_management.get_torch_device()
+                    print(f"1a. ComfyUI device: {comfy_device}")
+                
+                if hasattr(comfy.model_management, 'vae_device'):
+                    vae_device = comfy.model_management.vae_device()
+                    print(f"1a. ComfyUI VAE device: {vae_device}")
+                
+                if hasattr(comfy.model_management, 'model_device'):
+                    model_device = comfy.model_management.model_device()
+                    print(f"1a. ComfyUI model device: {model_device}")
+                
+                print("1a. ComfyUI model management system is available")
+                print("1a. ✅ Trusting ComfyUI to handle all memory management automatically")
+                
+            except Exception as e:
+                print(f"1a. ⚠️  Could not check ComfyUI model management: {e}")
+            
+            # Check memory after letting ComfyUI handle loading
+            if torch.cuda.is_available():
+                after_loading_allocated = torch.cuda.memory_allocated() / 1024**2
+                after_loading_reserved = torch.cuda.memory_reserved() / 1024**2
+                print(f"1a. Memory after ComfyUI loading - Allocated: {after_loading_allocated:.1f} MB, Reserved: {after_loading_reserved:.1f} MB")
+                
+                if after_loading_allocated == 0.0:
+                    print("1a. ✅ This is normal - ComfyUI uses lazy loading")
+                    print("1a. 💡 Models will be loaded to GPU when actually needed")
+                    print("1a. 💡 This prevents unnecessary memory usage")
+                else:
+                    print("1a. ✅ Models are now loaded to GPU by ComfyUI")
+            
+            # OOM Checklist: Check memory after model loading
+            # Note: ComfyUI uses lazy loading, so models may not consume GPU memory until used
+            self._check_memory_usage('model_loading', expected_threshold=100)  # Much lower threshold for lazy loading
+            
+            # ComfyUI will handle all model loading automatically
+            print("1a. ✅ Trusting ComfyUI's automatic model management system")
+            print("1a. 💡 Models will be loaded to GPU when needed for operations")
+            print("1a. 💡 No manual intervention required - ComfyUI knows best!")
+            
+            # Check ComfyUI's model management system
+            print("1a. 🔍 Checking ComfyUI's model management system...")
+            try:
+                import comfy.model_management
+                
+                # Check what device ComfyUI thinks models should be on
+                if hasattr(comfy.model_management, 'get_torch_device'):
+                    comfy_device = comfy.model_management.get_torch_device()
+                    print(f"1a. ComfyUI device: {comfy_device}")
+                
+                if hasattr(comfy.model_management, 'vae_device'):
+                    vae_device = comfy.model_management.vae_device()
+                    print(f"1a. ComfyUI VAE device: {vae_device}")
+                
+                if hasattr(comfy.model_management, 'model_device'):
+                    model_device = comfy.model_management.model_device()
+                    print(f"1a. ComfyUI model device: {model_device}")
+                
+                print("1a. ComfyUI model management system is available")
+                
+            except Exception as e:
+                print(f"1a. ⚠️  Could not check ComfyUI model management: {e}")
+            
+            # COMPREHENSIVE VERIFICATION AFTER MODEL LOADING
+            print("\n" + "="*80)
+            print("🔍 STEP 1 COMPLETE: COMPREHENSIVE VERIFICATION")
             print("="*80)
-            print(f"⏱️  Total Loading Time: {total_loading_time:.3f} seconds")
-            print(f"💾 Total RAM Change: +{total_ram_change:.1f} MB")
-            print()
-            print(f"🔍 UNET_LOADING:")
-            print(f"   Model: UNET")
-            print(f"   Time: {unet_end_time - unet_start_time:.3f}s")
-            print(f"   RAM: +{(unet_end_ram - unet_start_ram) * 1024:.1f} MB")
-            print(f"   GPU: +{unet_end_gpu - unet_start_gpu:.1f} MB allocated")
-            print()
-            print(f"🔍 CLIP_LOADING:")
-            print(f"   Model: CLIP")
-            print(f"   Time: {clip_end_time - clip_start_time:.3f}s")
-            print(f"   RAM: +{(clip_end_ram - clip_start_ram) * 1024:.1f} MB")
-            print(f"   GPU: +{clip_end_gpu - clip_start_gpu:.1f} MB allocated")
-            print()
-            print(f"🔍 VAE_LOADING:")
-            print(f"   Model: VAE")
-            print(f"   Time: {vae_end_time - vae_start_time:.3f}s")
-            print(f"   RAM: +{(vae_end_ram - vae_start_ram) * 1024:.1f} MB")
-            print(f"   GPU: +{vae_end_gpu - vae_start_gpu:.1f} MB allocated")
+            
+            # 1. Model Placement Verification
+            print("1️⃣  MODEL PLACEMENT VERIFICATION:")
+            model_placement = self._check_model_placement('model_loading', ['unet', 'clip', 'vae'])
+            
+            # 2. Memory Management Verification
+            print("\n2️⃣  MEMORY MANAGEMENT VERIFICATION:")
+            memory_management = self._verify_memory_management('model_loading', ['unet', 'clip', 'vae'])
+            
+            # 3. Chunking Strategy Verification
+            print("\n3️⃣  CHUNKING STRATEGY VERIFICATION:")
+            chunking_strategy = self._verify_chunking_strategy('model_loading', processing_plan)
+            
+            # 4. Summary
+            print("\n📊 STEP 1 SUMMARY:")
+            print(f"   Model Placement: {'✅ PASS' if model_placement else '❌ FAIL'}")
+            print(f"   Memory Management: {'✅ PASS' if memory_management else '❌ FAIL'}")
+            print(f"   Chunking Strategy: {'✅ PASS' if chunking_strategy else '❌ FAIL'}")
+            
+            # Add note about ComfyUI's proven system
+            print("\n   📝 NOTE: Pipeline now fully leverages ComfyUI's proven system:")
+            print("      - All memory management handled automatically by ComfyUI")
+            print("      - No manual model patching or cleanup needed")
+            print("      - ComfyUI prevents memory fragmentation naturally")
+            print("      - Models are loaded/unloaded optimally by ComfyUI")
+            
+            if not all([model_placement, memory_management, chunking_strategy]):
+                print("   ⚠️  Some verifications failed - pipeline may have issues")
+            else:
+                print("   ✅ All verifications passed - pipeline ready for next step")
+            
             print("="*80)
             
-            # Note: The model type detection issue is in ComfyUI's model_detection.py
-            # The WAN model uses no prefix (keys like 'head.modulation') but the detection
-            # logic defaults to 'model.' prefix, causing it to be detected as FLOW instead of WAN
-            # This is a ComfyUI bug, not our pipeline issue
-            
-            print("✅ Step 1 completed: Model Loading")
-            # === STEP 1 END: MODEL LOADING ===
-            
-            # 🛑 STOPPING EXECUTION AFTER STEP 1 (MODEL LOADING)
-            print("🛑 STOPPING EXECUTION AFTER STEP 1 (MODEL LOADING)")
-            print("🔍 All model loading debugging information has been displayed above.")
-            print("📊 Check the monitoring data above to analyze model loading performance.")
-            return
-            
-            # === STEP 2 START: LORA APPLICATION ===
             # 2. Apply LoRA if specified
             if lora_path:
                 print("2. Applying LoRA...")
+                
+                # === LORA APPLICATION MONITORING SYSTEM START ===
+                print("\n🔍 LORA APPLICATION MONITORING SYSTEM ACTIVATED")
+                print("="*80)
+                
+                # Capture baseline state before LoRA application
+                print("📊 CAPTURING BASELINE STATE (Before LoRA)...")
+                lora_baseline = self._capture_lora_baseline(model, clip_model, lora_path)
+                
+                # Display baseline information
+                print(f"   UNET Model ID: {lora_baseline['unet']['model_id']}")
+                print(f"   UNET Class: {lora_baseline['unet']['class']}")
+                print(f"   UNET Patches: {lora_baseline['unet']['patches_count']}")
+                print(f"   CLIP Model ID: {lora_baseline['clip']['model_id']}")
+                print(f"   CLIP Class: {lora_baseline['clip']['class']}")
+                print(f"   CLIP Patches: {lora_baseline['clip']['patcher_patches_count']}")
+                print(f"   LoRA File: {lora_baseline['lora_file']['filename']}")
+                print(f"   LoRA Size: {lora_baseline['lora_file']['file_size_mb']:.1f} MB")
+                print(f"   Baseline Memory: {lora_baseline['unet']['memory_allocated_mb']:.1f} MB allocated, {lora_baseline['unet']['memory_reserved_mb']:.1f} MB reserved")
+                
+                print("✅ Baseline captured successfully")
+                print("="*80)
+                
+                # Apply LoRA with monitoring
+                print("🔧 APPLYING LoRA WITH MONITORING...")
                 lora_loader = LoraLoader()
-                model, clip_model = lora_loader.load_lora(
-                    model, clip_model, lora_path, 0.5, 1.0
-                )
+                
+                try:
+                    # Store original models for comparison
+                    original_model = model
+                    original_clip_model = clip_model
+                    
+                    # Apply LoRA
+                    model, clip_model = lora_loader.load_lora(
+                        model, clip_model, lora_path, 0.5, 1.0
+                    )
+                    
+                    print("✅ LoRA applied successfully")
+                    
+                    # Analyze LoRA application results
+                    print("\n🔍 ANALYZING LoRA APPLICATION RESULTS...")
+                    lora_analysis = self._analyze_lora_application_results(
+                        lora_baseline, original_model, original_clip_model, 
+                        model, clip_model, [model, clip_model]
+                    )
+                    
+                    # Display comprehensive analysis
+                    self._print_lora_analysis_summary(lora_analysis)
+                    
+                except Exception as e:
+                    print(f"❌ LoRA application failed: {e}")
+                    print("⚠️  Continuing with original models...")
+                    # Keep original models if LoRA fails
+                    model = original_model
+                    clip_model = original_clip_model
+                
+                print("="*80)
+                print("🔍 LORA APPLICATION MONITORING SYSTEM COMPLETE")
+                print("="*80)
+                # === LORA APPLICATION MONITORING SYSTEM END ===
                 
                 # ComfyUI automatically tracks these modified models through ModelPatcher
                 print("2a. LoRA applied, models updated")
@@ -973,6 +882,30 @@ class ReferenceVideoPipeline:
                 print("2. No LoRA specified, skipping LoRA application")
                 print("2a. Models remain in original state")
                 
+                # === LORA APPLICATION MONITORING SYSTEM START (No LoRA) ===
+                print("\n🔍 LORA APPLICATION MONITORING SYSTEM ACTIVATED (No LoRA)")
+                print("="*80)
+                
+                # Capture baseline state even without LoRA for comparison
+                print("📊 CAPTURING BASELINE STATE (No LoRA - Models in Original State)...")
+                no_lora_baseline = self._capture_lora_baseline(model, clip_model, "N/A")
+                
+                # Display baseline information
+                print(f"   UNET Model ID: {no_lora_baseline['unet']['model_id']}")
+                print(f"   UNET Class: {no_lora_baseline['unet']['class']}")
+                print(f"   UNET Patches: {no_lora_baseline['unet']['patches_count']}")
+                print(f"   CLIP Model ID: {no_lora_baseline['clip']['model_id']}")
+                print(f"   CLIP Class: {no_lora_baseline['clip']['class']}")
+                print(f"   CLIP Patches: {no_lora_baseline['clip']['patcher_patches_count']}")
+                print(f"   LoRA File: None (skipping LoRA application)")
+                print(f"   Baseline Memory: {no_lora_baseline['unet']['memory_allocated_mb']:.1f} MB allocated, {no_lora_baseline['unet']['memory_reserved_mb']:.1f} MB reserved")
+                
+                print("✅ Baseline captured successfully (No LoRA)")
+                print("="*80)
+                print("🔍 LORA APPLICATION MONITORING SYSTEM COMPLETE (No LoRA)")
+                print("="*80)
+                # === LORA APPLICATION MONITORING SYSTEM END (No LoRA) ===
+                
                 # COMPREHENSIVE VERIFICATION AFTER LoRA SKIP
                 print("\n" + "="*80)
                 print("🔍 STEP 2 COMPLETE: COMPREHENSIVE VERIFICATION (No LoRA)")
@@ -1003,86 +936,14 @@ class ReferenceVideoPipeline:
                 
                 print("="*80)
             
-            print("✅ Step 2 completed: LoRA Application")
-            # === STEP 2 END: LORA APPLICATION ===
-            
-            # === STEP 3 START: TEXT ENCODING ===
             # 3. Encode Prompts
             print("3. Encoding text prompts...")
             text_encoder = CLIPTextEncode()
-            
-            # Debug: Check the clip_model before encoding
-            print(f"3a. DEBUG: About to encode with clip_model type: {type(clip_model)}")
-            print(f"3a. DEBUG: clip_model class: {clip_model.__class__.__name__}")
-            if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'model'):
-                print(f"3a. DEBUG: clip_model.patcher.model class: {clip_model.patcher.model.__class__.__name__}")
-            
-            # Encode prompts - CLIPTextEncode returns tuple like ComfyUI
-            print(f"3a. DEBUG: Calling text_encoder.encode()...")
-            positive_cond_tuple = text_encoder.encode(clip_model, positive_prompt)
-            print(f"3a. DEBUG: Positive encoding complete, result type: {type(positive_cond_tuple)}")
-            negative_cond_tuple = text_encoder.encode(clip_model, negative_prompt)
-            print(f"3a. DEBUG: Negative encoding complete, result type: {type(negative_cond_tuple)}")
-            
-            # Extract the conditioning from the tuple (matches ComfyUI's format)
-            positive_cond = positive_cond_tuple[0]  # Extract first element from tuple
-            negative_cond = negative_cond_tuple[0]  # Extract first element from tuple
-            
-            print(f"3a. Text encoding complete")
-            
-            # Debug: Show the actual structure of conditioning
-            print(f"3a. DEBUG: Positive conditioning type: {type(positive_cond)}")
-            print(f"3a. DEBUG: Positive conditioning length: {len(positive_cond) if positive_cond else 'None'}")
-            if positive_cond and len(positive_cond) > 0:
-                print(f"3a. DEBUG: Positive conditioning[0] type: {type(positive_cond[0])}")
-                if isinstance(positive_cond[0], (list, tuple)) and len(positive_cond[0]) > 0:
-                    print(f"3a. DEBUG: Positive conditioning[0][0] type: {type(positive_cond[0][0])}")
-                    if hasattr(positive_cond[0][0], 'shape'):
-                        print(f"3a. DEBUG: Positive conditioning[0][0] shape: {positive_cond[0][0].shape}")
-            
-            print(f"3a. DEBUG: Negative conditioning type: {type(negative_cond)}")
-            print(f"3a. DEBUG: Negative conditioning length: {len(negative_cond) if negative_cond else 'None'}")
-            if negative_cond and len(negative_cond) > 0:
-                print(f"3a. DEBUG: Negative conditioning[0] type: {type(negative_cond[0])}")
-                if isinstance(negative_cond[0], (list, tuple)) and len(negative_cond[0]) > 0:
-                    print(f"3a. DEBUG: Negative conditioning[0][0] type: {type(negative_cond[0][0])}")
-                    if hasattr(negative_cond[0][0], 'shape'):
-                        print(f"3a. DEBUG: Negative conditioning[0][0] shape: {negative_cond[0][0].shape}")
-            
-            # Verify dimensions match WAN T5 expectations (with proper structure handling)
-            if positive_cond and len(positive_cond) > 0:
-                if isinstance(positive_cond[0], (list, tuple)) and len(positive_cond[0]) > 0:
-                    if hasattr(positive_cond[0][0], 'shape'):
-                        positive_shape = positive_cond[0][0].shape
-                        if len(positive_shape) >= 2:
-                            if positive_shape[-1] == 4096:
-                                print(f"3a. ✅ SUCCESS: Positive conditioning has correct 4096 dimensions (WAN T5)")
-                            elif positive_shape[-1] == 1280:
-                                print(f"3a. ❌ ERROR: Positive conditioning has 1280 dimensions (SD1/SDXL) instead of 4096 (WAN T5)")
-                            else:
-                                print(f"3a. ⚠️  WARNING: Positive conditioning has unexpected dimensions: {positive_shape[-1]}")
-                    else:
-                        print(f"3a. ⚠️  Positive conditioning[0][0] has no shape attribute")
-                else:
-                    print(f"3a. ⚠️  Positive conditioning[0] is not a list/tuple or is empty")
-            
-            if negative_cond and len(negative_cond) > 0:
-                if isinstance(negative_cond[0], (list, tuple)) and len(negative_cond[0]) > 0:
-                    if hasattr(negative_cond[0][0], 'shape'):
-                        negative_shape = negative_cond[0][0].shape
-                        if len(negative_shape) >= 2:
-                            if negative_shape[-1] == 4096:
-                                print(f"3a. ✅ SUCCESS: Negative conditioning has correct 4096 dimensions (WAN T5)")
-                            elif negative_shape[-1] == 1280:
-                                print(f"3a. ❌ ERROR: Negative conditioning has 1280 dimensions (SD1/SDXL) instead of 4096 (WAN T5)")
-                            else:
-                                print(f"3a. ⚠️  WARNING: Negative conditioning has unexpected dimensions: {negative_shape[-1]}")
-                    else:
-                        print(f"3a. ⚠️  Negative conditioning[0][0] has no shape attribute")
-                else:
-                    print(f"3a. ⚠️  Negative conditioning[0] is not a list/tuple or is empty")
+            positive_cond = text_encoder.encode(clip_model, positive_prompt)
+            negative_cond = text_encoder.encode(clip_model, negative_prompt)
             
             # ComfyUI automatically manages encoded prompts through ModelPatcher
+            print("3a. Text encoding complete")
             
             # Let ComfyUI handle CLIP memory management automatically
             print("3a. ✅ Letting ComfyUI handle CLIP memory management automatically")
@@ -1122,10 +983,6 @@ class ReferenceVideoPipeline:
             
             print("="*80)
             
-            print("✅ Step 3 completed: Text Encoding")
-            # === STEP 3 END: TEXT ENCODING ===
-            
-            # === STEP 4 START: MODEL SAMPLING ===
             # 4. Apply ModelSamplingSD3 Shift
             print("4. Applying ModelSamplingSD3...")
             model_sampling = ModelSamplingSD3()
@@ -1169,10 +1026,6 @@ class ReferenceVideoPipeline:
             
             print("="*80)
             
-            print("✅ Step 4 completed: Model Sampling")
-            # === STEP 4 END: MODEL SAMPLING ===
-            
-            # === STEP 5 START: INITIAL LATENT GENERATION ===
             # 5. Generate Initial Latents
             print("5. Generating initial latents...")
             video_generator = WanVaceToVideo()
@@ -1267,16 +1120,21 @@ class ReferenceVideoPipeline:
                             print(f"5a. ✅ SUCCESS: Tiled VAE encoding worked!")
                             print(f"5a. Generated latent shape: {init_latent.shape}")
                             
-                            # IMPORTANT: DO NOT overwrite the real conditioning from text encoding!
-                            # The real conditioning already has 4096 dimensions from WAN T5
-                            print("5a. ⚠️  WARNING: Tiled VAE encoding succeeded, but we need to preserve real conditioning!")
-                            print("5a. 💡 Real conditioning from WAN T5 has 4096 dimensions - don't overwrite with dummy!")
-                            print("5a. 🔍 Current positive_cond shape: {positive_cond[0][0].shape if positive_cond and len(positive_cond) > 0 and len(positive_cond[0]) > 0 else 'Unknown'}")
-                            print("5a. 🔍 Current negative_cond shape: {negative_cond[0][0].shape if negative_cond and len(negative_cond) > 0 and len(negative_cond[0]) > 0 else 'Unknown'}")
+                            # Create dummy positive/negative conditions for compatibility
+                            # ComfyUI expects: [(tensor, dict)] format from CLIPTextEncode
+                            print("5a. Creating proper dummy CLIP conditions for ComfyUI compatibility...")
                             
-                            # Keep the existing conditioning - don't overwrite with dummy!
-                            print("5a. ✅ Preserving real conditioning from WAN T5 text encoding")
-                            print("5a. 💡 This ensures 4096 dimensions reach the UNET correctly")
+                            # Create dummy CLIP embeddings in the correct format
+                            # Format: [(tensor, dict)] - ComfyUI expects this format
+                            dummy_embedding = torch.randn((1, 77, 1280))  # Dummy CLIP embedding
+                            dummy_dict = {}  # Empty dict as expected by ComfyUI
+                            
+                            # Format: [(tensor, dict)] - ComfyUI expects this format
+                            positive_cond = [(dummy_embedding, dummy_dict)]
+                            negative_cond = [(dummy_embedding, dummy_dict)]
+                            
+                            print(f"5a. Created dummy conditions: positive={len(positive_cond)} tuples, negative={len(negative_cond)} tuples")
+                            print(f"5a. Each tuple format: (tensor, dict) where tensor shape: {dummy_embedding.shape}")
                             
                             trim_count = 0
                         else:
@@ -1357,16 +1215,17 @@ class ReferenceVideoPipeline:
                         
                         print(f"5a. Created dummy latent shape: {init_latent.shape}")
                         
-                        # IMPORTANT: DO NOT overwrite the real conditioning from text encoding!
-                        # The real conditioning already has 4096 dimensions from WAN T5
-                        print("5a. ⚠️  WARNING: CPU fallback succeeded, but we need to preserve real conditioning!")
-                        print("5a. 💡 Real conditioning from WAN T5 has 4096 dimensions - don't overwrite with dummy!")
-                        print("5a. 🔍 Current positive_cond shape: {positive_cond[0][0].shape if positive_cond and len(positive_cond) > 0 and len(positive_cond[0]) > 0 else 'Unknown'}")
-                        print("5a. 🔍 Current negative_cond shape: {negative_cond[0][0].shape if negative_cond and len(negative_cond) > 0 and len(negative_cond[0]) > 0 else 'Unknown'}")
+                        # Create dummy conditions in ComfyUI-compatible format
+                        print("5a. Creating proper dummy CLIP conditions for ComfyUI compatibility...")
+                        dummy_embedding = torch.randn((1, 77, 1280))  # Dummy CLIP embedding
+                        dummy_dict = {}  # Empty dict as expected by ComfyUI
                         
-                        # Keep the existing conditioning - don't overwrite with dummy!
-                        print("5a. ✅ Preserving real conditioning from WAN T5 text encoding")
-                        print("5a. 💡 This ensures 4096 dimensions reach the UNET correctly")
+                        # Format: [(tensor, dict)] - ComfyUI expects this format
+                        positive_cond = [(dummy_embedding, dummy_dict)]
+                        negative_cond = [(dummy_embedding, dummy_dict)]
+                        
+                        print(f"5a. Created dummy conditions: positive={len(positive_cond)} tuples, negative={len(negative_cond)} tuples")
+                        print(f"5a. Each tuple format: (tensor, dict) where tensor shape: {dummy_embedding.shape}")
                         
                         trim_count = 0
                         
@@ -1441,10 +1300,6 @@ class ReferenceVideoPipeline:
             print("5b. VAE encoding complete")
             print("5b. ComfyUI's VAE ModelPatcher will handle memory management automatically")
             
-            print("✅ Step 5 completed: Initial Latent Generation")
-            # === STEP 5 END: INITIAL LATENT GENERATION ===
-            
-            # === STEP 6 START: UNET SAMPLING ===
             # 6. Run KSampler
             print("6. Running KSampler...")
             
@@ -1518,59 +1373,8 @@ class ReferenceVideoPipeline:
             print("6a. ✅ Letting ComfyUI handle UNET memory management automatically")
             print("6a. 💡 ComfyUI will move UNET to optimal device when needed")
             print("6a. 💡 No manual memory management required - ComfyUI knows best!")
-
-            # CRITICAL: Clean up memory before VAE decoding
-            print("6a. 🧹 CRITICAL: Cleaning up memory before VAE decoding...")
-            print("6a. 💡 UNET sampling used 33+ GB VRAM - need to free it up!")
-
-            # Gentle memory cleanup that works WITH ComfyUI, not against it
-            print("6a. 🧹 Gentle memory cleanup - working WITH ComfyUI...")
-            print("6a. 💡 ComfyUI handles memory optimally - we just help a little")
             
-            try:
-                # Method 1: Gentle garbage collection (safe with ComfyUI)
-                print("6a. 🔧 Method 1: Gentle garbage collection...")
-                import gc
-                gc.collect()
-                print("6a. ✅ Garbage collection completed")
-                
-                # Method 2: Let ComfyUI handle CUDA cache (don't interfere)
-                print("6a. 🔧 Method 2: Letting ComfyUI handle CUDA cache...")
-                print("6a. 💡 ComfyUI will optimize memory patterns naturally")
-                
-                # Method 3: Check if ComfyUI has already moved UNET
-                if 'unet_model' in locals():
-                    print("6a. 🔧 Method 3: Checking ComfyUI's UNET placement...")
-                    if hasattr(unet_model, 'model'):
-                        device = next(unet_model.model.parameters()).device
-                        print(f"6a. 🔍 ComfyUI has UNET on: {device}")
-                        
-                        if device.type == 'cuda':
-                            print("6a. 💡 UNET still on GPU - ComfyUI may need it")
-                            print("6a. 💡 Trusting ComfyUI's memory management")
-                        else:
-                            print("6a. ✅ ComfyUI already moved UNET to CPU")
-                    else:
-                        print("6a. 💡 UNET model not accessible - trusting ComfyUI")
-                
-            except Exception as e:
-                print(f"6a. ⚠️  Warning: Memory cleanup error: {e}")
-                print("6a. 💡 Continuing with ComfyUI's natural memory management")
-
-
-
-            # Check memory after cleanup
-            if torch.cuda.is_available():
-                allocated = torch.cuda.memory_allocated() / 1024**2
-                reserved = torch.cuda.memory_reserved() / 1024**2
-                print(f"6a. 🔍 Memory after cleanup: {allocated:.1f} MB allocated, {reserved:.1f} MB reserved")
-                
-                if allocated < 10000:  # Less than 10 GB
-                    print("6a. ✅ SUCCESS: Sufficient memory freed for VAE decoding")
-                else:
-                    print("6a. ⚠️  WARNING: Still high memory usage - VAE decoding may fail")
-            
-            # COMPREHENSIVE VERIFICATION AFTER UNET SAMPLING
+            # COMPREHENSIVE VERIFICATIONmodel AFTER UNET SAMPLING
             print("\n" + "="*80)
             print("🔍 STEP 6 COMPLETE: COMPREHENSIVE VERIFICATION")
             print("="*80)
@@ -1583,7 +1387,7 @@ class ReferenceVideoPipeline:
             print("\n2️⃣  MEMORY MANAGEMENT VERIFICATION:")
             memory_management = self._verify_memory_management('unet_sampling', ['unet'])
             
-            # 3. Chunking Strategy Verification
+            # 3. Chunking Strategy Verifmodelication
             print("\n3️⃣  CHUNKING STRATEGY VERIFICATION:")
             chunking_strategy = self._verify_chunking_strategy('unet_sampling', processing_plan)
             
@@ -1614,10 +1418,6 @@ class ReferenceVideoPipeline:
             
             print("="*80)
             
-            print("✅ Step 6 completed: UNET Sampling")
-            # === STEP 6 END: UNET SAMPLING ===
-            
-            # === STEP 7 START: VIDEO TRIMMING ===
             # 7. Trim Video Latent
             print("7. Trimming video latent...")
             trim_processor = TrimVideoLatent()
@@ -1678,10 +1478,6 @@ class ReferenceVideoPipeline:
             
             print("="*80)
             
-            print("✅ Step 7 completed: Video Trimming")
-            # === STEP 7 END: VIDEO TRIMMING ===
-            
-            # === STEP 8 START: VAE DECODING ===
             # 8. Decode Frames
             print("8. Decoding frames...")
             
@@ -1743,63 +1539,32 @@ class ReferenceVideoPipeline:
                     print("8a. Chunked VAE decoding successful!")
                     
                 except torch.cuda.OutOfMemoryError:
-                    print("OOM during chunked VAE decoding! Trying tiled decoding...")
+                    print("OOM during chunked VAE decoding! Trying smaller chunks...")
                     
-                    # Strategy 1: Try tiled VAE decoding (memory-efficient)
-                    try:
-                        print("8a. 🔧 Strategy 1: Tiled VAE decoding...")
-                        if hasattr(vae, 'decode_tiled'):
-                            print("8a. ✅ VAE supports tiled decoding - using it!")
+                    # Progressive fallback: reduce chunk size until it works
+                    chunk_sizes_to_try = [8, 4, 2, 1]
+                    frames = None
+                    
+                    for smaller_chunk_size in chunk_sizes_to_try:
+                        try:
+                            print(f"8a. Trying VAE decoding with chunk size: {smaller_chunk_size}")
                             
-                            # Extract tensor from dict for tiled decoding
-                            if isinstance(latent_dict, dict) and "samples" in latent_dict:
-                                latent_tensor = latent_dict["samples"]
-                                print(f"8a. 🔍 Extracted tensor for tiled decoding: {latent_tensor.shape}")
-                            else:
-                                latent_tensor = latent_dict
-                                print(f"8a. 🔍 Using tensor directly for tiled decoding: {latent_tensor.shape}")
+                            # Update processing plan with smaller chunk size
+                            processing_plan['vae_decode']['chunk_size'] = smaller_chunk_size
+                            processing_plan['vae_decode']['num_chunks'] = (length + smaller_chunk_size - 1) // smaller_chunk_size
                             
-                            # Use tiled decoding with conservative tile sizes
-                            frames = vae.decode_tiled(
-                                latent_tensor,  # Pass tensor, not dict
-                                tile_x=64,    # 64x64 spatial tiles
-                                tile_y=64,
-                                tile_t=4,     # 4 frames per temporal tile
-                                overlap=8     # 8px overlap for smooth blending
-                            )
-                            print("8a. ✅ Tiled VAE decoding successful!")
-                        else:
-                            print("8a. ⚠️  VAE does not support tiled decoding")
-                            raise RuntimeError("VAE does not support tiled decoding")
+                            frames = self.chunked_processor.vae_decode_chunked(vae, latent_dict)
+                            print(f"8a. VAE decoding successful with chunk size: {smaller_chunk_size}")
+                            break
                             
-                    except Exception as tiled_error:
-                        print(f"8a. ❌ Tiled decoding failed: {tiled_error}")
-                        print("8a. 🔧 Strategy 2: Progressive chunk size reduction...")
-                        
-                        # Progressive fallback: reduce chunk size until it works
-                        chunk_sizes_to_try = [8, 4, 2, 1]
-                        frames = None
-                        
-                        for smaller_chunk_size in chunk_sizes_to_try:
-                            try:
-                                print(f"8a. Trying VAE decoding with chunk size: {smaller_chunk_size}")
-                                
-                                # Update processing plan with smaller chunk size
-                                processing_plan['vae_decode']['chunk_size'] = smaller_chunk_size
-                                processing_plan['vae_decode']['num_chunks'] = (length + smaller_chunk_size - 1) // smaller_chunk_size
-                                
-                                frames = self.chunked_processor.vae_decode_chunked(vae, latent_dict)
-                                print(f"8a. VAE decoding successful with chunk size: {smaller_chunk_size}")
-                                break
-                                
-                            except torch.cuda.OutOfMemoryError:
-                                print(f"8a. Still OOM with chunk size {smaller_chunk_size}, trying smaller...")
-                                continue
-                        
-                        if frames is None:
-                            print("8a. All chunk sizes failed! Using single-frame fallback...")
-                            # Final fallback: process one frame at a time
-                            frames = self._decode_single_frame_fallback(vae, latent_dict)
+                        except torch.cuda.OutOfMemoryError:
+                            print(f"8a. Still OOM with chunk size {smaller_chunk_size}, trying smaller...")
+                            continue
+                    
+                    if frames is None:
+                        print("8a. All chunk sizes failed! Using single-frame fallback...")
+                        # Final fallback: process one frame at a time
+                        frames = self._decode_single_frame_fallback(vae, latent_dict)
             else:
                 print("Processing all frames at once (within chunk size limit)")
                 
@@ -1819,39 +1584,8 @@ class ReferenceVideoPipeline:
                     
                     frames = vae_decoder.decode(vae, latent_dict)
                 except torch.cuda.OutOfMemoryError:
-                    print("OOM during single-pass VAE decoding! Trying tiled decoding...")
-                    
-                    # Try tiled decoding first (more memory-efficient)
-                    try:
-                        print("8a. 🔧 Strategy 1: Tiled VAE decoding...")
-                        if hasattr(vae, 'decode_tiled'):
-                            print("8a. ✅ VAE supports tiled decoding - using it!")
-                            
-                            # Extract tensor from dict for tiled decoding
-                            if isinstance(latent_dict, dict) and "samples" in latent_dict:
-                                latent_tensor = latent_dict["samples"]
-                                print(f"8a. 🔍 Extracted tensor for tiled decoding: {latent_tensor.shape}")
-                            else:
-                                latent_tensor = latent_dict
-                                print(f"8a. 🔍 Using tensor directly for tiled decoding: {latent_tensor.shape}")
-                            
-                            # Use tiled decoding with conservative tile sizes
-                            frames = vae.decode_tiled(
-                                latent_tensor,  # Pass tensor, not dict
-                                tile_x=64,    # 64x64 spatial tiles
-                                tile_y=64,
-                                tile_t=4,     # 4 frames per temporal tile
-                                overlap=8     # 8px overlap for smooth blending
-                            )
-                            print("8a. ✅ Tiled VAE decoding successful!")
-                        else:
-                            print("8a. ⚠️  VAE does not support tiled decoding")
-                            raise RuntimeError("VAE does not support tiled decoding")
-                            
-                    except Exception as tiled_error:
-                        print(f"8a. ❌ Tiled decoding failed: {tiled_error}")
-                        print("8a. 🔧 Strategy 2: Single-frame fallback...")
-                        frames = self._decode_single_frame_fallback(vae, latent_dict)
+                    print("OOM during single-pass VAE decoding! Using single-frame fallback...")
+                    frames = self._decode_single_frame_fallback(vae, latent_dict)
             
             # OOM Checklist: Check memory after VAE decoding execution
             self._check_memory_usage('vae_decoding', expected_threshold=8000)
@@ -1913,10 +1647,6 @@ class ReferenceVideoPipeline:
             
             print("="*80)
             
-            print("✅ Step 8 completed: VAE Decoding")
-            # === STEP 8 END: VAE DECODING ===
-            
-            # === STEP 9 START: VIDEO EXPORT ===
             # 9. Export Video
             print("9. Exporting video...")
             
@@ -1926,38 +1656,8 @@ class ReferenceVideoPipeline:
                 print(f"9a. Export frames type: {type(frames)}")
                 if hasattr(frames, 'shape'):
                     print(f"9a. Export frames shape: {frames.shape}")
-                    
-                    # CRITICAL DEBUG: Check frame content quality
-                    print("9a. 🔍 CRITICAL: Checking frame content quality...")
-                    if hasattr(frames, 'min') and hasattr(frames, 'max'):
-                        print(f"9a. 🔍 Frame value range: [{frames.min():.4f}, {frames.max():.4f}]")
-                        
-                        # Check if frames are just noise/static
-                        if frames.min() == frames.max():
-                            print("9a. 🚨 CRITICAL ERROR: All frames have identical values - this is static/noise!")
-                            print("9a. 🚨 This indicates VAE decoding failed to produce actual video content!")
-                        elif frames.max() - frames.min() < 0.01:
-                            print("9a. ⚠️  WARNING: Very low frame variation - frames may be mostly noise!")
-                        else:
-                            print("9a. ✅ Frame variation looks normal")
-                    
-                    # Check first few frames for content
-                    if len(frames.shape) >= 4:
-                        print("9a. 🔍 Analyzing first 3 frames for content...")
-                        for i in range(min(3, frames.shape[0])):
-                            frame = frames[i] if len(frames.shape) == 4 else frames[0, i]
-                            if hasattr(frame, 'min') and hasattr(frame, 'max'):
-                                print(f"9a. 🔍 Frame {i+1}: range=[{frame.min():.4f}, {frame.max():.4f}], mean={frame.mean():.4f}")
-                    
-                    # CRITICAL FIX: Remove extra batch dimension if present
-                    if len(frames.shape) == 5:  # (batch, frames, height, width, channels)
-                        print(f"9a. ⚠️  WARNING: Frames have 5D shape with batch dimension!")
-                        print(f"9a. 🔧 Removing batch dimension: {frames.shape[0]} -> {frames.shape[1]} frames")
-                        frames = frames.squeeze(0)  # Remove batch dimension
-                        print(f"9a. ✅ Fixed frames shape: {frames.shape}")
-                    
-                    if len(frames.shape) == 4:  # (frames, height, width, channels)
-                        print(f"9a. ✅ Export frame dimensions: {frames.shape[0]} frames, {frames.shape[1]}x{frames.shape[2]}, {frames.shape[3]} channels")
+                    if len(frames.shape) == 4:  # (batch, height, width, channels)
+                        print(f"9a. Export frame dimensions: {frames.shape[0]} frames, {frames.shape[1]}x{frames.shape[2]}, {frames.shape[3]} channels")
                         if frames.shape[3] == 3:
                             print("9a. ✅ Export frames have correct 3 channels (RGB)")
                         elif frames.shape[3] == 1:
@@ -1970,19 +1670,6 @@ class ReferenceVideoPipeline:
                             print(f"9a. ❌ Export frames have wrong channel count: {frames.shape[3]} (expected 3)")
                     else:
                         print(f"9a. ⚠️  Export frames have unexpected shape: {frames.shape}")
-                        print("9a. 🔧 Attempting to fix frame shape...")
-                        
-                        # Try to fix common shape issues
-                        if len(frames.shape) == 3:  # (frames, height, width) - missing channels
-                            print("9a. 🔧 Adding missing channel dimension...")
-                            frames = frames.unsqueeze(-1).repeat(1, 1, 1, 3)
-                            print(f"9a. ✅ Fixed frames shape: {frames.shape}")
-                        elif len(frames.shape) == 2:  # (frames, height) - missing width and channels
-                            print("9a. 🔧 Adding missing width and channel dimensions...")
-                            frames = frames.unsqueeze(-1).unsqueeze(-1).repeat(1, 1, 1, 3)
-                            print(f"9a. ✅ Fixed frames shape: {frames.shape}")
-                        else:
-                            print(f"9a. ❌ Cannot fix unexpected frame shape: {frames.shape}")
                 else:
                     print("9a. ⚠️  Export frames object has no shape attribute")
             else:
@@ -1992,10 +1679,6 @@ class ReferenceVideoPipeline:
             exporter.export_video(frames, output_path)
             
             print(f"Pipeline completed successfully! Output saved to: {output_path}")
-            
-            print("✅ Step 9 completed: Video Export")
-            print("🎉 All workflow steps completed successfully!")
-            # === STEP 9 END: VIDEO EXPORT ===
             
             # OOM Checklist: Check memory after video export
             self._check_memory_usage('video_export', expected_threshold=100)
@@ -2510,18 +2193,9 @@ class ReferenceVideoPipeline:
         """Fallback method to decode latents one frame at a time with aggressive memory management"""
         print("Using single-frame fallback decoding with aggressive memory management...")
         
-        # Handle both tensor and dictionary inputs
-        if isinstance(latent, dict) and "samples" in latent:
-            latent_tensor = latent["samples"]
-            print(f"Extracted tensor from dictionary: {latent_tensor.shape}")
-        elif isinstance(latent, torch.Tensor):
-            latent_tensor = latent
-        else:
-            raise ValueError(f"Unexpected latent format: {type(latent)}. Expected tensor or dict with 'samples' key")
-        
         # Get latent dimensions
-        batch_size, channels, frames, height, width = latent_tensor.shape
-        print(f"Decoding {frames} frames individually from latent shape: {latent_tensor.shape}")
+        batch_size, channels, frames, height, width = latent.shape
+        print(f"Decoding {frames} frames individually from latent shape: {latent.shape}")
         
         # Process frames one by one
         all_frames = []
@@ -2531,7 +2205,7 @@ class ReferenceVideoPipeline:
             
             try:
                 # Extract single frame latent
-                single_frame_latent = latent_tensor[:, :, frame_idx:frame_idx+1, :, :]
+                single_frame_latent = latent[:, :, frame_idx:frame_idx+1, :, :]
                 
                 # Memory cleanup handled by ComfyUI
                 
@@ -2572,34 +2246,13 @@ class ReferenceVideoPipeline:
                     
                     # Memory cleanup handled by ComfyUI
         
-        # Concatenate all frames - ensure all are on the same device
+        # Concatenate all frames
         if all_frames:
-            print(f"8a. 🔍 Concatenating {len(all_frames)} frames...")
-            
-            # Check device consistency
-            devices = [frame.device for frame in all_frames if hasattr(frame, 'device')]
-            if devices:
-                target_device = devices[0]  # Use first frame's device
-                print(f"8a. 🔍 Target device for concatenation: {target_device}")
-                
-                # Move all frames to the same device before concatenation
-                aligned_frames = []
-                for i, frame in enumerate(all_frames):
-                    if hasattr(frame, 'device') and frame.device != target_device:
-                        print(f"8a. 🔧 Moving frame {i+1} from {frame.device} to {target_device}")
-                        frame = frame.to(target_device)
-                    aligned_frames.append(frame)
-                
-                frames = torch.cat(aligned_frames, dim=0)
-                del all_frames, aligned_frames
-                print(f"8a. ✅ Concatenation successful on {target_device}")
-            else:
-                frames = torch.cat(all_frames, dim=0)
-                del all_frames
+            frames = torch.cat(all_frames, dim=0)
+            del all_frames
         else:
             # Create empty frames if all failed
-            vae_device = vae.device if hasattr(vae, 'device') else 'cuda:0'
-            frames = torch.zeros((frames, 3, height * 8, width * 8), device=vae_device)
+            frames = torch.zeros((frames, 3, height * 8, width * 8), device=vae.device)
         
         print(f"Single-frame fallback decoding complete. Output shape: {frames.shape}")
         return frames
@@ -2630,6 +2283,330 @@ class ReferenceVideoPipeline:
             chunk_size=chunk_size,
             force_downscale=force_downscale
         )
+    
+    # ============================================
+    # LORA APPLICATION MONITORING SYSTEM
+    # ============================================
+    
+    def _capture_lora_baseline(self, unet_model, clip_model, lora_path):
+        """Capture baseline state before LoRA application"""
+        baseline = {
+            'timestamp': time.time(),
+            'unet': {
+                'model_id': id(unet_model),
+                'class': type(unet_model).__name__,
+                'device': getattr(unet_model, 'device', None),
+                'patches_count': len(getattr(unet_model, 'patches', {})),
+                'patches_uuid': getattr(unet_model, 'patches_uuid', None),
+                'memory_allocated': torch.cuda.memory_allocated() if torch.cuda.is_available() else 0,
+                'memory_reserved': torch.cuda.memory_reserved() if torch.cuda.is_available() else 0,
+                'memory_allocated_mb': (torch.cuda.memory_allocated() if torch.cuda.is_available() else 0) / (1024**2),
+                'memory_reserved_mb': (torch.cuda.memory_reserved() if torch.cuda.is_available() else 0) / (1024**2)
+            },
+            'clip': {
+                'model_id': id(clip_model),
+                'class': type(clip_model).__name__,
+                'device': getattr(clip_model, 'device', None),
+                'patcher_patches_count': len(getattr(clip_model.patcher, 'patches', {})) if hasattr(clip_model, 'patcher') else 0,
+                'patcher_patches_uuid': getattr(clip_model.patcher, 'patches_uuid', None) if hasattr(clip_model, 'patcher') else None,
+                'memory_allocated': torch.cuda.memory_allocated() if torch.cuda.is_available() else 0,
+                'memory_reserved': torch.cuda.memory_reserved() if torch.cuda.is_available() else 0,
+                'memory_allocated_mb': (torch.cuda.memory_allocated() if torch.cuda.is_available() else 0) / (1024**2),
+                'memory_reserved_mb': (torch.cuda.memory_reserved() if torch.cuda.is_available() else 0) / (1024**2)
+            },
+            'lora_file': self._check_lora_file_status(lora_path)
+        }
+        return baseline
+    
+    def _check_lora_file_status(self, lora_path):
+        """Check LoRA file status and return file information"""
+        file_exists = os.path.exists(lora_path)
+        file_size = os.path.getsize(lora_path) if file_exists else 0
+        
+        return {
+            'filename': os.path.basename(lora_path),
+            'file_exists': file_exists,
+            'file_size_mb': file_size / (1024**2) if file_exists else 0,
+            'full_path': lora_path
+        }
+    
+    def _track_model_identity_changes(self, original_model, modified_model, model_type):
+        """Track changes in model identity and structure"""
+        
+        # 1. Model Instance Changes
+        model_cloned = original_model is not modified_model
+        model_class_changed = type(original_model) != type(modified_model)
+        
+        # 2. ModelPatcher Changes (for UNET)
+        original_patch_count = 0
+        modified_patch_count = 0
+        patches_added = 0
+        original_uuid = None
+        modified_uuid = None
+        uuid_changed = False
+        
+        if hasattr(original_model, 'patches') and hasattr(modified_model, 'patches'):
+            original_patch_count = len(original_model.patches)
+            modified_patch_count = len(modified_model.patches)
+            patches_added = modified_patch_count - original_patch_count
+            
+            # 3. Patch UUID Changes
+            original_uuid = getattr(original_model, 'patches_uuid', None)
+            modified_uuid = getattr(modified_model, 'patches_uuid', None)
+            uuid_changed = original_uuid != modified_uuid
+        
+        return {
+            'model_cloned': model_cloned,
+            'class_changed': model_class_changed,
+            'patches_added': patches_added,
+            'uuid_changed': uuid_changed,
+            'original_patch_count': original_patch_count,
+            'modified_patch_count': modified_patch_count
+        }
+    
+    def _track_weight_modifications(self, original_model, modified_model, model_type):
+        """Track how LoRA modifies model weights"""
+        
+        # 1. State Dict Changes
+        original_state = {}
+        modified_state = {}
+        
+        try:
+            if hasattr(original_model, 'state_dict'):
+                original_state = original_model.state_dict()
+            if hasattr(modified_model, 'state_dict'):
+                modified_state = modified_model.state_dict()
+        except Exception as e:
+            print(f"⚠️  Warning: Could not access state_dict for {model_type}: {e}")
+        
+        # 2. Key Differences
+        original_keys = set(original_state.keys())
+        modified_keys = set(modified_state.keys())
+        keys_added = modified_keys - original_keys
+        keys_removed = original_keys - modified_keys
+        keys_modified = original_keys & modified_keys
+        
+        # 3. Weight Value Changes (for accessible weights)
+        weight_changes = {}
+        for key in list(keys_modified)[:10]:  # Limit to first 10 keys for performance
+            if key in original_state and key in modified_state:
+                orig_weight = original_state[key]
+                mod_weight = modified_state[key]
+                
+                if hasattr(orig_weight, 'shape') and hasattr(mod_weight, 'shape'):
+                    shape_changed = orig_weight.shape != mod_weight.shape
+                    dtype_changed = orig_weight.dtype != mod_weight.dtype
+                    device_changed = orig_weight.device != mod_weight.device
+                    
+                    weight_changes[key] = {
+                        'shape_changed': shape_changed,
+                        'dtype_changed': dtype_changed,
+                        'device_changed': device_changed,
+                        'original_shape': str(orig_weight.shape),
+                        'modified_shape': str(mod_weight.shape)
+                    }
+        
+        return {
+            'keys_added': list(keys_added),
+            'keys_removed': list(keys_removed),
+            'keys_modified': list(keys_modified),
+            'weight_changes': weight_changes,
+            'total_keys_original': len(original_keys),
+            'total_keys_modified': len(modified_keys)
+        }
+    
+    def _analyze_lora_patches(self, modified_model, model_type):
+        """Analyze the specific LoRA patches applied to the model"""
+        
+        if not hasattr(modified_model, 'patches'):
+            return {'error': 'Model has no patches attribute'}
+        
+        patches = modified_model.patches
+        lora_patches = {}
+        
+        for key, patch_list in list(patches.items())[:20]:  # Limit to first 20 keys for performance
+            if patch_list:  # If patches exist for this key
+                # Each patch is a tuple: (strength_patch, patch_data, strength_model, offset, function)
+                for patch in patch_list:
+                    if len(patch) >= 2:
+                        strength_patch, patch_data = patch[0], patch[1]
+                        
+                        # Determine patch type
+                        if isinstance(patch_data, dict) and 'lora_up.weight' in str(patch_data):
+                            patch_type = 'lora_up'
+                        elif isinstance(patch_data, dict) and 'lora_down.weight' in str(patch_data):
+                            patch_type = 'lora_down'
+                        elif isinstance(patch_data, dict) and 'diff' in str(patch_data):
+                            patch_type = 'diff'
+                        else:
+                            patch_type = 'unknown'
+                        
+                        lora_patches[key] = {
+                            'strength_patch': strength_patch,
+                            'patch_type': patch_type,
+                            'patch_data_shape': str(type(patch_data)),
+                            'patch_count': len(patch_list)
+                        }
+        
+        return {
+            'total_patched_keys': len(lora_patches),
+            'patch_details': lora_patches,
+            'model_type': model_type
+        }
+    
+    def _track_model_placement_changes(self, original_model, modified_model, model_type):
+        """Track changes in model device placement"""
+        
+        # 1. Device Changes
+        original_device = getattr(original_model, 'device', None)
+        modified_device = getattr(modified_model, 'device', None)
+        
+        # 2. ModelPatcher Device Changes
+        original_load_device = getattr(original_model, 'load_device', None)
+        modified_load_device = getattr(modified_model, 'load_device', None)
+        
+        original_offload_device = getattr(original_model, 'offload_device', None)
+        modified_offload_device = getattr(modified_model, 'offload_device', None)
+        
+        # 3. CLIP-specific device tracking
+        clip_model_device = None
+        clip_patcher_load_device = None
+        clip_patcher_offload_device = None
+        
+        if model_type == 'CLIP' and hasattr(modified_model, 'patcher'):
+            try:
+                clip_model_device = getattr(modified_model.patcher.model, 'device', None)
+                clip_patcher_load_device = getattr(modified_model.patcher, 'load_device', None)
+                clip_patcher_offload_device = getattr(modified_model.patcher, 'offload_device', None)
+            except Exception as e:
+                print(f"⚠️  Warning: Could not access CLIP patcher device info: {e}")
+        
+        return {
+            'model_device_changed': original_device != modified_device,
+            'load_device_changed': original_load_device != modified_load_device,
+            'offload_device_changed': original_offload_device != modified_offload_device,
+            'original_device': str(original_device),
+            'modified_device': str(modified_device),
+            'clip_model_device': str(clip_model_device) if clip_model_device else None,
+            'clip_patcher_devices': {
+                'load': str(clip_patcher_load_device),
+                'offload': str(clip_patcher_offload_device)
+            } if clip_patcher_load_device else None
+        }
+    
+    def _calculate_memory_change(self, baseline_info, current_model):
+        """Calculate memory usage changes for a model"""
+        try:
+            current_allocated = torch.cuda.memory_allocated() if torch.cuda.is_available() else 0
+            current_reserved = torch.cuda.memory_reserved() if torch.cuda.is_available() else 0
+            
+            allocated_change = current_allocated - baseline_info['memory_allocated']
+            reserved_change = current_reserved - baseline_info['memory_reserved']
+            
+            return {
+                'allocated_change_mb': allocated_change / (1024**2),
+                'reserved_change_mb': reserved_change / (1024**2),
+                'current_allocated_mb': current_allocated / (1024**2),
+                'current_reserved_mb': current_reserved / (1024**2)
+            }
+        except Exception as e:
+            return {'error': f'Memory calculation failed: {e}'}
+    
+    def _analyze_lora_application_results(self, baseline, original_unet, original_clip, modified_unet, modified_clip, lora_result):
+        """Analyze the results of LoRA application"""
+        
+        analysis = {
+            'lora_application_success': lora_result is not None,
+            'models_returned': len(lora_result) if lora_result else 0,
+            'unet_changes': self._track_model_identity_changes(
+                original_unet, modified_unet, 'UNET'
+            ),
+            'clip_changes': self._track_model_identity_changes(
+                original_clip, modified_clip, 'CLIP'
+            ),
+            'unet_weight_changes': self._track_weight_modifications(
+                original_unet, modified_unet, 'UNET'
+            ),
+            'clip_weight_changes': self._track_weight_modifications(
+                original_clip, modified_clip, 'CLIP'
+            ),
+            'unet_lora_patches': self._analyze_lora_patches(modified_unet, 'UNET'),
+            'clip_lora_patches': self._analyze_lora_patches(modified_clip, 'CLIP'),
+            'placement_changes': {
+                'unet': self._track_model_placement_changes(
+                    original_unet, modified_unet, 'UNET'
+                ),
+                'clip': self._track_model_placement_changes(
+                    original_clip, modified_clip, 'CLIP'
+                )
+            },
+            'memory_impact': {
+                'unet_memory_change': self._calculate_memory_change(
+                    baseline['unet'], modified_unet
+                ),
+                'clip_memory_change': self._calculate_memory_change(
+                    baseline['clip'], modified_clip
+                )
+            }
+        }
+        
+        return analysis
+    
+    def _print_lora_analysis_summary(self, analysis):
+        """Print comprehensive LoRA application analysis"""
+        print(f"\n🔍 LORA APPLICATION ANALYSIS SUMMARY")
+        print("=" * 80)
+        
+        # Basic success info
+        print(f"✅ LoRA Application Success: {'YES' if analysis['lora_application_success'] else 'NO'}")
+        print(f"📦 Models Returned: {analysis['models_returned']}")
+        
+        # UNET Changes
+        print(f"\n🔧 UNET MODEL CHANGES:")
+        unet_changes = analysis['unet_changes']
+        print(f"   Model Cloned: {'✅ YES' if unet_changes['model_cloned'] else '❌ NO'}")
+        print(f"   Class Changed: {'✅ YES' if unet_changes['class_changed'] else '❌ NO'}")
+        print(f"   Patches Added: {unet_changes['patches_added']}")
+        print(f"   UUID Changed: {'✅ YES' if unet_changes['uuid_changed'] else '❌ NO'}")
+        print(f"   Original Patches: {unet_changes['original_patch_count']}")
+        print(f"   Modified Patches: {unet_changes['modified_patch_count']}")
+        
+        # CLIP Changes
+        print(f"\n🔧 CLIP MODEL CHANGES:")
+        clip_changes = analysis['clip_changes']
+        print(f"   Model Cloned: {'✅ YES' if clip_changes['model_cloned'] else '❌ NO'}")
+        print(f"   Class Changed: {'✅ YES' if clip_changes['class_changed'] else '❌ NO'}")
+        print(f"   Patches Added: {clip_changes['patches_added']}")
+        print(f"   UUID Changed: {'✅ YES' if clip_changes['uuid_changed'] else '❌ NO'}")
+        print(f"   Original Patches: {clip_changes['original_patch_count']}")
+        print(f"   Modified Patches: {clip_changes['modified_patch_count']}")
+        
+        # LoRA Patches Analysis
+        print(f"\n🔧 LORA PATCHES ANALYSIS:")
+        unet_patches = analysis['unet_lora_patches']
+        clip_patches = analysis['clip_lora_patches']
+        
+        if 'error' not in unet_patches:
+            print(f"   UNET Patched Keys: {unet_patches['total_patched_keys']}")
+        else:
+            print(f"   UNET Patches: {unet_patches['error']}")
+            
+        if 'error' not in clip_patches:
+            print(f"   CLIP Patched Keys: {clip_patches['total_patched_keys']}")
+        else:
+            print(f"   CLIP Patches: {clip_patches['error']}")
+        
+        # Memory Impact
+        print(f"\n💾 MEMORY IMPACT:")
+        unet_memory = analysis['memory_impact']['unet_memory_change']
+        clip_memory = analysis['memory_impact']['clip_memory_change']
+        
+        if 'error' not in unet_memory:
+            print(f"   UNET Memory Change: {unet_memory['allocated_change_mb']:+.1f} MB allocated, {unet_memory['reserved_change_mb']:+.1f} MB reserved")
+        if 'error' not in clip_memory:
+            print(f"   CLIP Memory Change: {clip_memory['allocated_change_mb']:+.1f} MB allocated, {clip_memory['reserved_change_mb']:+.1f} MB reserved")
+        
+        print("=" * 80)
 
 def main():
     """Main function to run the pipeline"""
