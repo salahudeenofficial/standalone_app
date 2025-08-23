@@ -1030,10 +1030,7 @@ class ReferenceVideoPipeline:
                     print("   ✅ All verifications passed - pipeline ready for next step")
                 
                 print("="*80)
-            else:
-                print("2. No LoRA specified, skipping LoRA application")
-                print("2a. Models remain in original state")
-                
+           
                 # === LORA APPLICATION MONITORING SYSTEM START (No LoRA) ===
                 print("\n🔍 LORA APPLICATION MONITORING SYSTEM ACTIVATED (No LoRA)")
                 print("="*80)
