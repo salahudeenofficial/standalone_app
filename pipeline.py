@@ -15,6 +15,7 @@ import os
 import sys
 from pathlib import Path
 import time
+import numpy as np
 
 # Add the current directory to Python path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -520,7 +521,7 @@ class ReferenceVideoPipeline:
             self.baseline_allocated = 0
             self.baseline_reserved = 0
         
-        self._check_memory_usage('baseline_memory', expected_threshold=100)
+        # COMMENTED OUT FOR STEP 3 DEBUGGING: self._check_memory_usage('baseline_memory', expected_threshold=100)
         
         # Generate chunked processing plan
         print("Generating chunked processing plan...")
@@ -798,14 +799,14 @@ class ReferenceVideoPipeline:
                 else:
                     print("❌ _capture_lora_baseline method MISSING")
                 
-                # Start step monitoring with timing and memory baseline
-                try:
-                    step_start_time, step_start_memory = self._start_step_monitoring("lora_application")
-                    print("✅ Step monitoring started successfully")
-                except Exception as e:
-                    print(f"❌ Step monitoring failed: {e}")
-                    step_start_time = time.time()
-                    step_start_memory = {'ram_used_mb': 0, 'gpu_allocated_mb': 0}
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: Start step monitoring with timing and memory baseline
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: try:
+                # COMMENTED OUT FOR STEP 3 DEBUGGING:     step_start_time, step_start_memory = self._start_step_monitoring("lora_application")
+                # COMMENTED OUT FOR STEP 3 DEBUGGING:     print("✅ Step monitoring started successfully")
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: except Exception as e:
+                # COMMENTED OUT FOR STEP 3 DEBUGGING:     print(f"❌ Step monitoring failed: {e}")
+                # COMMENTED OUT FOR STEP 3 DEBUGGING:     step_start_time = time.time()
+                # COMMENTED OUT FOR STEP 3 DEBUGGING:     step_start_memory = {'ram_used_mb': 0, 'gpu_allocated_mb': 0}
                 
                 # Capture baseline state before LoRA application
                 print("\n📊 CAPTURING BASELINE STATE (Before LoRA)...")
@@ -823,11 +824,11 @@ class ReferenceVideoPipeline:
                 print(f"   ✅ UNET Baseline captured - ID: {lora_baseline['unet']['model_id']}, Patches: {lora_baseline['unet']['patches_count']}")
                 print(f"   ✅ CLIP Baseline captured - ID: {lora_baseline['clip']['model_id']}, Patches: {lora_baseline['clip']['patcher_patches_count']}")
                 
-                # Display baseline memory state
-                print(f"\n   💾 BASELINE MEMORY STATE:")
-                print(f"      🖥️  RAM: {step_start_memory['ram_used_mb']:.1f} MB used / {step_start_memory['ram_total_mb']:.1f} MB total ({step_start_memory['ram_percent']:.1f}%)")
-                print(f"      🎮 GPU: {step_start_memory['gpu_allocated_mb']:.1f} MB allocated / {step_start_memory['gpu_total_mb']:.1f} MB total")
-                print(f"      🎮 GPU Device: {step_start_memory['gpu_device_name']}")
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: Display baseline memory state
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: print(f"\n   💾 BASELINE MEMORY STATE:")
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: print(f"      🖥️  RAM: {step_start_memory['ram_used_mb']:.1f} MB used / {step_start_memory['ram_total_mb']:.1f} MB total ({step_start_memory['ram_percent']:.1f}%)")
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: print(f"      🎮 GPU: {step_start_memory['gpu_allocated_mb']:.1f} MB allocated / {step_start_memory['gpu_total_mb']:.1f} MB total")
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: print(f"      🎮 GPU Device: {step_start_memory['gpu_device_name']}")
                 
                 print("✅ Baseline captured successfully")
                 print("="*80)
@@ -909,35 +910,39 @@ class ReferenceVideoPipeline:
                         clip_patch_keys = list(clip_model.patcher.patches.keys())
                         print(f"   Sample CLIP Patch Keys: {clip_patch_keys[:5]}")
                     
-                    # End step monitoring and get final metrics
-                    elapsed_time, step_end_memory = self._end_step_monitoring("lora_application", step_start_time, step_start_memory)
-                    
-                    # Calculate memory changes
-                    ram_change = step_end_memory['ram_used_mb'] - step_start_memory['ram_used_mb']
-                    gpu_change = step_end_memory['gpu_allocated_mb'] - step_start_memory['gpu_allocated_mb']
-                    
-                    # Store step results for workflow monitoring
-                    if not hasattr(self, 'step_results'):
-                        self.step_results = {}
-                    
-                    self.step_results['lora_application'] = {
-                        'elapsed_time': elapsed_time,
-                        'ram_change': ram_change,
-                        'gpu_change': gpu_change,
-                        'success': True,
-                        'skipped': True,
-                        'baseline_memory': step_start_memory,
-                        'end_memory': step_end_memory
-                    }
-                    
-                    # Print enhanced model summary
-                    self._print_enhanced_model_summary(model, "LoRA_Result")
-                    
-                    # Print comprehensive memory breakdown
-                    self._print_comprehensive_memory_breakdown(step_start_memory, step_end_memory, step_start_time, time.time())
-                    
-                    # Print peak memory summary
-                    self._print_peak_memory_summary(step_start_memory, step_end_memory, step_start_time, time.time())
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: End step monitoring and get final metrics
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: elapsed_time, step_end_memory = self._end_step_monitoring("lora_application", step_start_time, step_start_memory)
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: 
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: # Calculate memory changes
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: ram_change = step_end_memory['ram_used_mb'] - step_start_memory['ram_used_mb']
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: gpu_change = step_end_memory['gpu_allocated_mb'] - step_start_memory['gpu_allocated_mb']
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: 
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: # Store step results for workflow monitoring
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: if not hasattr(self, 'step_results'):
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     self.step_results = {}
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: 
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: self.step_results['lora_application'] = {
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'elapsed_time': elapsed_time,
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'ram_change': ram_change,
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'gpu_change': gpu_change,
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'success': True,
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'skipped': True,
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'baseline_memory': step_start_memory,
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'gpu_change': gpu_change,
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'success': True,
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'skipped': True,
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'baseline_memory': step_start_memory,
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'end_memory': step_end_memory
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: }
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: 
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: # Print enhanced model summary
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: self._print_enhanced_model_summary(model, "LoRA_Result")
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: 
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: # Print comprehensive memory breakdown
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: self._print_comprehensive_memory_breakdown(step_start_memory, step_end_memory, step_start_time, time.time())
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: 
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: # Print peak memory summary
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: self._print_peak_memory_summary(step_start_memory, step_end_memory, step_start_time, time.time())
                     
                     # Analyze LoRA application results
                     print("\n🔍 ANALYZING LORA APPLICATION RESULTS...")
@@ -953,29 +958,29 @@ class ReferenceVideoPipeline:
                     print(f"❌ ERROR during LoRA application: {e}")
                     print("🔍 LoRA application failed - check error details above")
                     
-                    # End step monitoring even on error
-                    elapsed_time, step_end_memory = self._end_step_monitoring("lora_application", step_start_time, step_start_memory)
-                    
-                    # Calculate memory changes
-                    ram_change = step_end_memory['ram_used_mb'] - step_start_memory['ram_used_mb']
-                    gpu_change = step_end_memory['gpu_allocated_mb'] - step_start_memory['gpu_allocated_mb']
-                    
-                    # Store step results for workflow monitoring
-                    if not hasattr(self, 'step_results'):
-                        self.step_results = {}
-                    
-                    self.step_results['lora_application'] = {
-                        'elapsed_time': elapsed_time,
-                        'ram_change': ram_change,
-                        'gpu_change': gpu_change,
-                        'success': False,
-                        'error': str(e),
-                        'baseline_memory': step_start_memory,
-                        'end_memory': step_end_memory
-                    }
-                    
-                    # Print error summary
-                    print(f"\n❌ LoRA application failed after {elapsed_time:.3f} seconds")
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: End step monitoring even on error
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: elapsed_time, step_end_memory = self._end_step_monitoring("lora_application", step_start_time, step_start_memory)
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: 
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: # Calculate memory changes
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: ram_change = step_end_memory['ram_used_mb'] - step_start_memory['ram_used_mb']
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: gpu_change = step_end_memory['gpu_allocated_mb'] - step_start_memory['gpu_allocated_mb']
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: 
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: # Store step results for workflow monitoring
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: if not hasattr(self, 'step_results'):
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     self.step_results = {}
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: 
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: self.step_results['lora_application'] = {
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'elapsed_time': elapsed_time,
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'ram_change': ram_change,
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'gpu_change': gpu_change,
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'success': False,
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'error': str(e),
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'baseline_memory': step_start_memory,
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING:     'end_memory': step_end_memory
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: }
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: 
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: # Print error summary
+                    # COMMENTED OUT FOR STEP 3 DEBUGGING: print(f"\n❌ LoRA application failed after {elapsed_time:.3f} seconds")
                     print("⚠️  Continuing with original models...")
                     
                     # Keep original models if LoRA fails
@@ -987,34 +992,35 @@ class ReferenceVideoPipeline:
                 print("="*80)
                 # === LORA APPLICATION MONITORING SYSTEM END ===
                 
-                # Print workflow monitoring summary
-                if hasattr(self, 'step_results') and 'lora_application' in self.step_results:
-                    self._print_workflow_monitoring_summary(self.step_results)
-                
-                # Stop execution after Step 2 for debugging purposes
-                print("\n🛑 STOPPING EXECUTION AFTER STEP 2 (LORA APPLICATION)")
-                print("🔍 All LoRA application debugging information has been displayed above.")
-                print("📊 Check the monitoring data above to analyze LoRA application performance.")
-                
-                # Print step completion status
-                print(f"\n🔍 Step 1: Model Loading - COMPLETED")
-                print(f"🔍 Step 2: LoRA Application - COMPLETED")
-                print(f"🔍 Steps 3-9: SKIPPED for debugging purposes")
-                
-                # Print final workflow summary
-                if hasattr(self, 'step_results'):
-                    self._print_final_workflow_summary(self.step_results)
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: Print workflow monitoring summary
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: if hasattr(self, 'step_results') and 'lora_application' in self.step_results:
+                # COMMENTED OUT FOR STEP 3 DEBUGGING:     self._print_workflow_monitoring_summary(self.step_results)
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: 
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: # Stop execution after Step 2 for debugging purposes
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: print("\n🛑 STOPPING EXECUTION AFTER STEP 2 (LORA APPLICATION)")
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: print("🔍 All LoRA application debugging information has been displayed above.")
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: print("📊 Check the monitoring data above to analyze LoRA application performance.")
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: 
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: # Print step completion status
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: print(f"\n🔍 Step 1: Model Loading - COMPLETED")
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: print(f"🔍 Step 3 DEBUGGING: print(f"\n🔍 Step 1: Model Loading - COMPLETED")
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: print(f"🔍 Step 2: LoRA Application - COMPLETED")
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: print(f"🔍 Steps 3-9: SKIPPED for debugging purposes")
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: 
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: # Print final workflow summary
+                # COMMENTED OUT FOR STEP 3 DEBUGGING: if hasattr(self, 'step_results'):
+                # COMMENTED OUT FOR STEP 3 DEBUGGING:     self._print_final_workflow_summary(self.step_results)
                 
                 print("="*80)
                 print("🔍 FINAL WORKFLOW MONITORING SUMMARY")
                 print("="*80)
                 
                 # Return early to stop execution
-                print("🚫 EXECUTION STOPPED - Pipeline will not continue to Step 3")
-                return "pipeline_stopped_after_step_2_for_debugging"
+                print("✅ Pipeline continuing to Step 3...")
             else:
                 print("2. No LoRA specified, skipping LoRA application")
                 print("2a. Models remain in original state")
+                print("✅ Step 2 completed - continuing to Step 3...")
                 
                 # === LORA APPLICATION MONITORING SYSTEM START (No LoRA) ===
                 print("\n🔍 LORA APPLICATION MONITORING SYSTEM ACTIVATED (No LoRA)")
@@ -1168,52 +1174,328 @@ class ReferenceVideoPipeline:
                 
                 print("="*80)
             
-            # 3. Encode Prompts
-            print("3. Encoding text prompts...")
+            # 3. ENHANCED TEXT ENCODING WITH COMPREHENSIVE MONITORING
+            print("\n" + "="*80)
+            print("🔍 STEP 3: ENHANCED TEXT ENCODING WITH COMPREHENSIVE MONITORING")
+            print("="*80)
+            
+            # ============================================
+            # BEFORE TEXT ENCODING - BASELINE MONITORING
+            # ============================================
+            print("\n📊 BEFORE TEXT ENCODING - BASELINE MONITORING:")
+            
+            # GPU Memory Baseline
+            if torch.cuda.is_available():
+                gpu_before_allocated = torch.cuda.memory_allocated() / (1024**2)
+                gpu_before_reserved = torch.cuda.memory_reserved() / (1024**2)
+                gpu_before_total = torch.cuda.get_device_properties(0).total_memory / (1024**2)
+                gpu_before_available = gpu_before_total - gpu_before_reserved
+                
+                print(f"   🎮 GPU Memory Baseline:")
+                print(f"      Allocated: {gpu_before_allocated:.1f} MB")
+                print(f"      Reserved: {gpu_before_reserved:.1f} MB")
+                print(f"      Available: {gpu_before_available:.1f} MB")
+                print(f"      Total: {gpu_before_total:.1f} MB")
+                print(f"      Device: {torch.cuda.get_device_name(0)}")
+            else:
+                print("   🎮 GPU: Not available")
+                gpu_before_allocated = gpu_before_reserved = gpu_before_total = gpu_before_available = 0
+            
+            # RAM Baseline
+            try:
+                import psutil
+                ram_before = psutil.virtual_memory()
+                ram_before_used = ram_before.used / (1024**3)
+                ram_before_available = ram_before.available / (1024**3)
+                ram_before_total = ram_before.total / (1024**3)
+                
+                print(f"   🖥️  RAM Baseline:")
+                print(f"      Used: {ram_before_used:.1f} GB")
+                print(f"      Available: {ram_before_available:.1f} GB")
+                print(f"      Total: {ram_before_total:.1f} GB")
+                print(f"      Usage: {ram_before.percent:.1f}%")
+            except ImportError:
+                print("   🖥️  RAM: psutil not available")
+                ram_before_used = ram_before_available = ram_before_total = 0
+            
+            # Model Placement Baseline
+            print(f"\n   🎯 MODEL PLACEMENT BASELINE:")
+            print(f"      UNET Device: {model.device if hasattr(model, 'device') else 'Unknown'}")
+            if hasattr(model, 'model') and hasattr(model.model, 'device'):
+                print(f"      UNET Internal Device: {model.model.device}")
+            
+            print(f"      CLIP Device: {clip_model.device if hasattr(clip_model, 'device') else 'Unknown'}")
+            if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'model'):
+                print(f"      CLIP Internal Device: {clip_model.patcher.model.device if hasattr(clip_model.patcher.model, 'device') else 'Unknown'}")
+            
+            print(f"      VAE Device: {vae.device if hasattr(vae, 'device') else 'Unknown'}")
+            if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'device'):
+                print(f"      VAE Internal Device: {vae.first_stage_model.device}")
+            
+            # ============================================
+            # DURING TEXT ENCODING - REAL-TIME MONITORING
+            # ============================================
+            print(f"\n📊 DURING TEXT ENCODING - REAL-TIME MONITORING:")
+            
+            # Start timing
+            step3_start_time = time.time()
+            
+            # Create text encoder
             text_encoder = CLIPTextEncode()
+            print(f"   🔧 Text Encoder Created: {type(text_encoder).__name__}")
+            print(f"   🔧 Text Encoder Device: {text_encoder.device if hasattr(text_encoder, 'device') else 'CPU'}")
+            
+            # Encode positive prompt with monitoring
+            print(f"\n   📝 Encoding Positive Prompt: '{positive_prompt[:50]}{'...' if len(positive_prompt) > 50 else ''}'")
             positive_cond = text_encoder.encode(clip_model, positive_prompt)
+            
+            # Check positive encoding result
+            if positive_cond is not None:
+                print(f"   ✅ Positive Encoding Complete")
+                if isinstance(positive_cond, (list, tuple)) and len(positive_cond) > 0:
+                    pos_tensor = positive_cond[0] if isinstance(positive_cond[0], torch.Tensor) else positive_cond[0]
+                    print(f"      Type: {type(pos_tensor).__name__}")
+                    print(f"      Shape: {pos_tensor.shape}")
+                    print(f"      Device: {pos_tensor.device}")
+                    print(f"      Dtype: {pos_tensor.dtype}")
+                else:
+                    print(f"      Type: {type(positive_cond).__name__}")
+            else:
+                print(f"   ❌ Positive Encoding Failed")
+            
+            # Encode negative prompt with monitoring
+            print(f"\n   📝 Encoding Negative Prompt: '{negative_prompt[:50]}{'...' if len(negative_prompt) > 50 else ''}'")
             negative_cond = text_encoder.encode(clip_model, negative_prompt)
             
-            # ComfyUI automatically manages encoded prompts through ModelPatcher
-            print("3a. Text encoding complete")
-            
-            # Let ComfyUI handle CLIP memory management automatically
-            print("3a. ✅ Letting ComfyUI handle CLIP memory management automatically")
-            print("3a. 💡 ComfyUI will move CLIP to optimal device when needed")
-            print("3a. 💡 No manual memory management required - ComfyUI knows best!")
-            
-            # OOM Checklist: Check memory after text encoding
-            self._check_memory_usage('text_encoding', expected_threshold=1000)
-            
-            # COMPREHENSIVE VERIFICATION AFTER TEXT ENCODING
-            print("\n" + "="*80)
-            print("🔍 STEP 3 COMPLETE: COMPREHENSIVE VERIFICATION")
-            print("="*80)
-            
-            # 1. Model Placement Verification
-            print("1️⃣  MODEL PLACEMENT VERIFICATION:")
-            model_placement = self._check_model_placement('text_encoding', ['unet', 'clip'])
-            
-            # 2. Memory Management Verification
-            print("\n2️⃣  MEMORY MANAGEMENT VERIFICATION:")
-            memory_management = self._verify_memory_management('text_encoding', ['unet', 'clip'])
-            
-            # 3. Chunking Strategy Verification
-            print("\n3️⃣  CHUNKING STRATEGY VERIFICATION:")
-            chunking_strategy = self._verify_chunking_strategy('text_encoding', processing_plan)
-            
-            # 4. Summary
-            print("\n📊 STEP 3 SUMMARY:")
-            print(f"   Model Placement: {'✅ PASS' if model_placement else '❌ FAIL'}")
-            print(f"   Memory Management: {'✅ PASS' if memory_management else '❌ FAIL'}")
-            print(f"   Chunking Strategy: {'✅ PASS' if chunking_strategy else '❌ FAIL'}")
-            
-            if not all([model_placement, memory_management, chunking_strategy]):
-                print("   ⚠️  Some verifications failed - pipeline may have issues")
+            # Check negative encoding result
+            if negative_cond is not None:
+                print(f"   ✅ Negative Encoding Complete")
+                if isinstance(negative_cond, (list, tuple)) and len(negative_cond) > 0:
+                    neg_tensor = negative_cond[0] if isinstance(negative_cond[0], torch.Tensor) else negative_cond[0]
+                    print(f"      Type: {type(neg_tensor).__name__}")
+                    print(f"      Shape: {neg_tensor.shape}")
+                    print(f"      Device: {neg_tensor.device}")
+                    print(f"      Dtype: {neg_tensor.dtype}")
+                else:
+                    print(f"      Type: {type(negative_cond).__name__}")
             else:
-                print("   ✅ All verifications passed - pipeline ready for next step")
+                print(f"   ❌ Negative Encoding Failed")
+            
+            # ============================================
+            # AFTER TEXT ENCODING - FINAL MONITORING
+            # ============================================
+            print(f"\n📊 AFTER TEXT ENCODING - FINAL MONITORING:")
+            
+            # End timing
+            step3_end_time = time.time()
+            step3_elapsed = step3_end_time - step3_start_time
+            
+            # GPU Memory After
+            if torch.cuda.is_available():
+                gpu_after_allocated = torch.cuda.memory_allocated() / (1024**2)
+                gpu_after_reserved = torch.cuda.memory_reserved() / (1024**2)
+                gpu_after_total = torch.cuda.get_device_properties(0).total_memory / (1024**2)
+                gpu_after_available = gpu_after_total - gpu_after_reserved
+                
+                gpu_allocated_change = gpu_after_allocated - gpu_before_allocated
+                gpu_reserved_change = gpu_after_reserved - gpu_before_reserved
+                
+                print(f"   🎮 GPU Memory After:")
+                print(f"      Allocated: {gpu_after_allocated:.1f} MB (Change: {gpu_allocated_change:+.1f} MB)")
+                print(f"      Reserved: {gpu_after_reserved:.1f} MB (Change: {gpu_reserved_change:+.1f} MB)")
+                print(f"      Available: {gpu_after_available:.1f} MB")
+                print(f"      Total: {gpu_after_total:.1f} MB")
+            else:
+                print("   🎮 GPU: Not available")
+                gpu_after_allocated = gpu_after_reserved = gpu_after_total = gpu_after_available = 0
+                gpu_allocated_change = gpu_reserved_change = 0
+            
+            # RAM After
+            try:
+                ram_after = psutil.virtual_memory()
+                ram_after_used = ram_after.used / (1024**3)
+                ram_after_available = ram_after.available / (1024**3)
+                ram_after_total = ram_after.total / (1024**3)
+                
+                ram_change = ram_after_used - ram_before_used
+                
+                print(f"   🖥️  RAM After:")
+                print(f"      Used: {ram_after_used:.1f} GB (Change: {ram_change:+.1f} GB)")
+                print(f"      Available: {ram_after_available:.1f} GB")
+                print(f"      Total: {ram_after_total:.1f} GB")
+                print(f"      Usage: {ram_after.percent:.1f}%")
+            except ImportError:
+                print("   🖥️  RAM: psutil not available")
+                ram_after_used = ram_after_available = ram_after_total = 0
+                ram_change = 0
+            
+            # ============================================
+            # COMPREHENSIVE TENSOR ANALYSIS & SAVING
+            # ============================================
+            print(f"\n📊 COMPREHENSIVE TENSOR ANALYSIS & SAVING:")
+            
+            # Create output directory
+            os.makedirs("./p_out/step3", exist_ok=True)
+            
+            # Analyze and save positive conditioning
+            print(f"\n   📁 POSITIVE CONDITIONING TENSOR:")
+            if positive_cond is not None:
+                try:
+                    if isinstance(positive_cond, (list, tuple)) and len(positive_cond) > 0:
+                        pos_tensor = positive_cond[0] if isinstance(positive_cond[0], torch.Tensor) else positive_cond[0]
+                        pos_dict = positive_cond[1] if len(positive_cond) > 1 else {}
+                        
+                        print(f"      ✅ Tensor Analysis:")
+                        print(f"         Type: {type(pos_tensor).__name__}")
+                        print(f"         Shape: {pos_tensor.shape}")
+                        print(f"         Device: {pos_tensor.device}")
+                        print(f"         Dtype: {pos_tensor.dtype}")
+                        print(f"         Size: {pos_tensor.element_size() * pos_tensor.nelement() / (1024**2):.2f} MB")
+                        print(f"         Dictionary Keys: {list(pos_dict.keys()) if pos_dict else 'None'}")
+                        
+                        # Save positive tensor
+                        pos_filename = f"./p_out/step3/positive_conditioning_{int(time.time())}.npz"
+                        np.savez_compressed(
+                            pos_filename,
+                            tensor=pos_tensor.cpu().numpy(),
+                            shape=pos_tensor.shape,
+                            dtype=str(pos_tensor.dtype),
+                            device=str(pos_tensor.device),
+                            dictionary_keys=list(pos_dict.keys()) if pos_dict else [],
+                            dictionary_values=[pos_dict[k].cpu().numpy() if isinstance(pos_dict[k], torch.Tensor) else pos_dict[k] for k in pos_dict.keys()] if pos_dict else [],
+                            metadata={
+                                'timestamp': time.time(),
+                                'step': 'step3_text_encoding',
+                                'prompt': positive_prompt,
+                                'tensor_type': 'positive_conditioning'
+                            }
+                        )
+                        print(f"      💾 Saved to: {pos_filename}")
+                        
+                    else:
+                        print(f"      ❌ Unexpected format: {type(positive_cond)}")
+                except Exception as e:
+                    print(f"      ❌ Error analyzing positive tensor: {e}")
+            else:
+                print(f"      ❌ Positive conditioning is None")
+            
+            # Analyze and save negative conditioning
+            print(f"\n   📁 NEGATIVE CONDITIONING TENSOR:")
+            if negative_cond is not None:
+                try:
+                    if isinstance(negative_cond, (list, tuple)) and len(negative_cond) > 0:
+                        neg_tensor = negative_cond[0] if isinstance(negative_cond[0], torch.Tensor) else negative_cond[0]
+                        neg_dict = negative_cond[1] if len(negative_cond) > 1 else {}
+                        
+                        print(f"      ✅ Tensor Analysis:")
+                        print(f"         Type: {type(neg_tensor).__name__}")
+                        print(f"         Shape: {neg_tensor.shape}")
+                        print(f"         Device: {neg_tensor.device}")
+                        print(f"         Dtype: {neg_tensor.dtype}")
+                        print(f"         Size: {neg_tensor.element_size() * neg_tensor.nelement() / (1024**2):.2f} MB")
+                        print(f"         Dictionary Keys: {list(neg_dict.keys()) if pos_dict else 'None'}")
+                        
+                        # Save negative tensor
+                        neg_filename = f"./p_out/step3/negative_conditioning_{int(time.time())}.npz"
+                        np.savez_compressed(
+                            neg_filename,
+                            tensor=neg_tensor.cpu().numpy(),
+                            shape=neg_tensor.shape,
+                            dtype=str(neg_tensor.dtype),
+                            device=str(neg_tensor.device),
+                            dictionary_keys=list(neg_dict.keys()) if neg_dict else [],
+                            dictionary_values=[neg_dict[k].cpu().numpy() if isinstance(neg_dict[k], torch.Tensor) else neg_dict[k] for k in neg_dict.keys()] if neg_dict else [],
+                            metadata={
+                                'timestamp': time.time(),
+                                'step': 'step3_text_encoding',
+                                'prompt': negative_prompt,
+                                'tensor_type': 'negative_conditioning'
+                            }
+                        )
+                        print(f"      💾 Saved to: {neg_filename}")
+                        
+                    else:
+                        print(f"      ❌ Unexpected format: {type(negative_cond)}")
+                except Exception as e:
+                    print(f"      ❌ Error analyzing negative tensor: {e}")
+            else:
+                print(f"      ❌ Negative conditioning is None")
+            
+            # Combined analysis
+            print(f"\n   📊 COMBINED TENSOR ANALYSIS:")
+            if positive_cond and negative_cond:
+                try:
+                    if isinstance(positive_cond, (list, tuple)) and len(positive_cond) > 0 and isinstance(negative_cond, (list, tuple)) and len(negative_cond) > 0:
+                        pos_tensor = positive_cond[0] if isinstance(positive_cond[0], torch.Tensor) else positive_cond[0]
+                        neg_tensor = negative_cond[0] if isinstance(negative_cond[0], torch.Tensor) else negative_cond[0]
+                        
+                        total_memory = (pos_tensor.element_size() * pos_tensor.nelement() + 
+                                       neg_tensor.element_size() * neg_tensor.nelement()) / (1024**2)
+                        
+                        print(f"      ✅ Combined Analysis:")
+                        print(f"         Total Memory: {total_memory:.2f} MB")
+                        print(f"         Device Consistency: {'✅ PASS' if pos_tensor.device == neg_tensor.device else '❌ FAIL'}")
+                        print(f"         Dtype Consistency: {'✅ PASS' if pos_tensor.dtype == neg_tensor.dtype else '❌ FAIL'}")
+                        print(f"         Shape Analysis: {pos_tensor.shape} + {neg_tensor.shape}")
+                        
+                        # Save combined analysis
+                        combined_filename = f"./p_out/step3/combined_analysis_{int(time.time())}.npz"
+                        np.savez_compressed(
+                            combined_filename,
+                            positive_tensor=pos_tensor.cpu().numpy(),
+                            negative_tensor=neg_tensor.cpu().numpy(),
+                            positive_shape=pos_tensor.shape,
+                            negative_shape=neg_tensor.shape,
+                            positive_device=str(pos_tensor.device),
+                            negative_device=str(neg_tensor.device),
+                            positive_dtype=str(pos_tensor.dtype),
+                            negative_dtype=str(neg_tensor.dtype),
+                            total_memory_mb=total_memory,
+                            device_consistency=(pos_tensor.device == neg_tensor.device),
+                            dtype_consistency=(pos_tensor.dtype == neg_tensor.dtype),
+                            metadata={
+                                'timestamp': time.time(),
+                                'step': 'step3_text_encoding',
+                                'positive_prompt': positive_prompt,
+                                'negative_prompt': negative_prompt,
+                                'analysis_type': 'combined_conditioning'
+                            }
+                        )
+                        print(f"      💾 Combined analysis saved to: {combined_filename}")
+                        
+                except Exception as e:
+                    print(f"      ❌ Error in combined analysis: {e}")
+            
+            # ============================================
+            # STEP 3 PERFORMANCE SUMMARY
+            # ============================================
+            print(f"\n📊 STEP 3 PERFORMANCE SUMMARY:")
+            print(f"   ⏱️  Total Encoding Time: {step3_elapsed:.3f} seconds")
+            print(f"   🎮 GPU Memory Change: {gpu_allocated_change:+.1f} MB allocated, {gpu_reserved_change:+.1f} MB reserved")
+            print(f"   🖥️  RAM Change: {ram_change:+.1f} GB")
+            print(f"   📁 Output Directory: ./p_out/step3/")
+            print(f"   💾 Tensors Saved: Positive, Negative, Combined Analysis")
+            
+            print("\n" + "="*80)
+            print("✅ STEP 3 COMPLETE: Enhanced Text Encoding with Comprehensive Monitoring")
+            print("="*80)
+            
+            # Stop execution after Step 3 for debugging purposes
+            print("\n🛑 STOPPING EXECUTION AFTER STEP 3 (TEXT ENCODING)")
+            print("🔍 All text encoding debugging information has been displayed above.")
+            print("📊 Check the monitoring data above to analyze text encoding performance.")
+            print("💾 Conditioning tensors have been saved to ./p_out/step3/")
+            
+            # Print step completion status
+            print(f"\n🔍 Step 1: Model Loading - COMPLETED")
+            print(f"🔍 Step 2: LoRA Application - COMPLETED")
+            print(f"🔍 Step 3: Text Encoding - COMPLETED")
+            print(f"🔍 Steps 4-9: SKIPPED for debugging purposes")
             
             print("="*80)
+            
+            # Return early to stop execution
+            return "pipeline_stopped_after_step_3_for_debugging"
             
             # 4. Apply ModelSamplingSD3 Shift
             print("4. Applying ModelSamplingSD3...")
