@@ -1266,31 +1266,39 @@ class ReferenceVideoPipeline:
                     print(f"      List Length: {len(positive_cond)}")
                     print(f"      First Element Type: {type(positive_cond[0]).__name__}")
                     
-                    # Handle ComfyUI format: ([[tensor, dict]],) - nested structure
-                    print(f"      🔍 Analyzing nested structure...")
+                    # Handle ComfyUI format: ([[tensor, dict]],) - deeply nested structure
+                    print(f"      🔍 Analyzing deeply nested structure...")
                     
-                    # Navigate through the nested structure
+                    # Navigate through the deeply nested structure: ([[tensor, dict]],)
                     if isinstance(positive_cond[0], list) and len(positive_cond[0]) > 0:
                         inner_list = positive_cond[0]
                         print(f"      Inner list length: {len(inner_list)}")
                         
-                        if len(inner_list) > 0 and isinstance(inner_list[0], torch.Tensor):
-                            pos_tensor = inner_list[0]
-                            print(f"      ✅ Tensor Found in nested structure:")
-                            print(f"         Shape: {pos_tensor.shape}")
-                            print(f"         Device: {pos_tensor.device}")
-                            print(f"         Dtype: {pos_tensor.dtype}")
-                        else:
-                            print(f"      ⚠️  No tensor found in inner list")
-                            pos_tensor = None
-                        
-                        # Check if there's a dictionary
-                        if len(inner_list) > 1:
-                            print(f"      Second Element Type: {type(inner_list[1]).__name__}")
-                            if isinstance(inner_list[1], dict):
-                                print(f"      Dictionary Keys: {list(inner_list[1].keys())}")
+                        if len(inner_list) > 0 and isinstance(inner_list[0], list) and len(inner_list[0]) > 0:
+                            # We're at the third level: [[tensor, dict]]
+                            tensor_list = inner_list[0]
+                            print(f"      Tensor list length: {len(tensor_list)}")
+                            
+                            if len(tensor_list) > 0 and isinstance(tensor_list[0], torch.Tensor):
+                                pos_tensor = tensor_list[0]
+                                print(f"      ✅ Tensor Found in deeply nested structure:")
+                                print(f"         Shape: {pos_tensor.shape}")
+                                print(f"         Device: {pos_tensor.device}")
+                                print(f"         Dtype: {pos_tensor.dtype}")
                             else:
-                                print(f"      Second element is not a dict: {type(inner_list[1])}")
+                                print(f"      ⚠️  No tensor found in tensor list")
+                                pos_tensor = None
+                            
+                            # Check if there's a dictionary
+                            if len(tensor_list) > 1:
+                                print(f"      Second Element Type: {type(tensor_list[1]).__name__}")
+                                if isinstance(tensor_list[1], dict):
+                                    print(f"      Dictionary Keys: {list(tensor_list[1].keys())}")
+                                else:
+                                    print(f"      Second element is not a dict: {type(tensor_list[1])}")
+                        else:
+                            print(f"      ⚠️  No tensor list found in inner list")
+                            pos_tensor = None
                     else:
                         print(f"      ⚠️  Unexpected nested structure: {type(positive_cond[0])}")
                         pos_tensor = None
@@ -1322,31 +1330,39 @@ class ReferenceVideoPipeline:
                     print(f"      List Length: {len(negative_cond)}")
                     print(f"      First Element Type: {type(negative_cond[0]).__name__}")
                     
-                    # Handle ComfyUI format: ([[tensor, dict]],) - nested structure
-                    print(f"      🔍 Analyzing nested structure...")
+                    # Handle ComfyUI format: ([[tensor, dict]],) - deeply nested structure
+                    print(f"      🔍 Analyzing deeply nested structure...")
                     
-                    # Navigate through the nested structure
+                    # Navigate through the deeply nested structure: ([[tensor, dict]],)
                     if isinstance(negative_cond[0], list) and len(negative_cond[0]) > 0:
                         inner_list = negative_cond[0]
                         print(f"      Inner list length: {len(inner_list)}")
                         
-                        if len(inner_list) > 0 and isinstance(inner_list[0], torch.Tensor):
-                            neg_tensor = inner_list[0]
-                            print(f"      ✅ Tensor Found in nested structure:")
-                            print(f"         Shape: {neg_tensor.shape}")
-                            print(f"         Device: {neg_tensor.device}")
-                            print(f"         Dtype: {neg_tensor.dtype}")
-                        else:
-                            print(f"      ⚠️  No tensor found in inner list")
-                            neg_tensor = None
-                        
-                        # Check if there's a dictionary
-                        if len(inner_list) > 1:
-                            print(f"      Second Element Type: {type(inner_list[1]).__name__}")
-                            if isinstance(inner_list[1], dict):
-                                print(f"      Dictionary Keys: {list(inner_list[1].keys())}")
+                        if len(inner_list) > 0 and isinstance(inner_list[0], list) and len(inner_list[0]) > 0:
+                            # We're at the third level: [[tensor, dict]]
+                            tensor_list = inner_list[0]
+                            print(f"      Tensor list length: {len(tensor_list)}")
+                            
+                            if len(tensor_list) > 0 and isinstance(tensor_list[0], torch.Tensor):
+                                neg_tensor = tensor_list[0]
+                                print(f"      ✅ Tensor Found in deeply nested structure:")
+                                print(f"         Shape: {neg_tensor.shape}")
+                                print(f"         Device: {neg_tensor.device}")
+                                print(f"         Dtype: {neg_tensor.dtype}")
                             else:
-                                print(f"      Second element is not a dict: {type(inner_list[1])}")
+                                print(f"      ⚠️  No tensor found in tensor list")
+                                neg_tensor = None
+                            
+                            # Check if there's a dictionary
+                            if len(tensor_list) > 1:
+                                print(f"      Second Element Type: {type(tensor_list[1]).__name__}")
+                                if isinstance(tensor_list[1], dict):
+                                    print(f"      Dictionary Keys: {list(tensor_list[1].keys())}")
+                                else:
+                                    print(f"      Second element is not a dict: {type(tensor_list[1])}")
+                        else:
+                            print(f"      ⚠️  No tensor list found in inner list")
+                            neg_tensor = None
                     else:
                         print(f"      ⚠️  Unexpected nested structure: {type(negative_cond[0])}")
                         neg_tensor = None
@@ -1418,10 +1434,11 @@ class ReferenceVideoPipeline:
             if positive_cond is not None and pos_tensor is not None:
                 try:
                     if isinstance(positive_cond, (list, tuple)) and len(positive_cond) > 0:
-                        # Extract dictionary from nested structure: ([[tensor, dict]],)
+                        # Extract dictionary from deeply nested structure: ([[tensor, dict]],)
                         pos_dict = {}
-                        if isinstance(positive_cond[0], list) and len(positive_cond[0]) > 1:
-                            pos_dict = positive_cond[0][1] if isinstance(positive_cond[0][1], dict) else {}
+                        if isinstance(positive_cond[0], list) and len(positive_cond[0]) > 0:
+                            if isinstance(positive_cond[0][0], list) and len(positive_cond[0][0]) > 1:
+                                pos_dict = positive_cond[0][0][1] if isinstance(positive_cond[0][0][1], dict) else {}
                         
                         print(f"      ✅ Tensor Analysis:")
                         print(f"         Type: {type(pos_tensor).__name__}")
@@ -1465,10 +1482,11 @@ class ReferenceVideoPipeline:
             if negative_cond is not None and neg_tensor is not None:
                 try:
                     if isinstance(negative_cond, (list, tuple)) and len(negative_cond) > 0:
-                        # Extract dictionary from nested structure: ([[tensor, dict]],)
+                        # Extract dictionary from deeply nested structure: ([[tensor, dict]],)
                         neg_dict = {}
-                        if isinstance(negative_cond[0], list) and len(negative_cond[0]) > 1:
-                            neg_dict = negative_cond[0][1] if isinstance(negative_cond[0][1], dict) else {}
+                        if isinstance(negative_cond[0], list) and len(negative_cond[0]) > 0:
+                            if isinstance(negative_cond[0][0], list) and len(negative_cond[0][0]) > 1:
+                                neg_dict = negative_cond[0][0][1] if isinstance(negative_cond[0][0][1], dict) else {}
                         
                         print(f"      ✅ Tensor Analysis:")
                         print(f"         Type: {type(neg_tensor).__name__}")
