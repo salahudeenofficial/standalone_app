@@ -1249,37 +1249,93 @@ class ReferenceVideoPipeline:
             print(f"\n   📝 Encoding Positive Prompt: '{positive_prompt[:50]}{'...' if len(positive_prompt) > 50 else ''}'")
             positive_cond = text_encoder.encode(clip_model, positive_prompt)
             
+            # Debug: Show what text_encoder.encode actually returned
+            print(f"   🔍 DEBUG: text_encoder.encode returned: {type(positive_cond)}")
+            if positive_cond is not None:
+                print(f"   🔍 DEBUG: Content: {positive_cond}")
+                if isinstance(positive_cond, (list, tuple)):
+                    print(f"   🔍 DEBUG: List length: {len(positive_cond)}")
+                    for i, item in enumerate(positive_cond):
+                        print(f"   🔍 DEBUG: Item {i}: {type(item)} - {item}")
+            
             # Check positive encoding result
             if positive_cond is not None:
                 print(f"   ✅ Positive Encoding Complete")
+                print(f"      Raw Type: {type(positive_cond).__name__}")
                 if isinstance(positive_cond, (list, tuple)) and len(positive_cond) > 0:
-                    pos_tensor = positive_cond[0] if isinstance(positive_cond[0], torch.Tensor) else positive_cond[0]
-                    print(f"      Type: {type(pos_tensor).__name__}")
-                    print(f"      Shape: {pos_tensor.shape}")
-                    print(f"      Device: {pos_tensor.device}")
-                    print(f"      Dtype: {pos_tensor.dtype}")
+                    print(f"      List Length: {len(positive_cond)}")
+                    print(f"      First Element Type: {type(positive_cond[0]).__name__}")
+                    
+                    # Handle ComfyUI format: [(tensor, dict)]
+                    if isinstance(positive_cond[0], torch.Tensor):
+                        pos_tensor = positive_cond[0]
+                        print(f"      ✅ Tensor Found:")
+                        print(f"         Shape: {pos_tensor.shape}")
+                        print(f"         Device: {pos_tensor.device}")
+                        print(f"         Dtype: {pos_tensor.dtype}")
+                    else:
+                        print(f"      ⚠️  First element is not a tensor: {type(positive_cond[0])}")
+                        pos_tensor = None
+                    
+                    # Check if there's a dictionary
+                    if len(positive_cond) > 1:
+                        print(f"      Second Element Type: {type(positive_cond[1]).__name__}")
+                        if isinstance(positive_cond[1], dict):
+                            print(f"      Dictionary Keys: {list(positive_cond[1].keys())}")
+                        else:
+                            print(f"      Second element is not a dict: {type(positive_cond[1])}")
                 else:
-                    print(f"      Type: {type(positive_cond).__name__}")
+                    print(f"      ⚠️  Unexpected format: {type(positive_cond)}")
+                    pos_tensor = None
             else:
                 print(f"   ❌ Positive Encoding Failed")
+                pos_tensor = None
             
             # Encode negative prompt with monitoring
             print(f"\n   📝 Encoding Negative Prompt: '{negative_prompt[:50]}{'...' if len(negative_prompt) > 50 else ''}'")
             negative_cond = text_encoder.encode(clip_model, negative_prompt)
             
+            # Debug: Show what text_encoder.encode actually returned
+            print(f"   🔍 DEBUG: text_encoder.encode returned: {type(negative_cond)}")
+            if negative_cond is not None:
+                print(f"   🔍 DEBUG: Content: {negative_cond}")
+                if isinstance(negative_cond, (list, tuple)):
+                    print(f"   🔍 DEBUG: List length: {len(negative_cond)}")
+                    for i, item in enumerate(negative_cond):
+                        print(f"   🔍 DEBUG: Item {i}: {type(item)} - {item}")
+            
             # Check negative encoding result
             if negative_cond is not None:
                 print(f"   ✅ Negative Encoding Complete")
+                print(f"      Raw Type: {type(negative_cond).__name__}")
                 if isinstance(negative_cond, (list, tuple)) and len(negative_cond) > 0:
-                    neg_tensor = negative_cond[0] if isinstance(negative_cond[0], torch.Tensor) else negative_cond[0]
-                    print(f"      Type: {type(neg_tensor).__name__}")
-                    print(f"      Shape: {neg_tensor.shape}")
-                    print(f"      Device: {neg_tensor.device}")
-                    print(f"      Dtype: {neg_tensor.dtype}")
+                    print(f"      List Length: {len(negative_cond)}")
+                    print(f"      First Element Type: {type(negative_cond[0]).__name__}")
+                    
+                    # Handle ComfyUI format: [(tensor, dict)]
+                    if isinstance(negative_cond[0], torch.Tensor):
+                        neg_tensor = negative_cond[0]
+                        print(f"      ✅ Tensor Found:")
+                        print(f"         Shape: {neg_tensor.shape}")
+                        print(f"         Device: {neg_tensor.device}")
+                        print(f"         Dtype: {neg_tensor.dtype}")
+                    else:
+                        print(f"      ⚠️  First element is not a tensor: {type(negative_cond[0])}")
+                        neg_tensor = None
+                    
+                    # Check if there's a dictionary
+                    if len(negative_cond) > 1:
+                        print(f"      Second Element Type: {type(negative_cond[1]).__name__}")
+                        if isinstance(negative_cond[1], dict):
+                            print(f"      Dictionary Keys: {list(negative_cond[1].keys())}")
+                        else:
+                            print(f"      Second element is not a dict: {type(negative_cond[1])}")
                 else:
-                    print(f"      Type: {type(negative_cond).__name__}")
+                    print(f"      ⚠️  Unexpected format: {type(negative_cond)}")
+                    neg_tensor = None
             else:
                 print(f"   ❌ Negative Encoding Failed")
+                neg_tensor = None
             
             # ============================================
             # AFTER TEXT ENCODING - FINAL MONITORING
@@ -1339,10 +1395,9 @@ class ReferenceVideoPipeline:
             
             # Analyze and save positive conditioning
             print(f"\n   📁 POSITIVE CONDITIONING TENSOR:")
-            if positive_cond is not None:
+            if positive_cond is not None and pos_tensor is not None:
                 try:
                     if isinstance(positive_cond, (list, tuple)) and len(positive_cond) > 0:
-                        pos_tensor = positive_cond[0] if isinstance(positive_cond[0], torch.Tensor) else positive_cond[0]
                         pos_dict = positive_cond[1] if len(positive_cond) > 1 else {}
                         
                         print(f"      ✅ Tensor Analysis:")
@@ -1376,15 +1431,17 @@ class ReferenceVideoPipeline:
                         print(f"      ❌ Unexpected format: {type(positive_cond)}")
                 except Exception as e:
                     print(f"      ❌ Error analyzing positive tensor: {e}")
+            elif positive_cond is not None:
+                print(f"      ⚠️  Positive conditioning exists but no valid tensor found")
+                print(f"      Raw data: {type(positive_cond)} - {positive_cond}")
             else:
                 print(f"      ❌ Positive conditioning is None")
             
             # Analyze and save negative conditioning
             print(f"\n   📁 NEGATIVE CONDITIONING TENSOR:")
-            if negative_cond is not None:
+            if negative_cond is not None and neg_tensor is not None:
                 try:
                     if isinstance(negative_cond, (list, tuple)) and len(negative_cond) > 0:
-                        neg_tensor = negative_cond[0] if isinstance(negative_cond[0], torch.Tensor) else negative_cond[0]
                         neg_dict = negative_cond[1] if len(negative_cond) > 1 else {}
                         
                         print(f"      ✅ Tensor Analysis:")
@@ -1393,7 +1450,7 @@ class ReferenceVideoPipeline:
                         print(f"         Device: {neg_tensor.device}")
                         print(f"         Dtype: {neg_tensor.dtype}")
                         print(f"         Size: {neg_tensor.element_size() * neg_tensor.nelement() / (1024**2):.2f} MB")
-                        print(f"         Dictionary Keys: {list(neg_dict.keys()) if pos_dict else 'None'}")
+                        print(f"         Dictionary Keys: {list(neg_dict.keys()) if neg_dict else 'None'}")
                         
                         # Save negative tensor
                         neg_filename = f"./p_out/step3/negative_conditioning_{int(time.time())}.npz"
@@ -1418,53 +1475,60 @@ class ReferenceVideoPipeline:
                         print(f"      ❌ Unexpected format: {type(negative_cond)}")
                 except Exception as e:
                     print(f"      ❌ Error analyzing negative tensor: {e}")
+            elif negative_cond is not None:
+                print(f"      ⚠️  Negative conditioning exists but no valid tensor found")
+                print(f"      Raw data: {type(negative_cond)} - {negative_cond}")
             else:
                 print(f"      ❌ Negative conditioning is None")
             
             # Combined analysis
             print(f"\n   📊 COMBINED TENSOR ANALYSIS:")
-            if positive_cond and negative_cond:
+            if positive_cond and negative_cond and pos_tensor is not None and neg_tensor is not None:
                 try:
-                    if isinstance(positive_cond, (list, tuple)) and len(positive_cond) > 0 and isinstance(negative_cond, (list, tuple)) and len(negative_cond) > 0:
-                        pos_tensor = positive_cond[0] if isinstance(positive_cond[0], torch.Tensor) else positive_cond[0]
-                        neg_tensor = negative_cond[0] if isinstance(negative_cond[0], torch.Tensor) else negative_cond[0]
-                        
-                        total_memory = (pos_tensor.element_size() * pos_tensor.nelement() + 
-                                       neg_tensor.element_size() * neg_tensor.nelement()) / (1024**2)
-                        
-                        print(f"      ✅ Combined Analysis:")
-                        print(f"         Total Memory: {total_memory:.2f} MB")
-                        print(f"         Device Consistency: {'✅ PASS' if pos_tensor.device == neg_tensor.device else '❌ FAIL'}")
-                        print(f"         Dtype Consistency: {'✅ PASS' if pos_tensor.dtype == neg_tensor.dtype else '❌ FAIL'}")
-                        print(f"         Shape Analysis: {pos_tensor.shape} + {neg_tensor.shape}")
-                        
-                        # Save combined analysis
-                        combined_filename = f"./p_out/step3/combined_analysis_{int(time.time())}.npz"
-                        np.savez_compressed(
-                            combined_filename,
-                            positive_tensor=pos_tensor.cpu().numpy(),
-                            negative_tensor=neg_tensor.cpu().numpy(),
-                            positive_shape=pos_tensor.shape,
-                            negative_shape=neg_tensor.shape,
-                            positive_device=str(pos_tensor.device),
-                            negative_device=str(neg_tensor.device),
-                            positive_dtype=str(pos_tensor.dtype),
-                            negative_dtype=str(neg_tensor.dtype),
-                            total_memory_mb=total_memory,
-                            device_consistency=(pos_tensor.device == neg_tensor.device),
-                            dtype_consistency=(pos_tensor.dtype == neg_tensor.dtype),
-                            metadata={
-                                'timestamp': time.time(),
-                                'step': 'step3_text_encoding',
-                                'positive_prompt': positive_prompt,
-                                'negative_prompt': negative_prompt,
-                                'analysis_type': 'combined_conditioning'
-                            }
-                        )
-                        print(f"      💾 Combined analysis saved to: {combined_filename}")
-                        
+                    total_memory = (pos_tensor.element_size() * pos_tensor.nelement() + 
+                                   neg_tensor.element_size() * neg_tensor.nelement()) / (1024**2)
+                    
+                    print(f"      ✅ Combined Analysis:")
+                    print(f"         Total Memory: {total_memory:.2f} MB")
+                    print(f"         Device Consistency: {'✅ PASS' if pos_tensor.device == neg_tensor.device else '❌ FAIL'}")
+                    print(f"         Dtype Consistency: {'✅ PASS' if pos_tensor.dtype == neg_tensor.dtype else '❌ FAIL'}")
+                    print(f"         Shape Analysis: {pos_tensor.shape} + {neg_tensor.shape}")
+                    
+                    # Save combined analysis
+                    combined_filename = f"./p_out/step3/combined_analysis_{int(time.time())}.npz"
+                    np.savez_compressed(
+                        combined_filename,
+                        positive_tensor=pos_tensor.cpu().numpy(),
+                        negative_tensor=neg_tensor.cpu().numpy(),
+                        positive_shape=pos_tensor.shape,
+                        negative_shape=neg_tensor.shape,
+                        positive_device=str(pos_tensor.device),
+                        negative_device=str(neg_tensor.device),
+                        positive_dtype=str(pos_tensor.dtype),
+                        negative_dtype=str(neg_tensor.dtype),
+                        total_memory_mb=total_memory,
+                        device_consistency=(pos_tensor.device == neg_tensor.device),
+                        dtype_consistency=(pos_tensor.dtype == neg_tensor.dtype),
+                        metadata={
+                            'timestamp': time.time(),
+                            'step': 'step3_text_encoding',
+                            'positive_prompt': positive_prompt,
+                            'negative_prompt': negative_prompt,
+                            'analysis_type': 'combined_conditioning'
+                        }
+                    )
+                    print(f"      💾 Combined analysis saved to: {combined_filename}")
+                    
                 except Exception as e:
                     print(f"      ❌ Error in combined analysis: {e}")
+            elif positive_cond and negative_cond:
+                print(f"      ⚠️  Both conditionings exist but one or both tensors are invalid")
+                print(f"      Positive tensor: {'Valid' if pos_tensor is not None else 'Invalid'}")
+                print(f"      Negative tensor: {'Valid' if neg_tensor is not None else 'Invalid'}")
+            else:
+                print(f"      ⚠️  Cannot perform combined analysis - missing conditionings")
+                print(f"      Positive: {'Present' if positive_cond else 'Missing'}")
+                print(f"      Negative: {'Present' if negative_cond else 'Missing'}")
             
             # ============================================
             # STEP 3 PERFORMANCE SUMMARY
