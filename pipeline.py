@@ -1231,38 +1231,39 @@ class ReferenceVideoPipeline:
                 unet_model_type = "Unknown"
                 unet_patches_count = 0
                 
-                if hasattr(self.unet, 'device'):
-                    unet_device = str(self.unet.device)
-                if hasattr(self.unet, 'model') and hasattr(self.unet.model, 'device'):
-                    unet_internal_device = str(self.unet.model.device)
-                if hasattr(self.unet, 'model_type'):
-                    unet_model_type = str(self.unet.model_type)
-                if hasattr(self.unet, 'patches'):
-                    unet_patches_count = len(self.unet.patches) if self.unet.patches else 0
+                if hasattr(model, 'device'):
+                    unet_device = str(model.device)
+                if hasattr(model, 'model') and hasattr(model.model, 'device'):
+                    unet_internal_device = str(model.model.device)
+                if hasattr(model, 'model') and hasattr(model.model, 'model_type'):
+                    unet_model_type = str(model.model.model_type)
+                if hasattr(model, 'patches'):
+                    unet_patches_count = len(model.patches) if model.patches else 0
                 
                 # CLIP Analysis
                 clip_device = "Unknown"
                 clip_internal_device = "Unknown"
                 clip_model_type = "Unknown"
                 
-                if hasattr(self.clip, 'device'):
-                    clip_device = str(self.clip.device)
-                if hasattr(self.clip, 'model') and hasattr(self.clip.model, 'device'):
-                    clip_internal_device = str(self.clip.model.device)
-                if hasattr(self.clip, 'model_type'):
-                    clip_model_type = str(self.clip.model_type)
+                if hasattr(clip_model, 'device'):
+                    clip_device = str(clip_model.device)
+                if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'model'):
+                    if hasattr(clip_model.patcher.model, 'device'):
+                        clip_internal_device = str(clip_model.patcher.model.device)
+                if hasattr(clip_model, 'model_type'):
+                    clip_model_type = str(clip_model.model_type)
                 
                 # VAE Analysis
                 vae_device = "Unknown"
                 vae_internal_device = "Unknown"
                 vae_model_type = "Unknown"
                 
-                if hasattr(self.vae, 'device'):
-                    vae_device = str(self.vae.device)
-                if hasattr(self.vae, 'model') and hasattr(self.vae.model, 'device'):
-                    vae_internal_device = str(self.vae.model.device)
-                if hasattr(self.vae, 'model_type'):
-                    vae_model_type = str(self.vae.model_type)
+                if hasattr(vae, 'device'):
+                    vae_device = str(vae.device)
+                if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'device'):
+                    vae_internal_device = str(vae.first_stage_model.device)
+                if hasattr(vae, 'model_type'):
+                    vae_model_type = str(vae.model_type)
                 
                 print(f"      🔧 UNET Analysis:")
                 print(f"         Wrapper Device: {unet_device}")
@@ -1366,7 +1367,7 @@ class ReferenceVideoPipeline:
                 
                 # Basic info
                 print(f"      📋 Basic Information:")
-                print(f"         Class: {type(self.unet).__name__}")
+                print(f"         Class: {type(model).__name__}")
                 print(f"         Device: {unet_device}")
                 print(f"         Internal Device: {unet_internal_device}")
                 print(f"         Model Type: {unet_model_type}")
@@ -1374,17 +1375,17 @@ class ReferenceVideoPipeline:
                 # LoRA patches analysis
                 print(f"      🎯 LoRA Patches Analysis:")
                 print(f"         Total Patches: {unet_patches_count}")
-                if hasattr(self.unet, 'patches') and self.unet.patches:
+                if hasattr(model, 'patches') and model.patches:
                     patch_types = {}
-                    for patch in self.unet.patches:
+                    for patch in model.patches:
                         patch_type = type(patch).__name__
                         patch_types[patch_type] = patch_types.get(patch_type, 0) + 1
                     print(f"         Patch Types: {patch_types}")
                 
                 # Memory analysis
-                if hasattr(self.unet, 'model') and hasattr(self.unet.model, 'parameters'):
-                    total_params = sum(p.numel() for p in self.unet.model.parameters())
-                    trainable_params = sum(p.numel() for p in self.unet.model.parameters() if p.requires_grad)
+                if hasattr(model, 'model') and hasattr(model.model, 'parameters'):
+                    total_params = sum(p.numel() for p in model.model.parameters())
+                    trainable_params = sum(p.numel() for p in model.model.parameters() if p.requires_grad)
                     print(f"      💾 Model Parameters:")
                     print(f"         Total Parameters: {total_params:,}")
                     print(f"         Trainable Parameters: {trainable_params:,}")
@@ -1392,8 +1393,8 @@ class ReferenceVideoPipeline:
                 
                 # Device placement verification
                 print(f"      🔍 Device Placement Verification:")
-                if hasattr(self.unet, 'model') and hasattr(self.unet.model, 'parameters'):
-                    param_devices = set(str(p.device) for p in self.unet.model.parameters())
+                if hasattr(model, 'model') and hasattr(model.model, 'parameters'):
+                    param_devices = set(str(p.device) for p in model.model.parameters())
                     print(f"         Parameter Devices: {param_devices}")
                     if len(param_devices) > 1:
                         print(f"         ⚠️  WARNING: Parameters on multiple devices!")
