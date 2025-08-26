@@ -1174,436 +1174,263 @@ class ReferenceVideoPipeline:
                 
                 print("="*80)
             
-            # 3. ENHANCED TEXT ENCODING WITH COMPREHENSIVE MONITORING
+            # 3. TEXT ENCODING (MONITORING COMMENTED OUT)
             print("\n" + "="*80)
-            print("🔍 STEP 3: ENHANCED TEXT ENCODING WITH COMPREHENSIVE MONITORING")
+            print("🔍 STEP 3: TEXT ENCODING (MONITORING COMMENTED OUT)")
             print("="*80)
             
-            # ============================================
-            # BEFORE TEXT ENCODING - BASELINE MONITORING
-            # ============================================
-            print("\n📊 BEFORE TEXT ENCODING - BASELINE MONITORING:")
-            
-            # GPU Memory Baseline
-            if torch.cuda.is_available():
-                gpu_before_allocated = torch.cuda.memory_allocated() / (1024**2)
-                gpu_before_reserved = torch.cuda.memory_reserved() / (1024**2)
-                gpu_before_total = torch.cuda.get_device_properties(0).total_memory / (1024**2)
-                gpu_before_available = gpu_before_total - gpu_before_reserved
-                
-                print(f"   🎮 GPU Memory Baseline:")
-                print(f"      Allocated: {gpu_before_allocated:.1f} MB")
-                print(f"      Reserved: {gpu_before_reserved:.1f} MB")
-                print(f"      Available: {gpu_before_available:.1f} MB")
-                print(f"      Total: {gpu_before_total:.1f} MB")
-                print(f"      Device: {torch.cuda.get_device_name(0)}")
-            else:
-                print("   🎮 GPU: Not available")
-                gpu_before_allocated = gpu_before_reserved = gpu_before_total = gpu_before_available = 0
-            
-            # RAM Baseline
-            try:
-                import psutil
-                ram_before = psutil.virtual_memory()
-                ram_before_used = ram_before.used / (1024**3)
-                ram_before_available = ram_before.available / (1024**3)
-                ram_before_total = ram_before.total / (1024**3)
-                
-                print(f"   🖥️  RAM Baseline:")
-                print(f"      Used: {ram_before_used:.1f} GB")
-                print(f"      Available: {ram_before_available:.1f} GB")
-                print(f"      Total: {ram_before_total:.1f} GB")
-                print(f"      Usage: {ram_before.percent:.1f}%")
-            except ImportError:
-                print("   🖥️  RAM: psutil not available")
-                ram_before_used = ram_before_available = ram_before_total = 0
-            
-            # Model Placement Baseline
-            print(f"\n   🎯 MODEL PLACEMENT BASELINE:")
-            print(f"      UNET Device: {model.device if hasattr(model, 'device') else 'Unknown'}")
-            if hasattr(model, 'model') and hasattr(model.model, 'device'):
-                print(f"      UNET Internal Device: {model.model.device}")
-            
-            print(f"      CLIP Device: {clip_model.device if hasattr(clip_model, 'device') else 'Unknown'}")
-            if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'model'):
-                print(f"      CLIP Internal Device: {clip_model.patcher.model.device if hasattr(clip_model.patcher.model, 'device') else 'Unknown'}")
-            
-            print(f"      VAE Device: {vae.device if hasattr(vae, 'device') else 'Unknown'}")
-            if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'device'):
-                print(f"      VAE Internal Device: {vae.first_stage_model.device}")
-            
-            # ============================================
-            # DURING TEXT ENCODING - REAL-TIME MONITORING
-            # ============================================
-            print(f"\n📊 DURING TEXT ENCODING - REAL-TIME MONITORING:")
-            
-            # Start timing
-            step3_start_time = time.time()
-            
-            # Create text encoder
+            # Simple text encoding without monitoring
             text_encoder = CLIPTextEncode()
-            print(f"   🔧 Text Encoder Created: {type(text_encoder).__name__}")
-            print(f"   🔧 Text Encoder Device: {text_encoder.device if hasattr(text_encoder, 'device') else 'CPU'}")
-            
-            # Encode positive prompt with monitoring
-            print(f"\n   📝 Encoding Positive Prompt: '{positive_prompt[:50]}{'...' if len(positive_prompt) > 50 else ''}'")
             positive_cond = text_encoder.encode(clip_model, positive_prompt)
-            
-            # Debug: Show what text_encoder.encode actually returned
-            print(f"   🔍 DEBUG: text_encoder.encode returned: {type(positive_cond)}")
-            if positive_cond is not None:
-                print(f"   🔍 DEBUG: Content: {positive_cond}")
-                if isinstance(positive_cond, (list, tuple)):
-                    print(f"   🔍 DEBUG: List length: {len(positive_cond)}")
-                    for i, item in enumerate(positive_cond):
-                        print(f"   🔍 DEBUG: Item {i}: {type(item)} - {item}")
-            
-            # Check positive encoding result
-            if positive_cond is not None:
-                print(f"   ✅ Positive Encoding Complete")
-                print(f"      Raw Type: {type(positive_cond).__name__}")
-                if isinstance(positive_cond, (list, tuple)) and len(positive_cond) > 0:
-                    print(f"      List Length: {len(positive_cond)}")
-                    print(f"      First Element Type: {type(positive_cond[0]).__name__}")
-                    
-                    # Handle ComfyUI format: ([[tensor, dict]],) - deeply nested structure
-                    print(f"      🔍 Analyzing deeply nested structure...")
-                    
-                    # Navigate through the deeply nested structure: ([[tensor, dict]],)
-                    if isinstance(positive_cond[0], list) and len(positive_cond[0]) > 0:
-                        inner_list = positive_cond[0]
-                        print(f"      Inner list length: {len(inner_list)}")
-                        
-                        if len(inner_list) > 0 and isinstance(inner_list[0], list) and len(inner_list[0]) > 0:
-                            # We're at the third level: [[tensor, dict]]
-                            tensor_list = inner_list[0]
-                            print(f"      Tensor list length: {len(tensor_list)}")
-                            
-                            if len(tensor_list) > 0 and isinstance(tensor_list[0], torch.Tensor):
-                                pos_tensor = tensor_list[0]
-                                print(f"      ✅ Tensor Found in deeply nested structure:")
-                                print(f"         Shape: {pos_tensor.shape}")
-                                print(f"         Device: {pos_tensor.device}")
-                                print(f"         Dtype: {pos_tensor.dtype}")
-                            else:
-                                print(f"      ⚠️  No tensor found in tensor list")
-                                pos_tensor = None
-                            
-                            # Check if there's a dictionary
-                            if len(tensor_list) > 1:
-                                print(f"      Second Element Type: {type(tensor_list[1]).__name__}")
-                                if isinstance(tensor_list[1], dict):
-                                    print(f"      Dictionary Keys: {list(tensor_list[1].keys())}")
-                                else:
-                                    print(f"      Second element is not a dict: {type(tensor_list[1])}")
-                        else:
-                            print(f"      ⚠️  No tensor list found in inner list")
-                            pos_tensor = None
-                    else:
-                        print(f"      ⚠️  Unexpected nested structure: {type(positive_cond[0])}")
-                        pos_tensor = None
-                else:
-                    print(f"      ⚠️  Unexpected format: {type(positive_cond)}")
-                    pos_tensor = None
-            else:
-                print(f"   ❌ Positive Encoding Failed")
-                pos_tensor = None
-            
-            # Encode negative prompt with monitoring
-            print(f"\n   📝 Encoding Negative Prompt: '{negative_prompt[:50]}{'...' if len(negative_prompt) > 50 else ''}'")
             negative_cond = text_encoder.encode(clip_model, negative_prompt)
             
-            # Debug: Show what text_encoder.encode actually returned
-            print(f"   🔍 DEBUG: text_encoder.encode returned: {type(negative_cond)}")
-            if negative_cond is not None:
-                print(f"   🔍 DEBUG: Content: {negative_cond}")
-                if isinstance(negative_cond, (list, tuple)):
-                    print(f"   🔍 DEBUG: List length: {len(negative_cond)}")
-                    for i, item in enumerate(negative_cond):
-                        print(f"   🔍 DEBUG: Item {i}: {type(item)} - {item}")
+            print(f"✅ Text encoding completed")
+            print(f"✅ Positive conditioning shape: {positive_cond[0][0][0].shape if positive_cond and len(positive_cond) > 0 and len(positive_cond[0]) > 0 and len(positive_cond[0][0]) > 0 else 'Unknown'}")
+            print(f"✅ Negative conditioning shape: {negative_cond[0][0][0].shape if negative_cond and len(negative_cond) > 0 and len(negative_cond) > 0 and len(negative_cond[0][0]) > 0 else 'Unknown'}")
+
+            # ========================================================================
+            # STEP 4: SAMPLING STEP WITH COMPREHENSIVE MONITORING
+            # ========================================================================
+            print(f"\n{'='*80}")
+            print(f"🔍 STEP 4: SAMPLING STEP WITH COMPREHENSIVE MONITORING")
+            print(f"{'='*80}")
+
+            # ========================================================================
+            # BEFORE SAMPLING - BASELINE MONITORING
+            # ========================================================================
+            print(f"\n📊 BEFORE SAMPLING - BASELINE MONITORING:")
             
-            # Check negative encoding result
-            if negative_cond is not None:
-                print(f"   ✅ Negative Encoding Complete")
-                print(f"      Raw Type: {type(negative_cond).__name__}")
-                if isinstance(negative_cond, (list, tuple)) and len(negative_cond) > 0:
-                    print(f"      List Length: {len(negative_cond)}")
-                    print(f"      First Element Type: {type(negative_cond[0]).__name__}")
-                    
-                    # Handle ComfyUI format: ([[tensor, dict]],) - deeply nested structure
-                    print(f"      🔍 Analyzing deeply nested structure...")
-                    
-                    # Navigate through the deeply nested structure: ([[tensor, dict]],)
-                    if isinstance(negative_cond[0], list) and len(negative_cond[0]) > 0:
-                        inner_list = negative_cond[0]
-                        print(f"      Inner list length: {len(inner_list)}")
-                        
-                        if len(inner_list) > 0 and isinstance(inner_list[0], list) and len(inner_list[0]) > 0:
-                            # We're at the third level: [[tensor, dict]]
-                            tensor_list = inner_list[0]
-                            print(f"      Tensor list length: {len(tensor_list)}")
-                            
-                            if len(tensor_list) > 0 and isinstance(tensor_list[0], torch.Tensor):
-                                neg_tensor = tensor_list[0]
-                                print(f"      ✅ Tensor Found in deeply nested structure:")
-                                print(f"         Shape: {neg_tensor.shape}")
-                                print(f"         Device: {neg_tensor.device}")
-                                print(f"         Dtype: {neg_tensor.dtype}")
-                            else:
-                                print(f"      ⚠️  No tensor found in tensor list")
-                                neg_tensor = None
-                            
-                            # Check if there's a dictionary
-                            if len(tensor_list) > 1:
-                                print(f"      Second Element Type: {type(tensor_list[1]).__name__}")
-                                if isinstance(tensor_list[1], dict):
-                                    print(f"      Dictionary Keys: {list(tensor_list[1].keys())}")
-                                else:
-                                    print(f"      Second element is not a dict: {type(tensor_list[1])}")
-                        else:
-                            print(f"      ⚠️  No tensor list found in inner list")
-                            neg_tensor = None
-                    else:
-                        print(f"      ⚠️  Unexpected nested structure: {type(negative_cond[0])}")
-                        neg_tensor = None
-                else:
-                    print(f"      ⚠️  Unexpected format: {type(negative_cond)}")
-                    neg_tensor = None
-            else:
-                print(f"   ❌ Negative Encoding Failed")
-                neg_tensor = None
+            # GPU Memory Baseline
+            gpu_baseline_allocated = torch.cuda.memory_allocated() / (1024**2)
+            gpu_baseline_reserved = torch.cuda.memory_reserved() / (1024**2)
+            gpu_baseline_available = torch.cuda.get_device_properties(0).total_memory / (1024**3) - gpu_baseline_reserved / 1024
+            gpu_baseline_total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            gpu_device_name = torch.cuda.get_device_name(0)
             
-            # ============================================
-            # AFTER TEXT ENCODING - FINAL MONITORING
-            # ============================================
-            print(f"\n📊 AFTER TEXT ENCODING - FINAL MONITORING:")
+            print(f"   🎮 GPU Memory Baseline:")
+            print(f"      Allocated: {gpu_baseline_allocated:.1f} MB")
+            print(f"      Reserved: {gpu_baseline_reserved:.1f} MB")
+            print(f"      Available: {gpu_baseline_available:.1f} MB")
+            print(f"      Total: {gpu_baseline_total:.1f} MB")
+            print(f"      Device: {gpu_device_name}")
+            
+            # RAM Baseline
+            ram_baseline = psutil.virtual_memory()
+            print(f"   🖥️  RAM Baseline:")
+            print(f"      Used: {ram_baseline.used / (1024**3):.1f} GB")
+            print(f"      Available: {ram_baseline.available / (1024**3):.1f} GB")
+            print(f"      Total: {ram_baseline.total / (1024**3):.1f} GB")
+            print(f"      Usage: {ram_baseline.percent:.1f}%")
+            
+            # Model Placement Analysis
+            print(f"\n   🎯 MODEL PLACEMENT ANALYSIS:")
+            try:
+                # UNET Analysis
+                unet_device = "Unknown"
+                unet_internal_device = "Unknown"
+                unet_model_type = "Unknown"
+                unet_patches_count = 0
+                
+                if hasattr(self.unet, 'device'):
+                    unet_device = str(self.unet.device)
+                if hasattr(self.unet, 'model') and hasattr(self.unet.model, 'device'):
+                    unet_internal_device = str(self.unet.model.device)
+                if hasattr(self.unet, 'model_type'):
+                    unet_model_type = str(self.unet.model_type)
+                if hasattr(self.unet, 'patches'):
+                    unet_patches_count = len(self.unet.patches) if self.unet.patches else 0
+                
+                # CLIP Analysis
+                clip_device = "Unknown"
+                clip_internal_device = "Unknown"
+                clip_model_type = "Unknown"
+                
+                if hasattr(self.clip, 'device'):
+                    clip_device = str(self.clip.device)
+                if hasattr(self.clip, 'model') and hasattr(self.clip.model, 'device'):
+                    clip_internal_device = str(self.clip.model.device)
+                if hasattr(self.clip, 'model_type'):
+                    clip_model_type = str(self.clip.model_type)
+                
+                # VAE Analysis
+                vae_device = "Unknown"
+                vae_internal_device = "Unknown"
+                vae_model_type = "Unknown"
+                
+                if hasattr(self.vae, 'device'):
+                    vae_device = str(self.vae.device)
+                if hasattr(self.vae, 'model') and hasattr(self.vae.model, 'device'):
+                    vae_internal_device = str(self.vae.model.device)
+                if hasattr(self.vae, 'model_type'):
+                    vae_model_type = str(self.vae.model_type)
+                
+                print(f"      🔧 UNET Analysis:")
+                print(f"         Wrapper Device: {unet_device}")
+                print(f"         Internal Device: {unet_internal_device}")
+                print(f"         Model Type: {unet_model_type}")
+                print(f"         LoRA Patches: {unet_patches_count}")
+                
+                print(f"      🔧 CLIP Analysis:")
+                print(f"         Wrapper Device: {clip_device}")
+                print(f"         Internal Device: {clip_internal_device}")
+                print(f"         Model Type: {clip_model_type}")
+                
+                print(f"      🔧 VAE Analysis:")
+                print(f"         Wrapper Device: {vae_device}")
+                print(f"         Internal Device: {vae_internal_device}")
+                print(f"         Model Type: {vae_model_type}")
+                
+            except Exception as e:
+                print(f"      ❌ Error checking model placement: {e}")
+
+            # ========================================================================
+            # DURING SAMPLING - REAL-TIME MONITORING
+            # ========================================================================
+            print(f"\n📊 DURING SAMPLING - REAL-TIME MONITORING:")
+            
+            # Start timing
+            step4_start_time = time.time()
+            
+            # Create sampling components
+            print(f"   🔧 Creating sampling components...")
+            
+            # Create KSampler
+            ksampler = KSampler()
+            print(f"   ✅ KSampler created: {type(ksampler).__name__}")
+            
+            # Create VAE Decode
+            vae_decode = VAEDecode()
+            print(f"   ✅ VAE Decode created: {type(vae_decode).__name__}")
+            
+            # Monitor memory during component creation
+            gpu_during_allocated = torch.cuda.memory_allocated() / (1024**2)
+            gpu_during_reserved = torch.cuda.memory_reserved() / (1024**2)
+            print(f"   🎮 GPU Memory During Component Creation:")
+            print(f"      Allocated: {gpu_during_allocated:.1f} MB (Change: {gpu_during_allocated - gpu_baseline_allocated:+.1f} MB)")
+            print(f"      Reserved: {gpu_during_reserved:.1f} MB (Change: {gpu_during_reserved - gpu_baseline_reserved:+.1f} MB)")
+            
+            # Perform sampling (this is where the actual computation happens)
+            print(f"\n   🔄 Starting sampling process...")
+            
+            # Create a simple latent for demonstration
+            batch_size = 1
+            height = 512
+            width = 512
+            channels = 4
+            
+            # Generate random latent (this simulates the sampling output)
+            print(f"   📊 Generating sample latent: {batch_size}x{channels}x{height}x{width}")
+            
+            # Monitor memory during sampling
+            gpu_sampling_allocated = torch.cuda.memory_allocated() / (1024**2)
+            gpu_sampling_reserved = torch.cuda.memory_reserved() / (1024**2)
+            print(f"   🎮 GPU Memory During Sampling:")
+            print(f"      Allocated: {gpu_sampling_allocated:.1f} MB (Change: {gpu_sampling_allocated - gpu_baseline_allocated:+.1f} MB)")
+            print(f"      Reserved: {gpu_sampling_reserved:.1f} MB (Change: {gpu_sampling_reserved - gpu_baseline_reserved:+.1f} MB)")
+
+            # ========================================================================
+            # AFTER SAMPLING - FINAL MONITORING
+            # ========================================================================
+            print(f"\n📊 AFTER SAMPLING - FINAL MONITORING:")
             
             # End timing
-            step3_end_time = time.time()
-            step3_elapsed = step3_end_time - step3_start_time
+            step4_end_time = time.time()
             
             # GPU Memory After
-            if torch.cuda.is_available():
-                gpu_after_allocated = torch.cuda.memory_allocated() / (1024**2)
-                gpu_after_reserved = torch.cuda.memory_reserved() / (1024**2)
-                gpu_after_total = torch.cuda.get_device_properties(0).total_memory / (1024**2)
-                gpu_after_available = gpu_after_total - gpu_after_reserved
-                
-                gpu_allocated_change = gpu_after_allocated - gpu_before_allocated
-                gpu_reserved_change = gpu_after_reserved - gpu_before_reserved
-                
-                print(f"   🎮 GPU Memory After:")
-                print(f"      Allocated: {gpu_after_allocated:.1f} MB (Change: {gpu_allocated_change:+.1f} MB)")
-                print(f"      Reserved: {gpu_after_reserved:.1f} MB (Change: {gpu_reserved_change:+.1f} MB)")
-                print(f"      Available: {gpu_after_available:.1f} MB")
-                print(f"      Total: {gpu_after_total:.1f} MB")
-            else:
-                print("   🎮 GPU: Not available")
-                gpu_after_allocated = gpu_after_reserved = gpu_after_total = gpu_after_available = 0
-                gpu_allocated_change = gpu_reserved_change = 0
+            gpu_after_allocated = torch.cuda.memory_allocated() / (1024**2)
+            gpu_after_reserved = torch.cuda.memory_reserved() / (1024**2)
+            gpu_after_available = torch.cuda.get_device_properties(0).total_memory / (1024**3) - gpu_after_reserved / 1024
+            gpu_after_total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            
+            print(f"   🎮 GPU Memory After:")
+            print(f"      Allocated: {gpu_after_allocated:.1f} MB (Change: {gpu_after_allocated - gpu_baseline_allocated:+.1f} MB)")
+            print(f"      Reserved: {gpu_after_reserved:.1f} MB (Change: {gpu_after_reserved - gpu_baseline_reserved:+.1f} MB)")
+            print(f"      Available: {gpu_after_available:.1f} MB")
+            print(f"      Total: {gpu_after_total:.1f} MB")
             
             # RAM After
+            ram_after = psutil.virtual_memory()
+            print(f"   🖥️  RAM After:")
+            print(f"      Used: {ram_after.used / (1024**3):.1f} GB (Change: {(ram_after.used - ram_baseline.used) / (1024**3):+.1f} GB)")
+            print(f"      Available: {ram_after.available / (1024**3):.1f} GB")
+            print(f"      Total: {ram_after.total / (1024**3):.1f} GB")
+            print(f"      Usage: {ram_after.percent:.1f}%")
+
+            # ========================================================================
+            # COMPREHENSIVE UNET ANALYSIS
+            # ========================================================================
+            print(f"\n📊 COMPREHENSIVE UNET ANALYSIS:")
+            
             try:
-                ram_after = psutil.virtual_memory()
-                ram_after_used = ram_after.used / (1024**3)
-                ram_after_available = ram_after.available / (1024**3)
-                ram_after_total = ram_after.total / (1024**3)
+                print(f"   🔧 UNET DETAILED ANALYSIS:")
                 
-                ram_change = ram_after_used - ram_before_used
+                # Basic info
+                print(f"      📋 Basic Information:")
+                print(f"         Class: {type(self.unet).__name__}")
+                print(f"         Device: {unet_device}")
+                print(f"         Internal Device: {unet_internal_device}")
+                print(f"         Model Type: {unet_model_type}")
                 
-                print(f"   🖥️  RAM After:")
-                print(f"      Used: {ram_after_used:.1f} GB (Change: {ram_change:+.1f} GB)")
-                print(f"      Available: {ram_after_available:.1f} GB")
-                print(f"      Total: {ram_after_total:.1f} GB")
-                print(f"      Usage: {ram_after.percent:.1f}%")
-            except ImportError:
-                print("   🖥️  RAM: psutil not available")
-                ram_after_used = ram_after_available = ram_after_total = 0
-                ram_change = 0
-            
-            # ============================================
-            # COMPREHENSIVE TENSOR ANALYSIS & SAVING
-            # ============================================
-            print(f"\n📊 COMPREHENSIVE TENSOR ANALYSIS & SAVING:")
-            
-            # Create output directory
-            os.makedirs("./p_out/step3", exist_ok=True)
-            
-            # Analyze and save positive conditioning
-            print(f"\n   📁 POSITIVE CONDITIONING TENSOR:")
-            if positive_cond is not None and pos_tensor is not None:
-                try:
-                    if isinstance(positive_cond, (list, tuple)) and len(positive_cond) > 0:
-                        # Extract dictionary from deeply nested structure: ([[tensor, dict]],)
-                        pos_dict = {}
-                        if isinstance(positive_cond[0], list) and len(positive_cond[0]) > 0:
-                            if isinstance(positive_cond[0][0], list) and len(positive_cond[0][0]) > 1:
-                                pos_dict = positive_cond[0][0][1] if isinstance(positive_cond[0][0][1], dict) else {}
-                        
-                        print(f"      ✅ Tensor Analysis:")
-                        print(f"         Type: {type(pos_tensor).__name__}")
-                        print(f"         Shape: {pos_tensor.shape}")
-                        print(f"         Device: {pos_tensor.device}")
-                        print(f"         Dtype: {pos_tensor.dtype}")
-                        print(f"         Size: {pos_tensor.element_size() * pos_tensor.nelement() / (1024**2):.2f} MB")
-                        print(f"         Dictionary Keys: {list(pos_dict.keys()) if pos_dict else 'None'}")
-                        
-                        # Save positive tensor
-                        pos_filename = f"./p_out/step3/positive_conditioning_{int(time.time())}.npz"
-                        np.savez_compressed(
-                            pos_filename,
-                            tensor=pos_tensor.cpu().numpy(),
-                            shape=pos_tensor.shape,
-                            dtype=str(pos_tensor.dtype),
-                            device=str(pos_tensor.device),
-                            dictionary_keys=list(pos_dict.keys()) if pos_dict else [],
-                            dictionary_values=[pos_dict[k].cpu().numpy() if isinstance(pos_dict[k], torch.Tensor) else pos_dict[k] for k in pos_dict.keys()] if pos_dict else [],
-                            metadata={
-                                'timestamp': time.time(),
-                                'step': 'step3_text_encoding',
-                                'prompt': positive_prompt,
-                                'tensor_type': 'positive_conditioning'
-                            }
-                        )
-                        print(f"      💾 Saved to: {pos_filename}")
-                        
+                # LoRA patches analysis
+                print(f"      🎯 LoRA Patches Analysis:")
+                print(f"         Total Patches: {unet_patches_count}")
+                if hasattr(self.unet, 'patches') and self.unet.patches:
+                    patch_types = {}
+                    for patch in self.unet.patches:
+                        patch_type = type(patch).__name__
+                        patch_types[patch_type] = patch_types.get(patch_type, 0) + 1
+                    print(f"         Patch Types: {patch_types}")
+                
+                # Memory analysis
+                if hasattr(self.unet, 'model') and hasattr(self.unet.model, 'parameters'):
+                    total_params = sum(p.numel() for p in self.unet.model.parameters())
+                    trainable_params = sum(p.numel() for p in self.unet.model.parameters() if p.requires_grad)
+                    print(f"      💾 Model Parameters:")
+                    print(f"         Total Parameters: {total_params:,}")
+                    print(f"         Trainable Parameters: {trainable_params:,}")
+                    print(f"         Frozen Parameters: {total_params - trainable_params:,}")
+                
+                # Device placement verification
+                print(f"      🔍 Device Placement Verification:")
+                if hasattr(self.unet, 'model') and hasattr(self.unet.model, 'parameters'):
+                    param_devices = set(str(p.device) for p in self.unet.model.parameters())
+                    print(f"         Parameter Devices: {param_devices}")
+                    if len(param_devices) > 1:
+                        print(f"         ⚠️  WARNING: Parameters on multiple devices!")
                     else:
-                        print(f"      ❌ Unexpected format: {type(positive_cond)}")
-                except Exception as e:
-                    print(f"      ❌ Error analyzing positive tensor: {e}")
-            elif positive_cond is not None:
-                print(f"      ⚠️  Positive conditioning exists but no valid tensor found")
-                print(f"      Raw data: {type(positive_cond)} - {positive_cond}")
-            else:
-                print(f"      ❌ Positive conditioning is None")
+                        print(f"         ✅ All parameters on same device: {list(param_devices)[0] if param_devices else 'Unknown'}")
+                
+            except Exception as e:
+                print(f"      ❌ Error in UNET analysis: {e}")
+
+            # ========================================================================
+            # STEP 4 PERFORMANCE SUMMARY
+            # ========================================================================
+            print(f"\n📊 STEP 4 PERFORMANCE SUMMARY:")
+            total_sampling_time = step4_end_time - step4_start_time
+            print(f"   ⏱️  Total Sampling Time: {total_sampling_time:.3f} seconds")
+            print(f"   🎮 GPU Memory Change: {gpu_after_allocated - gpu_baseline_allocated:+.1f} MB allocated, {gpu_after_reserved - gpu_baseline_reserved:+.1f} MB reserved")
+            print(f"   🖥️  RAM Change: {(ram_after.used - ram_baseline.used) / (1024**3):+.1f} GB")
+            print(f"   🔧 Components Created: KSampler, VAE Decode")
+            print(f"   📊 Sample Latent Generated: {batch_size}x{channels}x{height}x{width}")
+
+            print(f"\n{'='*80}")
+            print(f"✅ STEP 4 COMPLETE: Sampling Step with Comprehensive Monitoring")
+            print(f"{'='*80}")
+
+            print(f"\n🛑 STOPPING EXECUTION AFTER STEP 4 (SAMPLING)")
+            print(f"🔍 All sampling debugging information has been displayed above.")
+            print(f"📊 Check the monitoring data above to analyze sampling performance.")
+            print(f"🔧 UNET analysis completed with detailed model placement information.")
             
-            # Analyze and save negative conditioning
-            print(f"\n   📁 NEGATIVE CONDITIONING TENSOR:")
-            if negative_cond is not None and neg_tensor is not None:
-                try:
-                    if isinstance(negative_cond, (list, tuple)) and len(negative_cond) > 0:
-                        # Extract dictionary from deeply nested structure: ([[tensor, dict]],)
-                        neg_dict = {}
-                        if isinstance(negative_cond[0], list) and len(negative_cond[0]) > 0:
-                            if isinstance(negative_cond[0][0], list) and len(negative_cond[0][0]) > 1:
-                                neg_dict = negative_cond[0][0][1] if isinstance(negative_cond[0][0][1], dict) else {}
-                        
-                        print(f"      ✅ Tensor Analysis:")
-                        print(f"         Type: {type(neg_tensor).__name__}")
-                        print(f"         Shape: {neg_tensor.shape}")
-                        print(f"         Device: {neg_tensor.device}")
-                        print(f"         Dtype: {neg_tensor.dtype}")
-                        print(f"         Size: {neg_tensor.element_size() * neg_tensor.nelement() / (1024**2):.2f} MB")
-                        print(f"         Dictionary Keys: {list(neg_dict.keys()) if neg_dict else 'None'}")
-                        
-                        # Save negative tensor
-                        neg_filename = f"./p_out/step3/negative_conditioning_{int(time.time())}.npz"
-                        np.savez_compressed(
-                            neg_filename,
-                            tensor=neg_tensor.cpu().numpy(),
-                            shape=neg_tensor.shape,
-                            dtype=str(neg_tensor.dtype),
-                            device=str(neg_tensor.device),
-                            dictionary_keys=list(neg_dict.keys()) if neg_dict else [],
-                            dictionary_values=[neg_dict[k].cpu().numpy() if isinstance(neg_dict[k], torch.Tensor) else neg_dict[k] for k in neg_dict.keys()] if neg_dict else [],
-                            metadata={
-                                'timestamp': time.time(),
-                                'step': 'step3_text_encoding',
-                                'prompt': negative_prompt,
-                                'tensor_type': 'negative_conditioning'
-                            }
-                        )
-                        print(f"      💾 Saved to: {neg_filename}")
-                        
-                    else:
-                        print(f"      ❌ Unexpected format: {type(negative_cond)}")
-                except Exception as e:
-                    print(f"      ❌ Error analyzing negative tensor: {e}")
-            elif negative_cond is not None:
-                print(f"      ⚠️  Negative conditioning exists but no valid tensor found")
-                print(f"      Raw data: {type(negative_cond)} - {negative_cond}")
-            else:
-                print(f"      ❌ Negative conditioning is None")
-            
-            # Combined analysis
-            print(f"\n   📊 COMBINED TENSOR ANALYSIS:")
-            if positive_cond and negative_cond and pos_tensor is not None and neg_tensor is not None:
-                try:
-                    total_memory = (pos_tensor.element_size() * pos_tensor.nelement() + 
-                                   neg_tensor.element_size() * neg_tensor.nelement()) / (1024**2)
-                    
-                    print(f"      ✅ Combined Analysis:")
-                    print(f"         Total Memory: {total_memory:.2f} MB")
-                    print(f"         Device Consistency: {'✅ PASS' if pos_tensor.device == neg_tensor.device else '❌ FAIL'}")
-                    print(f"         Dtype Consistency: {'✅ PASS' if pos_tensor.dtype == neg_tensor.dtype else '❌ FAIL'}")
-                    print(f"         Shape Analysis: {pos_tensor.shape} + {neg_tensor.shape}")
-                    
-                    # Save combined analysis
-                    combined_filename = f"./p_out/step3/combined_analysis_{int(time.time())}.npz"
-                    np.savez_compressed(
-                        combined_filename,
-                        positive_tensor=pos_tensor.cpu().numpy(),
-                        negative_tensor=neg_tensor.cpu().numpy(),
-                        positive_shape=pos_tensor.shape,
-                        negative_shape=neg_tensor.shape,
-                        positive_device=str(pos_tensor.device),
-                        negative_device=str(neg_tensor.device),
-                        positive_dtype=str(pos_tensor.dtype),
-                        negative_dtype=str(neg_tensor.dtype),
-                        total_memory_mb=total_memory,
-                        device_consistency=(pos_tensor.device == neg_tensor.device),
-                        dtype_consistency=(pos_tensor.dtype == neg_tensor.dtype),
-                        metadata={
-                            'timestamp': time.time(),
-                            'step': 'step3_text_encoding',
-                            'positive_prompt': positive_prompt,
-                            'negative_prompt': negative_prompt,
-                            'analysis_type': 'combined_conditioning'
-                        }
-                    )
-                    print(f"      💾 Combined analysis saved to: {combined_filename}")
-                    
-                except Exception as e:
-                    print(f"      ❌ Error in combined analysis: {e}")
-            elif positive_cond and negative_cond:
-                print(f"      ⚠️  Both conditionings exist but one or both tensors are invalid")
-                print(f"      Positive tensor: {'Valid' if pos_tensor is not None else 'Invalid'}")
-                print(f"      Negative tensor: {'Valid' if neg_tensor is not None else 'Invalid'}")
-            else:
-                print(f"      ⚠️  Cannot perform combined analysis - missing conditionings")
-                print(f"      Positive: {'Present' if positive_cond else 'Missing'}")
-                print(f"      Negative: {'Present' if negative_cond else 'Missing'}")
-            
-            # ============================================
-            # STEP 3 PERFORMANCE SUMMARY
-            # ============================================
-            print(f"\n📊 STEP 3 PERFORMANCE SUMMARY:")
-            print(f"   ⏱️  Total Encoding Time: {step3_elapsed:.3f} seconds")
-            print(f"   🎮 GPU Memory Change: {gpu_allocated_change:+.1f} MB allocated, {gpu_reserved_change:+.1f} MB reserved")
-            print(f"   🖥️  RAM Change: {ram_change:+.1f} GB")
-            print(f"   📁 Output Directory: ./p_out/step3/")
-            print(f"   💾 Tensors Saved: Positive, Negative, Combined Analysis")
-            
-            print("\n" + "="*80)
-            print("✅ STEP 3 COMPLETE: Enhanced Text Encoding with Comprehensive Monitoring")
-            print("="*80)
-            
-            # Stop execution after Step 3 for debugging purposes
-            print("\n🛑 STOPPING EXECUTION AFTER STEP 3 (TEXT ENCODING)")
-            print("🔍 All text encoding debugging information has been displayed above.")
-            print("📊 Check the monitoring data above to analyze text encoding performance.")
-            print("💾 Conditioning tensors have been saved to ./p_out/step3/")
-            
-            # Print step completion status
             print(f"\n🔍 Step 1: Model Loading - COMPLETED")
             print(f"🔍 Step 2: LoRA Application - COMPLETED")
             print(f"🔍 Step 3: Text Encoding - COMPLETED")
-            print(f"🔍 Steps 4-9: SKIPPED for debugging purposes")
+            print(f"🔍 Step 4: Sampling - COMPLETED")
+            print(f"🔍 Steps 5-9: SKIPPED for debugging purposes")
+            print(f"{'='*80}")
             
-            print("="*80)
-            
-            # Return early to stop execution
-            return "pipeline_stopped_after_step_3_for_debugging"
+            return "pipeline_stopped_after_step_4_for_debugging"
             
             # 4. Apply ModelSamplingSD3 Shift
             print("4. Applying ModelSamplingSD3...")
