@@ -1242,672 +1242,165 @@ class ReferenceVideoPipeline:
             print("="*80)
             
             # ========================================================================
-            # STEP 5: GENERATE INITIAL LATENTS WITH COMPREHENSIVE MONITORING
+            # STEP 5: GENERATE INITIAL LATENTS (COMFY-LIKE)
             # ========================================================================
             print(f"\n{'='*80}")
-            print(f"🔍 STEP 5: GENERATE INITIAL LATENTS WITH COMPREHENSIVE MONITORING")
+            print(f"🔍 STEP 5: GENERATE INITIAL LATENTS (COMFY-LIKE)")
             print(f"{'='*80}")
 
-            # ========================================================================
-            # BEFORE VAE ENCODING - BASELINE MONITORING
-            # ========================================================================
-            print(f"\n📊 BEFORE VAE ENCODING - BASELINE MONITORING:")
-            
-            # GPU Memory Baseline
-            gpu_baseline_allocated = torch.cuda.memory_allocated() / (1024**2)
-            gpu_baseline_reserved = torch.cuda.memory_reserved() / (1024**2)
-            gpu_baseline_available = torch.cuda.get_device_properties(0).total_memory / (1024**3) - gpu_baseline_reserved / 1024
-            gpu_baseline_total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-            gpu_device_name = torch.cuda.get_device_name(0)
-            
-            print(f"   🎮 GPU Memory Baseline:")
-            print(f"      Allocated: {gpu_baseline_allocated:.1f} MB")
-            print(f"      Reserved: {gpu_baseline_reserved:.1f} MB")
-            print(f"      Available: {gpu_baseline_available:.1f} GB")
-            print(f"      Total: {gpu_baseline_total:.1f} GB")
-            print(f"      Device: {gpu_device_name}")
-            
-            # RAM Baseline
-            ram_baseline = psutil.virtual_memory()
-            print(f"   🖥️  RAM Baseline:")
-            print(f"      Used: {ram_baseline.used / (1024**3):.1f} GB")
-            print(f"      Available: {ram_baseline.available / (1024**3):.1f} GB")
-            print(f"      Total: {ram_baseline.total / (1024**3):.1f} GB")
-            print(f"      Usage: {ram_baseline.percent:.1f}%")
-            
-            # Model Placement Analysis
-            print(f"\n   🎯 MODEL PLACEMENT ANALYSIS:")
-            try:
-                # UNET Analysis
-                unet_device = "Unknown"
-                unet_internal_device = "Unknown"
-                unet_model_type = "Unknown"
-                unet_patches_count = 0
-                
-                if hasattr(model, 'device'):
-                    unet_device = str(model.device)
-                if hasattr(model, 'model') and hasattr(model.model, 'device'):
-                    unet_internal_device = str(model.model.device)
-                if hasattr(model, 'model') and hasattr(model.model, 'model_type'):
-                    unet_model_type = str(model.model.model_type)
-                if hasattr(model, 'patches'):
-                    unet_patches_count = len(model.patches) if model.patches else 0
-                
-                # CLIP Analysis
-                clip_device = "Unknown"
-                clip_internal_device = "Unknown"
-                clip_model_type = "Unknown"
-                
-                if hasattr(clip_model, 'device'):
-                    clip_device = str(clip_model.device)
-                if hasattr(clip_model, 'patcher') and hasattr(clip_model.patcher, 'model'):
-                    if hasattr(clip_model.patcher.model, 'device'):
-                        clip_internal_device = str(clip_model.patcher.model.device)
-                if hasattr(clip_model, 'model_type'):
-                    clip_model_type = str(clip_model.model_type)
-                
-                # VAE Analysis
-                vae_device = "Unknown"
-                vae_internal_device = "Unknown"
-                vae_model_type = "Unknown"
-                
-                if hasattr(vae, 'device'):
-                    vae_device = str(vae.device)
-                if hasattr(vae, 'first_stage_model') and hasattr(vae.first_stage_model, 'device'):
-                    vae_internal_device = str(vae.first_stage_model.device)
-                if hasattr(vae, 'model_type'):
-                    vae_model_type = str(vae.model_type)
-                
-                print(f"      🔧 UNET Analysis:")
-                print(f"         Wrapper Device: {unet_device}")
-                print(f"         Internal Device: {unet_internal_device}")
-                print(f"         Model Type: {unet_model_type}")
-                print(f"         LoRA Patches: {unet_patches_count}")
-                
-                print(f"      🔧 CLIP Analysis:")
-                print(f"         Wrapper Device: {clip_device}")
-                print(f"         Internal Device: {clip_internal_device}")
-                print(f"         Model Type: {clip_model_type}")
-                
-                print(f"      🔧 VAE Analysis:")
-                print(f"         Wrapper Device: {vae_device}")
-                print(f"         Internal Device: {vae_internal_device}")
-                print(f"         Model Type: {vae_model_type}")
-                
-            except Exception as e:
-                print(f"      ❌ Error checking model placement: {e}")
+            # Comfy-like implementation of WanVaceToVideo.encode
+            from comfy import node_helpers
 
-            # Start timing for step 5
-            step5_start_time = time.time()
-            
-            # Create video generator
-            print(f"\n🔧 Creating video generator...")
-            video_generator = WanVaceToVideo()
-            print(f"✅ Video generator created: {type(video_generator).__name__}")
-            
-            # Load control video and reference image
-            print(f"\n📁 Loading input files...")
-            control_video = self.load_video(control_video_path) if control_video_path else None
-            reference_image = self.load_image(reference_image_path) if reference_image_path else None
-            
+            vae_stride = 8
+            latent_length = ((length - 1) // 4) + 1
+
+            # Prepare control video
             if control_video is not None:
-                print(f"✅ Control video loaded: {type(control_video).__name__}")
-                if hasattr(control_video, 'shape'):
-                    print(f"   Shape: {control_video.shape}")
+                control_video = control_video[:length]
+                control_video = comfy.utils.common_upscale(
+                    control_video.movedim(-1, 1), width, height, "bilinear", "center"
+                ).movedim(1, -1)
+                if control_video.shape[0] < length:
+                    control_video = torch.nn.functional.pad(
+                        control_video, (0, 0, 0, 0, 0, 0, 0, length - control_video.shape[0]), value=0.5
+                    )
             else:
-                print(f"ℹ️  No control video provided")
-                
+                device = vae.first_stage_model.device if hasattr(vae, 'first_stage_model') else 'cpu'
+                control_video = torch.ones((length, height, width, 3), device=device) * 0.5
+
+            # Prepare reference image (optional)
+            ref_img = None
             if reference_image is not None:
-                print(f"✅ Reference image loaded: {type(reference_image).__name__}")
-                if hasattr(reference_image, 'shape'):
-                    print(f"   Shape: {reference_image.shape}")
-            else:
-                print(f"ℹ️  No reference image provided")
+                ref_img = comfy.utils.common_upscale(
+                    reference_image[:1].movedim(-1, 1), width, height, "bilinear", "center"
+                ).movedim(1, -1)
 
-            # ========================================================================
-            # DURING VAE ENCODING - REAL-TIME MONITORING
-            # ========================================================================
-            print(f"\n📊 DURING VAE ENCODING - REAL-TIME MONITORING:")
-            
-            # Monitor memory during video generator creation
-            gpu_during_allocated = torch.cuda.memory_allocated() / (1024**2)
-            gpu_during_reserved = torch.cuda.memory_reserved() / (1024**2)
-            print(f"   🎮 GPU Memory After Video Generator Creation:")
-            print(f"      Allocated: {gpu_during_allocated:.1f} MB (Change: {gpu_during_allocated - gpu_baseline_allocated:+.1f} MB)")
-            print(f"      Reserved: {gpu_during_reserved:.1f} MB (Change: {gpu_during_reserved - gpu_baseline_reserved:+.1f} MB)")
-            
-            # Simplified VAE encoding strategy - let ComfyUI handle everything
-            print(f"\n5a. 🎯 SIMPLIFIED VAE ENCODING STRATEGY")
-            print(f"5a. Letting ComfyUI's VAE handle device placement and memory management automatically")
-            
-            # Check memory before VAE encoding starts
-            print(f"5a. Checking memory before VAE encoding...")
-            self._check_memory_usage('vae_encoding_start', expected_threshold=8000)
-            
-            # ✅ TRUSTING COMFYUI'S MEMORY MANAGEMENT SYSTEM
-            print(f"5a. ✅ Trusting ComfyUI's proven memory management system")
-            print(f"5a. 💡 ComfyUI will automatically handle all memory allocation and cleanup")
-            print(f"5a. 💡 No manual intervention needed - ComfyUI knows best!")
-            
-            # ComfyUI will automatically manage memory during VAE encoding
-            memory_cleanup_success = True  # Always true when trusting ComfyUI
-            
-            # ENSURE PROPER CHUNKING FOR VAE ENCODING
-            print(f"5a. 🔧 ENSURING PROPER CHUNKING FOR VAE ENCODING...")
-            
-            # Get chunking configuration for VAE encoding
-            vae_encode_chunk_size = processing_plan['vae_encode']['chunk_size']
-            vae_encode_num_chunks = processing_plan['vae_encode']['num_chunks']
-            
-            print(f"5a. Chunking Configuration:")
-            print(f"5a.   Chunk Size: {vae_encode_chunk_size} frames per chunk")
-            print(f"5a.   Total Chunks: {vae_encode_num_chunks}")
-            print(f"5a.   Total Frames: {length}")
-            
-            # Force chunked processing if we have many frames
-            if length > vae_encode_chunk_size:
-                print(f"5a. ✅ Using chunked processing: {length} frames > {vae_encode_chunk_size} chunk size")
-                use_chunked_processing = True
+            # Prepare mask (default full mask if none provided)
+            cm = locals().get('control_masks', None)
+            if cm is None:
+                mask = torch.ones((length, height, width, 1), device=control_video.device)
             else:
-                print(f"5a. ℹ️  Single chunk processing: {length} frames <= {vae_encode_chunk_size} chunk size")
-                use_chunked_processing = False
-            
-            # ✅ TRUSTING COMFYUI'S NATURAL CHUNKING STRATEGY
-            print(f"5a. ✅ Trusting ComfyUI's natural chunking and memory management")
-            print(f"5a. 💡 ComfyUI will automatically choose optimal chunk sizes")
-            print(f"5a. 💡 No manual chunking override needed - ComfyUI knows best!")
-            
-            # Monitor memory before VAE encoding execution
-            gpu_before_encoding = torch.cuda.memory_allocated() / (1024**2)
-            gpu_before_reserved = torch.cuda.memory_reserved() / (1024**2)
-            print(f"   🎮 GPU Memory Before VAE Encoding:")
-            print(f"      Allocated: {gpu_before_encoding:.1f} MB (Change: {gpu_before_encoding - gpu_baseline_allocated:+.1f} MB)")
-            print(f"      Reserved: {gpu_before_reserved:.1f} MB (Change: {gpu_before_reserved - gpu_baseline_reserved:+.1f} MB)")
-            
-            try:
-                # Strategy 1: Use ComfyUI's native VAE encoding with smart batching
-                print(f"\n5a. Strategy 1: ComfyUI native VAE encoding (smart batching)")
-                print(f"5a. Processing {length} frames at {width}x{height}")
-                
-                # ✅ TRUSTING COMFYUI'S VAE ENCODING SYSTEM
-                print(f"5a. ✅ Trusting ComfyUI's VAE encoding system")
-                print(f"5a. 💡 ComfyUI will automatically handle chunking, memory, and device placement")
-                print(f"5a. 💡 No manual chunking parameters needed - ComfyUI knows best!")
-                
-                # Let ComfyUI handle everything automatically
-                positive_cond, negative_cond, init_latent, trim_count = video_generator.encode(
-                    positive_cond, negative_cond, vae, width, height,
-                    length, batch_size, strength, control_video, None, reference_image
-                )
-                
-                print(f"5a. ✅ SUCCESS: ComfyUI VAE encoding completed!")
-                print(f"5a. Generated latent shape: {init_latent.shape}")
-                
-                # Monitor memory during VAE encoding
-                gpu_encoding_allocated = torch.cuda.memory_allocated() / (1024**2)
-                gpu_encoding_reserved = torch.cuda.memory_reserved() / (1024**2)
-                print(f"   🎮 GPU Memory During VAE Encoding:")
-                print(f"      Allocated: {gpu_encoding_allocated:.1f} MB (Change: {gpu_encoding_allocated - gpu_baseline_allocated:+.1f} MB)")
-                print(f"      Reserved: {gpu_encoding_reserved:.1f} MB (Change: {gpu_encoding_reserved - gpu_baseline_reserved:+.1f} MB)")
-                
-            except torch.cuda.OutOfMemoryError:
-                print(f"5a. ❌ Strategy 1 failed: OOM with native encoding")
-                print(f"5a. ComfyUI should automatically fall back to tiled processing...")
-                
-                # Strategy 2: Force tiled VAE encoding (ComfyUI's fallback)
-                try:
-                    print(f"5a. Strategy 2: Forcing ComfyUI tiled VAE encoding")
-                    
-                    # Create a minimal control video for tiled processing
-                    if control_video is not None:
-                        # Use ComfyUI's tiled encoding directly
-                        print(f"5a. Using VAE.encode_tiled() for memory-efficient processing")
-                        
-                        # Use ComfyUI's tiled encoding with optimal tile sizes
-                        if hasattr(vae, 'encode_tiled'):
-                            # For video (3D), use optimal tile sizes
-                            init_latent = vae.encode_tiled(
-                                control_video, 
-                                tile_x=256,  # 256x256 spatial tiles
-                                tile_y=256, 
-                                tile_t=16,   # Process 16 frames at a time
-                                overlap=64   # 64px overlap for smooth blending
-                            )
-                            print(f"5a. ✅ SUCCESS: Tiled VAE encoding worked!")
-                            print(f"5a. Generated latent shape: {init_latent.shape}")
-                            
-                            # Create dummy positive/negative conditions for compatibility
-                            # ComfyUI expects: [(tensor, dict)] format from CLIPTextEncode
-                            print(f"5a. Creating proper dummy CLIP conditions for ComfyUI compatibility...")
-                            
-                            # Create dummy CLIP embeddings in the correct format
-                            # Format: [(tensor, dict)] - ComfyUI expects this format
-                            dummy_embedding = torch.randn((1, 77, 1280))  # Dummy CLIP embedding
-                            dummy_dict = {}  # Empty dict as expected by ComfyUI
-                            
-                            # Format: [(tensor, dict)] - ComfyUI expects this format
-                            positive_cond = [(dummy_embedding, dummy_dict)]
-                            negative_cond = [(dummy_embedding, dummy_dict)]
-                            
-                            print(f"5a. Created dummy conditions: positive={len(positive_cond)} tuples, negative={len(negative_cond)} tuples")
-                            print(f"5a. Each tuple format: (tensor, dict) where tensor shape: {dummy_embedding.shape}")
-                            
-                            trim_count = 0
-                        else:
-                            raise RuntimeError("VAE does not support tiled encoding")
-                    else:
-                        raise RuntimeError("No control video available for tiled encoding")
-                        
-                except Exception as tiled_error:
-                    print(f"5a. ❌ Strategy 2 failed: Tiled encoding error: {tiled_error}")
-                    
-                    # Strategy 3: CPU Fallback (when GPU is completely fragmented)
-                    try:
-                        print(f"5a. Strategy 3: CPU Fallback - processing on CPU")
-                        
-                        # Create minimal dummy latent for CPU processing
-                        print(f"5a. Creating minimal dummy latent for CPU processing...")
-                        init_latent = torch.randn((1, length, 4, height, width), device='cpu')
-                        print(f"5a. ✅ SUCCESS: CPU fallback latent created!")
-                        print(f"5a. Generated latent shape: {init_latent.shape}")
-                        
-                        # Create dummy conditions for CPU processing
-                        dummy_embedding = torch.randn((1, 77, 1280), device='cpu')
-                        dummy_dict = {}
-                        positive_cond = [(dummy_embedding, dummy_dict)]
-                        negative_cond = [(dummy_embedding, dummy_dict)]
-                        trim_count = 0
-                        
-                    except Exception as cpu_error:
-                        print(f"5a. ❌ Strategy 3 failed: CPU fallback error: {cpu_error}")
-                        print(f"5a. 🚨 All VAE encoding strategies failed!")
-                        raise RuntimeError(f"VAE encoding completely failed: {cpu_error}")
-                        
-            except Exception as encoding_error:
-                print(f"5a. ❌ VAE encoding failed with error: {encoding_error}")
-                raise encoding_error
+                mask = cm
+                if mask.ndim == 3:
+                    mask = mask.unsqueeze(1)
+                mask = comfy.utils.common_upscale(
+                    mask[:length], width, height, "bilinear", "center"
+                ).movedim(1, -1)
+                if mask.shape[0] < length:
+                    mask = torch.nn.functional.pad(
+                        mask, (0, 0, 0, 0, 0, 0, 0, length - mask.shape[0]), value=1.0
+                    )
 
-            # ========================================================================
-            # AFTER VAE ENCODING - FINAL MONITORING
-            # ========================================================================
-            print(f"\n📊 AFTER VAE ENCODING - FINAL MONITORING:")
-            
-            # End timing for step 5
-            step5_end_time = time.time()
-            
-            # GPU Memory After
-            gpu_after_allocated = torch.cuda.memory_allocated() / (1024**2)
-            gpu_after_reserved = torch.cuda.memory_reserved() / (1024**2)
-            gpu_after_available = torch.cuda.get_device_properties(0).total_memory / (1024**3) - gpu_after_reserved / 1024
-            gpu_after_total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-            
-            print(f"   🎮 GPU Memory After:")
-            print(f"      Allocated: {gpu_after_allocated:.1f} MB (Change: {gpu_after_allocated - gpu_baseline_allocated:+.1f} MB)")
-            print(f"      Reserved: {gpu_after_reserved:.1f} MB (Change: {gpu_after_reserved - gpu_baseline_reserved:+.1f} MB)")
-            print(f"      Available: {gpu_after_available:.1f} GB")
-            print(f"      Total: {gpu_after_total:.1f} GB")
-            
-            # RAM After
-            ram_after = psutil.virtual_memory()
-            print(f"   🖥️  RAM After:")
-            print(f"      Used: {ram_after.used / (1024**3):.1f} GB (Change: {(ram_after.used - ram_baseline.used) / (1024**3):+.1f} GB)")
-            print(f"      Available: {ram_after.available / (1024**3):.1f} GB")
-            print(f"      Total: {ram_after.total / (1024**3):.1f} GB")
-            print(f"      Usage: {ram_after.percent:.1f}%")
+            # Normalize and split by mask
+            control_video_norm = control_video - 0.5
+            inactive = (control_video_norm * (1 - mask)) + 0.5
+            reactive = (control_video_norm * mask) + 0.5
 
-            # ========================================================================
-            # COMPREHENSIVE UNET ANALYSIS AFTER VAE ENCODING
-            # ========================================================================
-            print(f"\n📊 COMPREHENSIVE UNET ANALYSIS AFTER VAE ENCODING:")
-            
-            try:
-                print(f"   🔧 UNET DETAILED ANALYSIS:")
-                
-                # Basic info
-                print(f"      📋 Basic Information:")
-                print(f"         Class: {type(model).__name__}")
-                print(f"         Device: {unet_device}")
-                print(f"         Internal Device: {unet_internal_device}")
-                print(f"         Model Type: {unet_model_type}")
-                
-                # LoRA patches analysis
-                print(f"      🎯 LoRA Patches Analysis:")
-                print(f"         Total Patches: {unet_patches_count}")
-                if hasattr(model, 'patches') and model.patches:
-                    patch_types = {}
-                    for patch in model.patches:
-                        patch_type = type(patch).__name__
-                        patch_types[patch_type] = patch_types.get(patch_type, 0) + 1
-                    print(f"         Patch Types: {patch_types}")
-                
-                # Memory analysis
-                if hasattr(model, 'model') and hasattr(model.model, 'parameters'):
-                    total_params = sum(p.numel() for p in model.model.parameters())
-                    trainable_params = sum(p.numel() for p in model.model.parameters() if p.requires_grad)
-                    print(f"      💾 Model Parameters:")
-                    print(f"         Total Parameters: {total_params:,}")
-                    print(f"         Trainable Parameters: {trainable_params:,}")
-                    print(f"         Frozen Parameters: {total_params - trainable_params:,}")
-                
-                # Device placement verification
-                print(f"      🔍 Device Placement Verification:")
-                if hasattr(model, 'model') and hasattr(model.model, 'parameters'):
-                    param_devices = set(str(p.device) for p in model.model.parameters())
-                    print(f"         Parameter Devices: {param_devices}")
-                    if len(param_devices) > 1:
-                        print(f"         ⚠️  WARNING: Parameters on multiple devices!")
-                    else:
-                        print(f"         ✅ All parameters on same device: {list(param_devices)[0] if param_devices else 'Unknown'}")
-                
-            except Exception as e:
-                print(f"      ❌ Error in UNET analysis: {e}")
+            # VAE encode inactive/reactive paths
+            inactive_latent = vae.encode(inactive[:, :, :, :3])
+            reactive_latent = vae.encode(reactive[:, :, :, :3])
+            control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
 
-            # ========================================================================
-            # COMPREHENSIVE STEP 5 DEBUG PARAMETERS (10 PARAMETERS TOTAL)
-            # ========================================================================
-            print(f"\n🔍 COMPREHENSIVE STEP 5 DEBUG PARAMETERS:")
-            print(f"{'='*80}")
-            
-            # ========================================================================
-            # VAE OPERATION PARAMETERS (5 PARAMETERS)
-            # ========================================================================
-            print(f"\n📊 VAE OPERATION PARAMETERS (5 PARAMETERS):")
-            
-            # 1. ENCODING STRATEGY
-            print(f"   1️⃣  ENCODING STRATEGY:")
-            if 'use_chunked_processing' in locals():
-                if use_chunked_processing:
-                    print(f"      ✅ Strategy: Chunked Processing")
-                    print(f"      📊 Chunk Size: {vae_encode_chunk_size} frames")
-                    print(f"      📊 Total Chunks: {vae_encode_num_chunks}")
-                    print(f"      📊 Processing Mode: Multi-chunk sequential")
-                else:
-                    print(f"      ✅ Strategy: Single Chunk Processing")
-                    print(f"      📊 Chunk Size: {length} frames (all frames)")
-                    print(f"      📊 Total Chunks: 1")
-                    print(f"      📊 Processing Mode: Single batch")
-            else:
-                print(f"      ℹ️  Strategy: Auto-detected by ComfyUI")
-                print(f"      📊 Chunk Size: Auto-optimized")
-                print(f"      📊 Total Chunks: Auto-calculated")
-                print(f"      📊 Processing Mode: ComfyUI managed")
-            
-            # 2. LATENT DIMENSIONS
-            print(f"   2️⃣  LATENT DIMENSIONS:")
-            if hasattr(init_latent, 'shape'):
-                latent_shape = init_latent.shape
-                print(f"      📊 Final Latent Shape: {latent_shape}")
-                if len(latent_shape) == 5:  # (batch, frames, channels, height, width)
-                    batch, frames, channels, height, width = latent_shape
-                    print(f"      📊 Batch Size: {batch}")
-                    print(f"      📊 Temporal Frames: {frames}")
-                    print(f"      📊 Channels: {channels}")
-                    print(f"      📊 Spatial Height: {height}")
-                    print(f"      📊 Spatial Width: {width}")
-                    
-                    # Calculate compression ratios
-                    temporal_compression = length / frames if frames > 0 else 0
-                    spatial_compression_h = height / height if height > 0 else 0
-                    spatial_compression_w = width / width if width > 0 else 0
-                    
-                    print(f"      📊 Temporal Compression: {temporal_compression:.2f}x")
-                    print(f"      📊 Spatial Compression: {spatial_compression_h:.2f}x (H), {spatial_compression_w:.2f}x (W)")
-                else:
-                    print(f"      ⚠️  Unexpected latent shape dimensions: {len(latent_shape)}")
-            else:
-                print(f"      ❌ Latent shape not available")
-            
-            # 3. FRAME PROCESSING
-            print(f"   3️⃣  FRAME PROCESSING:")
-            print(f"      📊 Input Video Length: {length} frames")
-            print(f"      📊 Input Resolution: {width}x{height}")
-            print(f"      📊 Batch Size: {batch_size}")
-            print(f"      📊 Strength Parameter: {strength}")
-            
-            if 'trim_count' in locals():
-                print(f"      📊 Frames Trimmed: {trim_count}")
-                print(f"      📊 Frames Processed: {length - trim_count}")
-            else:
-                print(f"      📊 Frames Processed: {length}")
-            
-            # 4. CHUNKING STRATEGY
-            print(f"   4️⃣  CHUNKING STRATEGY:")
-            if 'vae_encode_chunk_size' in locals() and 'vae_encode_num_chunks' in locals():
-                print(f"      📊 Chunk Size: {vae_encode_chunk_size} frames per chunk")
-                print(f"      📊 Total Chunks: {vae_encode_num_chunks}")
-                print(f"      📊 Chunking Ratio: {length / vae_encode_chunk_size:.2f}")
-                
-                if length > vae_encode_chunk_size:
-                    print(f"      ✅ Multi-chunk processing enabled")
-                    print(f"      📊 Memory per chunk: ~{(width * height * 3 * vae_encode_chunk_size * 4) / (1024**2):.1f} MB")
-                else:
-                    print(f"      ✅ Single-chunk processing (efficient for short videos)")
-                    print(f"      📊 Memory per chunk: ~{(width * height * 3 * length * 4) / (1024**2):.1f} MB")
-            else:
-                print(f"      ℹ️  Chunking managed by ComfyUI automatically")
-            
-            # 5. DEVICE PLACEMENT
-            print(f"   5️⃣  DEVICE PLACEMENT:")
-            print(f"      🔧 VAE Wrapper Device: {vae_device}")
-            print(f"      🔧 VAE Internal Device: {vae_internal_device}")
-            print(f"      🔧 VAE Model Type: {vae_model_type}")
-            
-            if hasattr(init_latent, 'device'):
-                print(f"      🔧 Generated Latent Device: {init_latent.device}")
-            else:
-                print(f"      🔧 Generated Latent Device: Unknown")
-            
-            if control_video is not None and hasattr(control_video, 'device'):
-                print(f"      🔧 Control Video Device: {control_video.device}")
-            else:
-                print(f"      🔧 Control Video Device: Not loaded")
-                
-            if reference_image is not None and hasattr(reference_image, 'device'):
-                print(f"      🔧 Reference Image Device: {reference_image.device}")
-            else:
-                print(f"      🔧 Reference Image Device: Not loaded")
-            
-            # ========================================================================
-            # MEMORY-RELATED PARAMETERS (5 PARAMETERS)
-            # ========================================================================
-            print(f"\n📊 MEMORY-RELATED PARAMETERS (5 PARAMETERS):")
-            
-            # 1. PEAK GPU USAGE
-            print(f"   1️⃣  PEAK GPU USAGE:")
-            peak_gpu_allocated = max(gpu_baseline_allocated, gpu_during_allocated, gpu_before_encoding, gpu_encoding_allocated, gpu_after_allocated)
-            peak_gpu_reserved = max(gpu_baseline_reserved, gpu_during_reserved, gpu_before_reserved, gpu_encoding_reserved, gpu_after_reserved)
-            
-            print(f"      🎮 Peak Allocated: {peak_gpu_allocated:.1f} MB")
-            print(f"      🎮 Peak Reserved: {peak_gpu_reserved:.1f} MB")
-            print(f"      🎮 Peak Usage: {peak_gpu_reserved / gpu_baseline_total * 100:.1f}% of total VRAM")
-            
-            # Identify when peak occurred
-            if peak_gpu_allocated == gpu_encoding_allocated:
-                print(f"      📍 Peak occurred: During VAE encoding")
-            elif peak_gpu_allocated == gpu_during_allocated:
-                print(f"      📍 Peak occurred: During video generator creation")
-            elif peak_gpu_allocated == gpu_after_allocated:
-                print(f"      📍 Peak occurred: After VAE encoding")
-            else:
-                print(f"      📍 Peak occurred: At baseline")
-            
-            # 2. GPU USAGE CHANGE
-            print(f"   2️⃣  GPU USAGE CHANGE:")
-            gpu_allocated_change = gpu_after_allocated - gpu_baseline_allocated
-            gpu_reserved_change = gpu_after_reserved - gpu_baseline_reserved
-            
-            print(f"      🎮 Allocated Change: {gpu_allocated_change:+.1f} MB")
-            print(f"      🎮 Reserved Change: {gpu_reserved_change:+.1f} MB")
-            print(f"      🎮 Available Change: {(gpu_baseline_available - gpu_after_available):+.1f} GB")
-            
-            # Memory efficiency analysis
-            if gpu_allocated_change > 0:
-                print(f"      📊 Memory Efficiency: GPU memory increased by {gpu_allocated_change:.1f} MB")
-                if gpu_allocated_change > 1000:
-                    print(f"      ⚠️  High memory increase - consider chunking optimization")
-                elif gpu_allocated_change > 500:
-                    print(f"      ℹ️  Moderate memory increase - within normal range")
-                else:
-                    print(f"      ✅ Low memory increase - efficient processing")
-            else:
-                print(f"      ✅ Memory Efficiency: GPU memory decreased by {abs(gpu_allocated_change):.1f} MB")
-            
-            # 3. MEMORY REQUIREMENT PER FRAME/CHUNK
-            print(f"   3️⃣  MEMORY REQUIREMENT PER FRAME/CHUNK:")
-            if 'vae_encode_chunk_size' in locals() and vae_encode_chunk_size > 0:
-                memory_per_chunk = gpu_allocated_change / vae_encode_num_chunks if vae_encode_num_chunks > 0 else 0
-                memory_per_frame = gpu_allocated_change / length if length > 0 else 0
-                
-                print(f"      📊 Memory per Chunk: {memory_per_chunk:.1f} MB")
-                print(f"      📊 Memory per Frame: {memory_per_frame:.1f} MB")
-                print(f"      📊 Total Chunks: {vae_encode_num_chunks}")
-                print(f"      📊 Total Frames: {length}")
-                
-                # Memory efficiency per frame
-                if memory_per_frame > 100:
-                    print(f"      ⚠️  High memory per frame - consider reducing resolution")
-                elif memory_per_frame > 50:
-                    print(f"      ℹ️  Moderate memory per frame - acceptable range")
-                else:
-                    print(f"      ✅ Low memory per frame - efficient processing")
-            else:
-                print(f"      ℹ️  Memory per frame calculation not available (ComfyUI managed)")
-            
-            # 4. CLEANUP EFFECTIVENESS
-            print(f"   4️⃣  CLEANUP EFFECTIVENESS:")
-            # Calculate cleanup effectiveness based on memory retention
-            memory_retention_allocated = (gpu_after_allocated - gpu_baseline_allocated) / max(peak_gpu_allocated - gpu_baseline_allocated, 1) * 100
-            memory_retention_reserved = (gpu_after_reserved - gpu_baseline_reserved) / max(peak_gpu_reserved - gpu_baseline_reserved, 1) * 100
-            
-            print(f"      🧹 Allocated Memory Retention: {memory_retention_allocated:.1f}%")
-            print(f"      🧹 Reserved Memory Retention: {memory_retention_reserved:.1f}%")
-            
-            # Cleanup effectiveness rating
-            if memory_retention_allocated < 20:
-                print(f"      ✅ Excellent cleanup: {100 - memory_retention_allocated:.1f}% memory freed")
-            elif memory_retention_allocated < 50:
-                print(f"      ✅ Good cleanup: {100 - memory_retention_allocated:.1f}% memory freed")
-            elif memory_retention_allocated < 80:
-                print(f"      ⚠️  Moderate cleanup: {100 - memory_retention_allocated:.1f}% memory freed")
-            else:
-                print(f"      ❌ Poor cleanup: {memory_retention_allocated:.1f}% memory retained")
-            
-            # 5. OOM HANDLING CRITERIA
-            print(f"   5️⃣  OOM HANDLING CRITERIA:")
-            # Calculate OOM risk factors
-            vram_usage_percentage = (gpu_after_reserved / gpu_baseline_total) * 100
-            available_vram_gb = gpu_baseline_total - (gpu_after_reserved / 1024)
-            
-            print(f"      🚨 VRAM Usage: {vram_usage_percentage:.1f}%")
-            print(f"      🚨 Available VRAM: {available_vram_gb:.1f} GB")
-            
-            # OOM risk assessment
-            if vram_usage_percentage > 90:
-                print(f"      🚨 HIGH OOM RISK: VRAM usage > 90%")
-                print(f"      💡 Recommendations: Reduce batch size, enable chunking, lower resolution")
-            elif vram_usage_percentage > 80:
-                print(f"      ⚠️  MODERATE OOM RISK: VRAM usage > 80%")
-                print(f"      💡 Recommendations: Monitor closely, consider optimization")
-            elif vram_usage_percentage > 70:
-                print(f"      ⚠️  LOW OOM RISK: VRAM usage > 70%")
-                print(f"      💡 Recommendations: Safe for current operations")
-            else:
-                print(f"      ✅ SAFE: VRAM usage < 70%")
-                print(f"      💡 Recommendations: Can increase batch size or resolution")
-            
-            # Memory headroom analysis
-            if available_vram_gb < 2:
-                print(f"      🚨 CRITICAL: Only {available_vram_gb:.1f} GB VRAM available")
-            elif available_vram_gb < 5:
-                print(f"      ⚠️  WARNING: Limited VRAM available ({available_vram_gb:.1f} GB)")
-            else:
-                print(f"      ✅ SUFFICIENT: {available_vram_gb:.1f} GB VRAM available")
+            # Reference image path (optional)
+            trim_latent = 0
+            if ref_img is not None:
+                ref_latent = vae.encode(ref_img[:, :, :, :3])
+                ref_latent = torch.cat([
+                    ref_latent,
+                    comfy.latent_formats.Wan21().process_out(torch.zeros_like(ref_latent))
+                ], dim=1)
+                control_video_latent = torch.cat((ref_latent, control_video_latent), dim=2)
+                trim_latent = ref_latent.shape[2]
 
-            # ========================================================================
-            # STEP 5 PERFORMANCE SUMMARY
-            # ========================================================================
-            print(f"\n📊 STEP 5 PERFORMANCE SUMMARY:")
-            total_vae_encoding_time = step5_end_time - step5_start_time
-            print(f"   ⏱️  Total VAE Encoding Time: {total_vae_encoding_time:.3f} seconds")
-            print(f"   🎮 GPU Memory Change: {gpu_after_allocated - gpu_baseline_allocated:+.1f} MB allocated, {gpu_after_reserved - gpu_baseline_reserved:+.1f} MB reserved")
-            print(f"   🖥️  RAM Change: {(ram_after.used - ram_baseline.used) / (1024**3):+.1f} GB")
-            print(f"   🔧 Components Created: Video Generator")
-            print(f"   📊 Latent Generated: {init_latent.shape if hasattr(init_latent, 'shape') else 'Unknown'}")
-            print(f"   📁 Files Loaded: Control Video ({control_video is not None}), Reference Image ({reference_image is not None})")
-            
-            # Debug parameters summary
-            print(f"\n🔍 DEBUG PARAMETERS SUMMARY:")
-            print(f"   📊 VAE Operation Parameters: 5/5 collected")
-            print(f"   📊 Memory-Related Parameters: 5/5 collected")
-            print(f"   📊 Total Parameters: 10/10 collected")
-            print(f"   ✅ Comprehensive debugging data available")
+            # WAN mask reshaping to latent grid
+            height_mask = height // vae_stride
+            width_mask = width // vae_stride
+            mask_lat = mask.view(length, height_mask, vae_stride, width_mask, vae_stride)
+            mask_lat = mask_lat.permute(2, 4, 0, 1, 3)
+            mask_lat = mask_lat.reshape(vae_stride * vae_stride, length, height_mask, width_mask)
+            mask_lat = torch.nn.functional.interpolate(
+                mask_lat.unsqueeze(0), size=(latent_length, height_mask, width_mask), mode='nearest-exact'
+            ).squeeze(0)
+            if trim_latent > 0:
+                pad_front = torch.zeros((mask_lat.shape[0], trim_latent, height_mask, width_mask), device=mask_lat.device, dtype=mask_lat.dtype)
+                mask_lat = torch.cat((pad_front, mask_lat), dim=1)
+            mask_lat = mask_lat.unsqueeze(0)
+
+            # Update conditioning (Comfy-style)
+            positive_cond = node_helpers.conditioning_set_values(
+                positive_cond,
+                {"vace_frames": [control_video_latent], "vace_mask": [mask_lat], "vace_strength": [strength]},
+                append=True,
+            )
+            negative_cond = node_helpers.conditioning_set_values(
+                negative_cond,
+                {"vace_frames": [control_video_latent], "vace_mask": [mask_lat], "vace_strength": [strength]},
+                append=True,
+            )
+
+            # Allocate output latent (container) on intermediate device
+            latent = torch.zeros([
+                batch_size, 16, mask_lat.shape[1], height // 8, width // 8
+            ], device=comfy.model_management.intermediate_device())
+            out_latent = {"samples": latent}
+
+            # Preserve variable names used later if any logging expects them
+            init_latent = latent
+            trim_count = trim_latent
 
             print(f"\n{'='*80}")
-            print(f"✅ STEP 5 COMPLETE: Generate Initial Latents with Comprehensive Monitoring")
+            print(f"✅ STEP 5 COMPLETE: Generate Initial Latents (Comfy-like)")
             print(f"{'='*80}")
 
-            print(f"\n🛑 STOPPING EXECUTION AFTER STEP 5 (VAE ENCODING)")
-            print(f"🔍 All VAE encoding debugging information has been displayed above.")
-            print(f"📊 Check the monitoring data above to analyze VAE encoding performance.")
-            print(f"🔧 UNET analysis completed with detailed model placement information.")
+            print(f"\n�� STOPPING EXECUTION AFTER STEP 5")
+            print(f"🔍 VAE encoding completed successfully (Comfy-like path)")
             
             print(f"\n🔍 Step 1: Model Loading - COMPLETED")
             print(f"🔍 Step 2: LoRA Application - COMPLETED")
             print(f"🔍 Step 3: Text Encoding - COMPLETED")
             print(f"🔍 Step 4: Sampling - COMPLETED")
             print(f"🔍 Step 5: VAE Encoding - COMPLETED")
-            print(f"🔍 Steps 6-9: SKIPPED for debugging purposes")
             print(f"{'='*80}")
             
             return "pipeline_stopped_after_step_5_for_debugging"
             
-            # OOM Checklist: Check memory after UNET sampling execution
-            self._check_memory_usage('unet_sampling', expected_threshold=15000)
+            # 4. Apply ModelSamplingSD3 Shift
+            print("4. Applying ModelSamplingSD3...")
+            model_sampling = ModelSamplingSD3()
             
-            # Let ComfyUI handle UNET memory management automatically
-            print("6a. UNET sampling complete")
-            print("6a. ✅ Letting ComfyUI handle UNET memory management automatically")
-            print("6a. 💡 ComfyUI will move UNET to optimal device when needed")
-            print("6a. 💡 No manual memory management required - ComfyUI knows best!")
+            # ModelPatcher automatically handles loading/unloading during patching
+            model = model_sampling.patch(model, shift=8.0)
             
-            # COMPREHENSIVE VERIFICATIONmodel AFTER UNET SAMPLING
+            # ComfyUI automatically tracks the patched model through ModelPatcher
+            print("4a. ModelSamplingSD3 applied")
+            
+            # OOM Checklist: Check memory after ModelSamplingSD3
+            self._check_memory_usage('model_sampling', expected_threshold=2000)
+            
+            # COMPREHENSIVE VERIFICATION AFTER MODEL SAMPLING
             print("\n" + "="*80)
-            print("🔍 STEP 6 COMPLETE: COMPREHENSIVE VERIFICATION")
+            print("🔍 STEP 4 COMPLETE: COMPREHENSIVE VERIFICATION")
             print("="*80)
             
             # 1. Model Placement Verification
             print("1️⃣  MODEL PLACEMENT VERIFICATION:")
-            model_placement = self._check_model_placement('unet_sampling', ['unet'])
+            model_placement = self._check_model_placement('model_sampling', ['unet'])
             
             # 2. Memory Management Verification
             print("\n2️⃣  MEMORY MANAGEMENT VERIFICATION:")
-            memory_management = self._verify_memory_management('unet_sampling', ['unet'])
+            memory_management = self._verify_memory_management('model_sampling', ['unet'])
             
-            # 3. Chunking Strategy Verifmodelication
+            # 3. Chunking Strategy Verification
             print("\n3️⃣  CHUNKING STRATEGY VERIFICATION:")
-            chunking_strategy = self._verify_chunking_strategy('unet_sampling', processing_plan)
+            chunking_strategy = self._verify_chunking_strategy('model_sampling', processing_plan)
             
-            # 4. UNET Sampling Results Verification
-            print("\n4️⃣  UNET SAMPLING RESULTS VERIFICATION:")
-            if 'final_latent' in locals():
-                if hasattr(final_latent, 'shape'):
-                    print(f"   Sampling Result: ✅ Shape: {final_latent.shape}")
-                    unet_sampling_success = True
-                else:
-                    print("   Sampling Result: ❌ No shape information")
-                    unet_sampling_success = False
-            else:
-                print("   Sampling Result: ❌ No final latent created")
-                unet_sampling_success = False
-            
-            # 5. Summary
-            print("\n📊 STEP 6 SUMMARY:")
+            # 4. Summary
+            print("\n📊 STEP 4 SUMMARY:")
             print(f"   Model Placement: {'✅ PASS' if model_placement else '❌ FAIL'}")
             print(f"   Memory Management: {'✅ PASS' if memory_management else '❌ FAIL'}")
             print(f"   Chunking Strategy: {'✅ PASS' if chunking_strategy else '❌ FAIL'}")
-            print(f"   UNET Sampling Success: {'✅ PASS' if unet_sampling_success else '❌ FAIL'}")
             
-            if not all([model_placement, memory_management, chunking_strategy, unet_sampling_success]):
+            if not all([model_placement, memory_management, chunking_strategy]):
                 print("   ⚠️  Some verifications failed - pipeline may have issues")
             else:
                 print("   ✅ All verifications passed - pipeline ready for next step")
