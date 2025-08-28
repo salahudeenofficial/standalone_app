@@ -1778,10 +1778,81 @@ class ReferenceVideoPipeline:
                 
                 # Return early to stop execution
                 print("✅ Pipeline continuing to Step 3...")
+                
+                # ========================================================================
+                # STEP 3: LOAD VIDEO AND IMAGE DATA
+                # ========================================================================
+                print("\n" + "="*80)
+                print("🔍 STEP 3: LOAD VIDEO AND IMAGE DATA")
+                print("="*80)
+                
+                # Load control video
+                print("3a. Loading control video...")
+                if control_video_path:
+                    control_video = self.load_video(control_video_path)
+                    if control_video is not None:
+                        print(f"   ✅ Control video loaded: {control_video.shape}")
+                    else:
+                        print("   ❌ Failed to load control video")
+                        control_video = None
+                else:
+                    print("   ⚠️  No control video path specified")
+                    control_video = None
+                
+                # Load reference image
+                print("3b. Loading reference image...")
+                if reference_image_path:
+                    reference_image = self.load_image(reference_image_path)
+                    if reference_image is not None:
+                        print(f"   ✅ Reference image loaded: {reference_image.shape}")
+                    else:
+                        print("   ❌ Failed to load reference image")
+                        reference_image = None
+                else:
+                    print("   ⚠️  No reference image path specified")
+                    reference_image = None
+                
+                print("✅ Step 3 completed - continuing to Step 5...")
+                
             else:
                 print("2. No LoRA specified, skipping LoRA application")
                 print("2a. Models remain in original state")
                 print("✅ Step 2 completed - continuing to Step 3...")
+                
+                # ========================================================================
+                # STEP 3: LOAD VIDEO AND IMAGE DATA (No LoRA path)
+                # ========================================================================
+                print("\n" + "="*80)
+                print("🔍 STEP 3: LOAD VIDEO AND IMAGE DATA (No LoRA)")
+                print("="*80)
+                
+                # Load control video
+                print("3a. Loading control video...")
+                if control_video_path:
+                    control_video = self.load_video(control_video_path)
+                    if control_video is not None:
+                        print(f"   ✅ Control video loaded: {control_video.shape}")
+                    else:
+                        print("   ❌ Failed to load control video")
+                        control_video = None
+                else:
+                    print("   ⚠️  No control video path specified")
+                    control_video = None
+                
+                # Load reference image
+                print("3b. Loading reference image...")
+                if reference_image_path:
+                    reference_image = self.load_image(reference_image_path)
+                    if reference_image is not None:
+                        print(f"   ✅ Reference image loaded: {reference_image.shape}")
+                    else:
+                        print("   ❌ Failed to load reference image")
+                        reference_image = None
+                else:
+                    print("   ⚠️  No reference image path specified")
+                    reference_image = None
+                
+                print("✅ Step 3 completed - continuing to Step 5...")
                 
                 # === LORA APPLICATION MONITORING SYSTEM START (No LoRA) ===
                 print("\n🔍 LORA APPLICATION MONITORING SYSTEM ACTIVATED (No LoRA)")
