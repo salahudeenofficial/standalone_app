@@ -1741,7 +1741,7 @@ class ReferenceVideoPipeline:
                     print(f"❌ ComfyUI memory management test failed: {e}")
                     print("   ⚠️  Step 5 may fail due to memory management issues")
                     print("   Continuing anyway...")
-                        else:
+            else:
                 print("⚠️  No model registry available - ComfyUI integration not working")
                 print("   Step 5 will likely fail")
             
