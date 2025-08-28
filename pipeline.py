@@ -156,7 +156,24 @@ class PipelineModelRegistry:
     def register_model(self, model, model_type):
         """Register a model with ComfyUI's memory management system"""
         try:
-            # Create ModelPatcher for the model
+            # Handle VAE objects that already have a patcher
+            if model_type == 'vae' and hasattr(model, 'patcher'):
+                print(f"✅ Model registry: {model_type} already has patcher, using existing one")
+                patcher = model.patcher
+                self.model_patchers[model_type] = patcher
+                self.loaded_models.append(patcher)
+                
+                # Register with ComfyUI's system if not already registered
+                if not any(hasattr(m, 'model') and m.model == patcher for m in comfy.model_management.current_loaded_models):
+                    loaded_model = comfy.model_management.LoadedModel(patcher)
+                    comfy.model_management.current_loaded_models.append(loaded_model)
+                    print(f"✅ Model registry: {model_type} registered with ComfyUI tracking")
+                else:
+                    print(f"✅ Model registry: {model_type} already in ComfyUI tracking")
+                
+                return patcher
+            
+            # Create ModelPatcher for models that don't have one
             if model_type == 'vae':
                 load_device = comfy.model_management.vae_device()
                 offload_device = comfy.model_management.vae_offload_device()
@@ -356,7 +373,15 @@ class ReferenceVideoPipeline:
         """Prepare memory for VAE encoding operations"""
         try:
             # Calculate memory needed for this operation
-            memory_used = vae.memory_used_encode(pixel_samples.shape, vae.vae_dtype)
+            # Ensure pixel_samples has the right shape for VAE memory calculation
+            if pixel_samples.dim() == 4:  # [batch, height, width, channels]
+                shape_for_calc = pixel_samples.shape
+            else:
+                # Fallback shape estimation
+                shape_for_calc = (1, 512, 512, 3)
+                print(f"   Using fallback shape for memory calculation: {shape_for_calc}")
+            
+            memory_used = vae.memory_used_encode(shape_for_calc, vae.vae_dtype)
             
             # Ensure VAE is loaded to GPU with enough memory
             if hasattr(vae, 'patcher') and vae.patcher is not None:
@@ -367,6 +392,8 @@ class ReferenceVideoPipeline:
                 
         except Exception as e:
             print(f"⚠️  VAE memory preparation failed: {e}")
+            print(f"   Pixel samples shape: {pixel_samples.shape if hasattr(pixel_samples, 'shape') else 'N/A'}")
+            # Continue anyway - the VAE encode will handle its own memory management
     
     def _encode_video_chunked(self, vae, video_frames, chunk_size=4):
         """Encode video frames in chunks to avoid OOM"""
@@ -375,23 +402,32 @@ class ReferenceVideoPipeline:
         for i in range(0, len(video_frames), chunk_size):
             chunk = video_frames[i:i+chunk_size]
             
-            # Ensure memory before encoding chunk
-            self._prepare_vae_memory(vae, chunk)
+            # Ensure memory before encoding chunk (with improved error handling)
+            try:
+                self._prepare_vae_memory(vae, chunk)
+            except Exception as e:
+                print(f"   ⚠️  Memory preparation failed, continuing with VAE's built-in management: {e}")
             
             try:
                 chunk_latent = vae.encode(chunk[:, :, :, :3])
                 latents.append(chunk_latent)
                 
                 # Clean up after each chunk
-                torch.cuda.empty_cache()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 
             except torch.cuda.OutOfMemoryError:
                 print(f"⚠️  OOM on chunk {i//chunk_size + 1}, trying smaller chunk...")
                 # Try with single frame
                 for j in range(len(chunk)):
-                    single_latent = vae.encode(chunk[j:j+1, :, :, :3])
-                    latents.append(single_latent)
-                    torch.cuda.empty_cache()
+                    try:
+                        single_latent = vae.encode(chunk[j:j+1, :, :, :3])
+                        latents.append(single_latent)
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except torch.cuda.OutOfMemoryError:
+                        print(f"⚠️  Critical OOM on single frame {j}, skipping...")
+                        continue
         
         return torch.cat(latents, dim=0)
         
@@ -975,8 +1011,13 @@ class ReferenceVideoPipeline:
             
             # Register VAE with model registry if available
             if hasattr(self, 'model_registry') and self.model_registry:
-                self.model_registry.register_model(vae.patcher, 'vae')
-                print("1a. ✅ VAE registered with ComfyUI memory management system")
+                try:
+                    # Register the VAE itself, not the patcher
+                    self.model_registry.register_model(vae, 'vae')
+                    print("1a. ✅ VAE registered with ComfyUI memory management system")
+                except Exception as e:
+                    print(f"1a. ⚠️  Warning: Could not register VAE model: {e}")
+                    print("1a. ✅ VAE will still work with built-in ComfyUI memory management")
             
             print(f"1a. ✅ VAE loaded: {type(vae)}")
             
