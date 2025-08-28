@@ -426,6 +426,66 @@ class ReferenceVideoPipeline:
         
         return torch.cat(latents, dim=0)
     
+    def _comfy_vae_encode(self, vae, pixel_samples):
+        """Encode using ComfyUI's exact batching strategy from sd.py lines 641-672"""
+        print(f"   Input shape: {pixel_samples.shape}")
+        
+        # Follow ComfyUI's exact preprocessing steps
+        vae.throw_exception_if_invalid()
+        pixel_samples = vae.vae_encode_crop_pixels(pixel_samples)
+        pixel_samples = pixel_samples.movedim(-1, 1)
+        if vae.latent_dim == 3 and pixel_samples.ndim < 5:
+            pixel_samples = pixel_samples.movedim(1, 0).unsqueeze(0)
+        
+        print(f"   Preprocessed shape: {pixel_samples.shape}")
+        
+        try:
+            # ComfyUI's memory calculation and batching strategy
+            memory_used = vae.memory_used_encode(pixel_samples.shape, vae.vae_dtype)
+            print(f"   Memory required per batch: {memory_used / (1024**2):.1f} MB")
+            
+            # Load models to GPU and get available memory
+            comfy.model_management.load_models_gpu([vae.patcher], memory_required=memory_used, force_full_load=vae.disable_offload)
+            free_memory = comfy.model_management.get_free_memory(vae.device)
+            print(f"   Free memory available: {free_memory / (1024**2):.1f} MB")
+            
+            # Calculate optimal batch size (ComfyUI's exact formula)
+            batch_number = int(free_memory / max(1, memory_used))
+            batch_number = max(1, batch_number)
+            print(f"   Calculated batch size: {batch_number} frames")
+            
+            # Process in batches (ComfyUI's exact approach)
+            samples = None
+            for x in range(0, pixel_samples.shape[0], batch_number):
+                pixels_in = vae.process_input(pixel_samples[x:x + batch_number]).to(vae.vae_dtype).to(vae.device)
+                print(f"   Processing batch {x//batch_number + 1}: frames {x} to {min(x + batch_number, pixel_samples.shape[0])}")
+                
+                out = vae.first_stage_model.encode(pixels_in).to(vae.output_device).float()
+                
+                if samples is None:
+                    samples = torch.empty((pixel_samples.shape[0],) + tuple(out.shape[1:]), device=vae.output_device)
+                samples[x:x + batch_number] = out
+                
+                # Clean up after each batch
+                del pixels_in, out
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+        except comfy.model_management.OOM_EXCEPTION:
+            print("   ⚠️  OOM detected, falling back to ComfyUI's tiled encoding...")
+            # ComfyUI's exact tiled fallback strategy
+            if vae.latent_dim == 3:
+                tile = 256
+                overlap = tile // 4
+                samples = vae.encode_tiled_3d(pixel_samples, tile_x=tile, tile_y=tile, overlap=(1, overlap, overlap))
+            elif vae.latent_dim == 1 or vae.extra_1d_channel is not None:
+                samples = vae.encode_tiled_1d(pixel_samples)
+            else:
+                samples = vae.encode_tiled_(pixel_samples)
+        
+        print(f"   Output shape: {samples.shape}")
+        return samples
+    
     def _test_comfy_memory_functions_safe(self):
         """Test ComfyUI memory functions without interfering with model tracking"""
         try:
@@ -1884,25 +1944,18 @@ class ReferenceVideoPipeline:
             inactive = (control_video_norm * (1 - mask)) + 0.5
             reactive = (control_video_norm * mask) + 0.5
 
-            # VAE encode inactive/reactive paths (exact ComfyUI logic)
-            # Prepare memory before encoding operations
-            print("🔍 Preparing VAE memory for encoding operations...")
-            self._prepare_vae_memory(vae, inactive)
-            self._prepare_vae_memory(vae, reactive)
-            
-            # Now encode with proper memory management
-            print("🔍 Encoding inactive frames...")
-            inactive_latent = vae.encode(inactive[:, :, :, :3])
-            print("🔍 Encoding reactive frames...")
-            reactive_latent = vae.encode(reactive[:, :, :, :3])
+            # VAE encode inactive/reactive paths using ComfyUI's batching strategy
+            print("🔍 Encoding inactive frames with ComfyUI batching strategy...")
+            inactive_latent = self._comfy_vae_encode(vae, inactive[:, :, :, :3])
+            print("🔍 Encoding reactive frames with ComfyUI batching strategy...")
+            reactive_latent = self._comfy_vae_encode(vae, reactive[:, :, :, :3])
             control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
 
             # Reference image path (optional) - exact ComfyUI logic
             trim_latent = 0
             if ref_img is not None:
-                print("🔍 Encoding reference image...")
-                self._prepare_vae_memory(vae, ref_img)
-                ref_latent = vae.encode(ref_img[:, :, :, :3])
+                print("🔍 Encoding reference image with ComfyUI batching strategy...")
+                ref_latent = self._comfy_vae_encode(vae, ref_img[:, :, :, :3])
                 ref_latent = torch.cat([
                     ref_latent,
                     comfy.latent_formats.Wan21().process_out(torch.zeros_like(ref_latent))
