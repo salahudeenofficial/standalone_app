@@ -2124,14 +2124,14 @@ class ReferenceVideoPipeline:
             print(f"🔍 STEP 5: GENERATE INITIAL LATENTS (COMFY-LIKE)")
             print(f"{'='*80}")
             
-                    # Enable comprehensive memory tracking for Step 5
-        self._track_memory_during_step5()
-        
-        # Start real-time memory monitoring for Step 5
-        self.memory_monitor.start_monitoring("STEP5_VAE_ENCODING")
-        
-        # Initial VRAM analysis before Step 5
-        self._detailed_vram_analysis("STEP5_START")
+            # Enable comprehensive memory tracking for Step 5
+            self._track_memory_during_step5()
+            
+            # Start real-time memory monitoring for Step 5
+            self.memory_monitor.start_monitoring("STEP5_VAE_ENCODING")
+            
+            # Initial VRAM analysis before Step 5
+            self._detailed_vram_analysis("STEP5_START")
 
             # Ensure inputs are loaded locally for this step
             control_video = locals().get('control_video', None)
