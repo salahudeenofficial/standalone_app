@@ -758,25 +758,111 @@ class ReferenceVideoPipeline:
         return torch.cat(latents, dim=0)
     
     def _comfy_vae_encode(self, vae, pixel_samples):
-        """Encode using direct VAE approach - no batch processing"""
+        """Encode using ComfyUI's memory-aware approach with automatic tiled encoding"""
         print(f"   Input shape: {pixel_samples.shape}")
         
         # Load VAE to GPU if needed
         if hasattr(vae, 'patcher'):
             comfy.model_management.load_models_gpu([vae.patcher], memory_required=0, force_full_load=vae.disable_offload)
         
-        # Process entire tensor at once - no frame-by-frame processing
-        print("   Processing entire video tensor at once (direct approach)")
+        # Calculate memory requirement (like ComfyUI does)
+        try:
+            if hasattr(vae, 'memory_used_encode'):
+                memory_needed = vae.memory_used_encode(pixel_samples.shape, vae.vae_dtype)
+                print(f"   📊 Memory required: {memory_needed / 1024**3:.2f} GB")
+            else:
+                memory_needed = None
+                print("   📊 Memory requirement: Unknown (no memory_used_encode method)")
+        except Exception as e:
+            memory_needed = None
+            print(f"   📊 Memory calculation failed: {e}")
+        
+        # Check available memory
+        try:
+            device = comfy.model_management.get_torch_device()
+            available_memory = comfy.model_management.get_free_memory(device)
+            print(f"   📊 Available memory: {available_memory / 1024**3:.2f} GB")
+        except Exception as e:
+            available_memory = None
+            print(f"   📊 Memory check failed: {e}")
+        
+        # Decide encoding strategy based on memory
+        use_tiled = False
+        if memory_needed and available_memory:
+            if memory_needed > available_memory:
+                use_tiled = True
+                print(f"   🚨 Memory insufficient ({memory_needed/1024**3:.2f} GB > {available_memory/1024**3:.2f} GB)")
+                print("   🔧 Switching to ComfyUI tiled encoding...")
+            else:
+                print(f"   ✅ Memory sufficient ({memory_needed/1024**3:.2f} GB <= {available_memory/1024**3:.2f} GB)")
+                print("   🚀 Using direct encoding...")
+        else:
+            # If we can't determine memory, use tiled encoding for safety
+            use_tiled = True
+            print("   ⚠️  Memory info unavailable, using safe tiled encoding...")
         
         try:
-            # Use ComfyUI's standard encode for the entire tensor
-            samples = vae.encode(pixel_samples)
-            print(f"   Output shape: {samples.shape}")
+            if use_tiled:
+                # Use ComfyUI's tiled encoding with optimal tile sizes
+                print("   🧩 Using ComfyUI tiled encoding...")
+                
+                # Calculate optimal tile sizes for video
+                if len(pixel_samples.shape) == 4:  # Video data
+                    # For video, use smaller tiles to fit in memory
+                    tile_x = min(256, pixel_samples.shape[2] // 2)
+                    tile_y = min(256, pixel_samples.shape[1] // 2)
+                    tile_t = min(8, pixel_samples.shape[0])  # Temporal tiles
+                    overlap = 8
+                else:
+                    # For single images, use standard tiles
+                    tile_x = 512
+                    tile_y = 512
+                    tile_t = 1
+                    overlap = 8
+                
+                print(f"   🧩 Tile configuration: T={tile_t}, X={tile_x}, Y={tile_y}, Overlap={overlap}")
+                
+                # Use ComfyUI's tiled encoding
+                samples = vae.encode_tiled_3d(
+                    pixel_samples, 
+                    tile_x=tile_x, 
+                    tile_y=tile_y, 
+                    tile_t=tile_t,
+                    overlap=(overlap, overlap, overlap)
+                )
+                
+                print(f"   ✅ Tiled encoding successful")
+                
+            else:
+                # Use direct encoding
+                print("   🚀 Using direct encoding...")
+                samples = vae.encode(pixel_samples)
+                print(f"   ✅ Direct encoding successful")
+            
+            print(f"   📊 Output shape: {samples.shape}")
             return samples
             
         except Exception as e:
-            print(f"   ⚠️  Direct encoding failed: {e}")
-            print("   💡 This suggests the video is too large for direct processing")
+            print(f"   ❌ Encoding failed: {e}")
+            
+            # If tiled encoding also fails, try with even smaller tiles
+            if use_tiled and "CUDA out of memory" in str(e):
+                print("   🚨 Tiled encoding failed, trying with minimal tiles...")
+                try:
+                    # Use minimal tile sizes
+                    samples = vae.encode_tiled_3d(
+                        pixel_samples, 
+                        tile_x=128, 
+                        tile_y=128, 
+                        tile_t=4,
+                        overlap=(4, 4, 4)
+                    )
+                    print(f"   ✅ Minimal tiled encoding successful")
+                    print(f"   📊 Output shape: {samples.shape}")
+                    return samples
+                except Exception as e2:
+                    print(f"   ❌ Minimal tiled encoding also failed: {e2}")
+            
             raise
     
     def _test_comfy_memory_functions_safe(self):
