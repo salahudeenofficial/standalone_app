@@ -1304,12 +1304,12 @@ class ReferenceVideoPipeline:
             inactive = (control_video_norm * (1 - mask)) + 0.5
             reactive = (control_video_norm * mask) + 0.5
 
-            # VAE encode inactive/reactive paths
+            # VAE encode inactive/reactive paths (exact ComfyUI logic)
             inactive_latent = vae.encode(inactive[:, :, :, :3])
             reactive_latent = vae.encode(reactive[:, :, :, :3])
             control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
 
-            # Reference image path (optional)
+            # Reference image path (optional) - exact ComfyUI logic
             trim_latent = 0
             if ref_img is not None:
                 ref_latent = vae.encode(ref_img[:, :, :, :3])
