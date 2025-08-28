@@ -429,6 +429,37 @@ def force_comfy_memory_cleanup():
     except Exception as e:
         print(f"⚠️  Warning: Memory cleanup failed: {e}")
 
+def aggressive_memory_cleanup():
+    """Aggressive memory cleanup to handle stuck memory issues"""
+    try:
+        print("🚨 AGGRESSIVE MEMORY CLEANUP - Targeting stuck memory...")
+        
+        # Force garbage collection
+        import gc
+        gc.collect()
+        print("   ✅ Garbage collection completed")
+        
+        # Force ComfyUI cleanup
+        force_comfy_memory_cleanup()
+        
+        # Force PyTorch to release all unused memory
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+            print("   ✅ PyTorch memory fully cleared")
+        
+        # Check if we can identify stuck models
+        if hasattr(comfy.model_management, 'current_loaded_models'):
+            print(f"   📊 ComfyUI tracked models: {len(comfy.model_management.current_loaded_models)}")
+            for i, model in enumerate(comfy.model_management.current_loaded_models):
+                if hasattr(model, 'model') and hasattr(model.model, 'device'):
+                    print(f"      Model {i}: {type(model.model).__name__} on {model.model.device}")
+        
+        print("✅ Aggressive memory cleanup completed")
+        
+    except Exception as e:
+        print(f"⚠️  Warning: Aggressive memory cleanup failed: {e}")
+
 # ===============================================================================
 # STEP 3: Create Model Registry for ComfyUI Memory Management
 # ===============================================================================
@@ -718,52 +749,26 @@ class ReferenceVideoPipeline:
         return torch.cat(latents, dim=0)
     
     def _comfy_vae_encode(self, vae, pixel_samples):
-        """Encode using ComfyUI nodes' frame-by-frame approach for video"""
+        """Encode using direct VAE approach - no batch processing"""
         print(f"   Input shape: {pixel_samples.shape}")
         
-        # For video data, process frame by frame like ComfyUI nodes do
-        if len(pixel_samples.shape) == 4 and pixel_samples.shape[0] > 1:
-            print("   Processing video frames individually (ComfyUI nodes approach)")
-            
-            # Load VAE to GPU first
+        # Load VAE to GPU if needed
+        if hasattr(vae, 'patcher'):
             comfy.model_management.load_models_gpu([vae.patcher], memory_required=0, force_full_load=vae.disable_offload)
-            
-            latent_frames = []
-            for i in range(pixel_samples.shape[0]):
-                frame = pixel_samples[i:i+1]  # Keep batch dimension
-                print(f"   Processing frame {i+1}/{pixel_samples.shape[0]}: {frame.shape}")
-                
-                try:
-                    # Use ComfyUI's standard encode for single frame
-                    frame_latent = vae.encode(frame)
-                    latent_frames.append(frame_latent)
-                    
-                    # Clean up after each frame
-                    del frame
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                        
-                except Exception as e:
-                    print(f"   ⚠️  Frame {i+1} failed: {e}")
-                    # Create dummy latent to maintain sequence
-                    if latent_frames:
-                        dummy_latent = torch.zeros_like(latent_frames[0])
-                        latent_frames.append(dummy_latent)
-                    else:
-                        # First frame failed, create based on expected dimensions
-                        dummy_latent = torch.zeros((1, 16, frame.shape[1]//8, frame.shape[2]//8), 
-                                                 device=comfy.model_management.intermediate_device())
-                        latent_frames.append(dummy_latent)
-            
-            # Combine all frame latents
-            samples = torch.cat(latent_frames, dim=0)
-            print(f"   Combined output shape: {samples.shape}")
-            return samples
         
-        else:
-            # Single frame or image - use standard VAE encode
-            print("   Processing single frame/image with standard VAE encode")
-            return vae.encode(pixel_samples)
+        # Process entire tensor at once - no frame-by-frame processing
+        print("   Processing entire video tensor at once (direct approach)")
+        
+        try:
+            # Use ComfyUI's standard encode for the entire tensor
+            samples = vae.encode(pixel_samples)
+            print(f"   Output shape: {samples.shape}")
+            return samples
+            
+        except Exception as e:
+            print(f"   ⚠️  Direct encoding failed: {e}")
+            print("   💡 This suggests the video is too large for direct processing")
+            raise
     
     def _test_comfy_memory_functions_safe(self):
         """Test ComfyUI memory functions without interfering with model tracking"""
@@ -1528,6 +1533,9 @@ class ReferenceVideoPipeline:
             
             # Force ComfyUI memory cleanup before starting VAE encoding
             force_comfy_memory_cleanup()
+            
+            # Aggressive cleanup to handle stuck memory issues
+            aggressive_memory_cleanup()
             
             try:
                 import comfy.model_management
@@ -2384,8 +2392,8 @@ class ReferenceVideoPipeline:
             inactive = (control_video_norm * (1 - mask)) + 0.5
             reactive = (control_video_norm * mask) + 0.5
 
-            # VAE encode inactive/reactive paths using ComfyUI's batching strategy
-            print("🔍 Encoding inactive frames with ComfyUI batching strategy...")
+            # VAE encode inactive/reactive paths using direct approach
+            print("🔍 Encoding inactive frames with direct VAE approach...")
             
             # Monitor memory before inactive encoding
             self._monitor_vae_encoding_memory(vae, inactive[:, :, :, :3], "INACTIVE_FRAMES")
@@ -2403,7 +2411,7 @@ class ReferenceVideoPipeline:
                 self._analyze_oom_cause(e, "INACTIVE_ENCODING")
                 raise
             
-            print("🔍 Encoding reactive frames with ComfyUI batching strategy...")
+            print("🔍 Encoding reactive frames with direct VAE approach...")
             
             # Monitor memory before reactive encoding
             self._monitor_vae_encoding_memory(vae, reactive[:, :, :, :3], "REACTIVE_FRAMES")
@@ -2444,7 +2452,7 @@ class ReferenceVideoPipeline:
             # Reference image path (optional) - exact ComfyUI logic
             trim_latent = 0
             if ref_img is not None:
-                print("🔍 Encoding reference image with ComfyUI batching strategy...")
+                print("🔍 Encoding reference image with direct VAE approach...")
                 
                 # Monitor memory before reference encoding
                 self._monitor_vae_encoding_memory(vae, ref_img[:, :, :, :3], "REFERENCE_IMAGE")
