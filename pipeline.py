@@ -1935,20 +1935,52 @@ class ReferenceVideoPipeline:
             # VAE encode inactive/reactive paths using ComfyUI's batching strategy
             print("🔍 Encoding inactive frames with ComfyUI batching strategy...")
             inactive_latent = self._comfy_vae_encode(vae, inactive[:, :, :, :3])
+            print(f"   Inactive latent shape: {inactive_latent.shape}")
+            
             print("🔍 Encoding reactive frames with ComfyUI batching strategy...")
             reactive_latent = self._comfy_vae_encode(vae, reactive[:, :, :, :3])
+            print(f"   Reactive latent shape: {reactive_latent.shape}")
+            
+            # Normalize tensor dimensions before concatenation
+            print("🔍 Normalizing tensor dimensions...")
+            if len(inactive_latent.shape) == 5 and inactive_latent.shape[2] == 1:
+                print("   Squeezing inactive latent dimension 2 (removing singleton)")
+                inactive_latent = inactive_latent.squeeze(2)  # Remove singleton dimension
+            if len(reactive_latent.shape) == 5 and reactive_latent.shape[2] == 1:
+                print("   Squeezing reactive latent dimension 2 (removing singleton)")
+                reactive_latent = reactive_latent.squeeze(2)  # Remove singleton dimension
+                
+            print(f"   Normalized inactive latent shape: {inactive_latent.shape}")
+            print(f"   Normalized reactive latent shape: {reactive_latent.shape}")
+            
+            # Verify dimensions match before concatenation
+            if len(inactive_latent.shape) != len(reactive_latent.shape):
+                raise ValueError(f"Dimension mismatch: inactive_latent {inactive_latent.shape} vs reactive_latent {reactive_latent.shape}")
+            
+            print("🔍 Concatenating latents...")
             control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
+            print(f"   Combined latent shape: {control_video_latent.shape}")
 
             # Reference image path (optional) - exact ComfyUI logic
             trim_latent = 0
             if ref_img is not None:
                 print("🔍 Encoding reference image with ComfyUI batching strategy...")
                 ref_latent = self._comfy_vae_encode(vae, ref_img[:, :, :, :3])
+                print(f"   Reference latent shape: {ref_latent.shape}")
+                
+                # Normalize reference latent dimensions
+                if len(ref_latent.shape) == 5 and ref_latent.shape[2] == 1:
+                    print("   Squeezing reference latent dimension 2 (removing singleton)")
+                    ref_latent = ref_latent.squeeze(2)  # Remove singleton dimension
+                print(f"   Normalized reference latent shape: {ref_latent.shape}")
+                
                 ref_latent = torch.cat([
                     ref_latent,
                     comfy.latent_formats.Wan21().process_out(torch.zeros_like(ref_latent))
                 ], dim=1)
+                print(f"   Reference latent after zero-cat shape: {ref_latent.shape}")
                 control_video_latent = torch.cat((ref_latent, control_video_latent), dim=2)
+                print(f"   Final control video latent shape: {control_video_latent.shape}")
                 trim_latent = ref_latent.shape[2]
 
             # WAN mask reshaping to latent grid
