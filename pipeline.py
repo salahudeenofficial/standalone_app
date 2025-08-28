@@ -1403,8 +1403,80 @@ class ReferenceVideoPipeline:
             
             # Check ComfyUI's model management system
             print("1a. 🔍 Checking ComfyUI's model management system...")
-        except Exception as e:
-            print(f"1a. ⚠️  Could not check ComfyUI model management: {e}")
+            try:
+                import comfy.model_management
+                
+                # Check what device ComfyUI thinks models should be on
+                if hasattr(comfy.model_management, 'get_torch_device'):
+                    comfy_device = comfy.model_management.get_torch_device()
+                    print(f"1a. ComfyUI device: {comfy_device}")
+                
+                if hasattr(comfy.model_management, 'vae_device'):
+                    vae_device = comfy.model_management.vae_device()
+                    print(f"1a. ComfyUI VAE device: {vae_device}")
+                
+                if hasattr(comfy.model_management, 'model_device'):
+                    model_device = comfy.model_management.model_device()
+                    print(f"1a. ComfyUI model device: {model_device}")
+                
+                print("1a. ComfyUI model management system is available")
+                print("1a. ✅ Trusting ComfyUI to handle all memory management automatically")
+                
+            except Exception as e:
+                print(f"1a. ⚠️  Could not check ComfyUI model management: {e}")
+            
+            print("✅ Step 1 completed - continuing to Step 3...")
+            
+            # ========================================================================
+            # STEP 3: LOAD VIDEO AND IMAGE DATA
+            # ========================================================================
+            print("\n" + "="*80)
+            print("🔍 STEP 3: LOAD VIDEO AND IMAGE DATA")
+            print("="*80)
+            
+            # Load control video
+            print("3a. Loading control video...")
+            if control_video_path:
+                control_video = self.load_video(control_video_path)
+                if control_video is not None:
+                    print(f"   ✅ Control video loaded: {control_video.shape}")
+                else:
+                    print("   ❌ Failed to load control video")
+                    control_video = None
+            else:
+                print("   ⚠️  No control video path specified")
+                control_video = None
+            
+            # Load reference image
+            print("3b. Loading reference image...")
+            if reference_image_path:
+                reference_image = self.load_image(reference_image_path)
+                if reference_image is not None:
+                    print(f"   ✅ Reference image loaded: {reference_image.shape}")
+                else:
+                    print("   ❌ Failed to load reference image")
+                    reference_image = None
+            else:
+                print("   ⚠️  No reference image path specified")
+                reference_image = None
+            
+            print("✅ Step 3 completed - continuing to Step 5...")
+            
+            # ========================================================================
+            # STEP 5: GENERATE INITIAL LATENTS (COMFY-LIKE)
+            # ========================================================================
+            print("\n" + "="*80)
+            print("🔍 STEP 5: GENERATE INITIAL LATENTS (COMFY-LIKE)")
+            print("="*80)
+            
+            # Enable comprehensive memory tracking for Step 5
+            self._track_memory_during_step5()
+            
+            # Start real-time memory monitoring for Step 5
+            self.memory_monitor.start_monitoring("STEP5_VAE_ENCODING")
+            
+            # Initial VRAM analysis before Step 5
+            self._detailed_vram_analysis("STEP5_START")
             
             try:
                 import comfy.model_management
@@ -2257,6 +2329,7 @@ class ReferenceVideoPipeline:
 
             # Normalize and split by mask
             control_video_norm = control_video - 0.5
+            
             inactive = (control_video_norm * (1 - mask)) + 0.5
             reactive = (control_video_norm * mask) + 0.5
 
