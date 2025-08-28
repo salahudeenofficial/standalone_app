@@ -291,6 +291,109 @@ class ReferenceVideoPipeline:
         # Test ComfyUI memory management functions
         if self.model_registry:
             self._test_comfy_memory_functions()
+    
+    def _create_vae_with_proper_patcher(self, vae_state_dict):
+        """Create VAE with proper patcher like ComfyUI does"""
+        try:
+            # Create VAE using ComfyUI's constructor (this should create self.patcher automatically)
+            vae = comfy.sd.VAE(sd=vae_state_dict)
+            
+            # Verify patcher was created
+            if hasattr(vae, 'patcher') and vae.patcher is not None:
+                print("✅ VAE patcher created automatically by ComfyUI")
+                print(f"   Patcher type: {type(vae.patcher)}")
+                print(f"   Load device: {vae.patcher.load_device}")
+                print(f"   Offload device: {vae.patcher.offload_device}")
+                return vae
+            else:
+                print("❌ VAE patcher NOT created automatically")
+                print("   This indicates a problem with VAE initialization")
+                return None
+                
+        except Exception as e:
+            print(f"❌ VAE creation failed: {e}")
+            return None
+    
+    def _verify_vae_integration(self, vae):
+        """Verify VAE is properly integrated with ComfyUI"""
+        try:
+            # Check 1: Does VAE have patcher?
+            if not hasattr(vae, 'patcher') or vae.patcher is None:
+                print("❌ VAE missing patcher attribute")
+                return False
+                
+            # Check 2: Is patcher a ModelPatcher?
+            if not isinstance(vae.patcher, comfy.model_patcher.ModelPatcher):
+                print(f"❌ VAE patcher is wrong type: {type(vae.patcher)}")
+                return False
+                
+            # Check 3: Does patcher have required attributes?
+            required_attrs = ['load_device', 'offload_device', 'model']
+            for attr in required_attrs:
+                if not hasattr(vae.patcher, attr):
+                    print(f"❌ VAE patcher missing attribute: {attr}")
+                    return False
+                    
+            # Check 4: Is VAE in ComfyUI's tracking?
+            if hasattr(comfy.model_management, 'current_loaded_models'):
+                vae_in_tracking = any(
+                    hasattr(m, 'model') and m.model == vae.patcher 
+                    for m in comfy.model_management.current_loaded_models
+                )
+                if not vae_in_tracking:
+                    print("⚠️  VAE not in ComfyUI tracking (will be added when first used)")
+            else:
+                print("⚠️  ComfyUI tracking not available")
+                
+            print("✅ VAE integration verified successfully")
+            return True
+            
+        except Exception as e:
+            print(f"❌ VAE integration verification failed: {e}")
+            return False
+    
+    def _prepare_vae_memory(self, vae, pixel_samples):
+        """Prepare memory for VAE encoding operations"""
+        try:
+            # Calculate memory needed for this operation
+            memory_used = vae.memory_used_encode(pixel_samples.shape, vae.vae_dtype)
+            
+            # Ensure VAE is loaded to GPU with enough memory
+            if hasattr(vae, 'patcher') and vae.patcher is not None:
+                comfy.model_management.load_models_gpu([vae.patcher], memory_required=memory_used)
+                print(f"✅ VAE loaded to GPU with {memory_used / (1024**2):.1f} MB allocated")
+            else:
+                print("⚠️  VAE not properly integrated - may cause OOM")
+                
+        except Exception as e:
+            print(f"⚠️  VAE memory preparation failed: {e}")
+    
+    def _encode_video_chunked(self, vae, video_frames, chunk_size=4):
+        """Encode video frames in chunks to avoid OOM"""
+        latents = []
+        
+        for i in range(0, len(video_frames), chunk_size):
+            chunk = video_frames[i:i+chunk_size]
+            
+            # Ensure memory before encoding chunk
+            self._prepare_vae_memory(vae, chunk)
+            
+            try:
+                chunk_latent = vae.encode(chunk[:, :, :, :3])
+                latents.append(chunk_latent)
+                
+                # Clean up after each chunk
+                torch.cuda.empty_cache()
+                
+            except torch.cuda.OutOfMemoryError:
+                print(f"⚠️  OOM on chunk {i//chunk_size + 1}, trying smaller chunk...")
+                # Try with single frame
+                for j in range(len(chunk)):
+                    single_latent = vae.encode(chunk[j:j+1, :, :, :3])
+                    latents.append(single_latent)
+                    torch.cuda.empty_cache()
+        
+        return torch.cat(latents, dim=0)
         
         # Memory thresholds for each phase
         self.memory_thresholds = {
@@ -856,12 +959,36 @@ class ReferenceVideoPipeline:
             
             print(f"1a. ✅ CLIP loaded: {type(clip_model)}")
             
-            # Load VAE separately
-            print("1a. Loading VAE...")
+            # Load VAE separately with ComfyUI memory management integration
+            print("1a. Loading VAE with ComfyUI memory management...")
             vae_state_dict = comfy.utils.load_torch_file(vae_model_path)
-            vae = comfy.sd.VAE(sd=vae_state_dict)
+            
+            # Create VAE using ComfyUI's constructor (this should create patcher automatically)
+            vae = self._create_vae_with_proper_patcher(vae_state_dict)
+            
+            if vae is None:
+                raise RuntimeError("Failed to create VAE with proper patcher")
+            
+            # Verify VAE integration
+            if not self._verify_vae_integration(vae):
+                print("⚠️  VAE integration issues detected - may cause OOM")
+            
+            # Register VAE with model registry if available
+            if hasattr(self, 'model_registry') and self.model_registry:
+                self.model_registry.register_model(vae.patcher, 'vae')
+                print("1a. ✅ VAE registered with ComfyUI memory management system")
             
             print(f"1a. ✅ VAE loaded: {type(vae)}")
+            
+            # Test VAE patcher creation
+            print("\n🧪 TESTING VAE PATCHER CREATION...")
+            if hasattr(vae, 'patcher'):
+                print(f"✅ VAE has patcher: {type(vae.patcher)}")
+                print(f"   Patcher model: {type(vae.patcher.model)}")
+                print(f"   Load device: {vae.patcher.load_device}")
+                print(f"   Offload device: {vae.patcher.offload_device}")
+            else:
+                print("❌ VAE missing patcher - this will cause OOM in Step 5")
             
             # Verify that the UNET was detected as WAN model
             if hasattr(model, 'model') and hasattr(model.model, 'model_type'):
@@ -932,6 +1059,36 @@ class ReferenceVideoPipeline:
                 
             except Exception as e:
                 print(f"1a. ⚠️  Could not check ComfyUI model management: {e}")
+            
+            # Test VAE memory management integration
+            print("1a. 🧪 Testing VAE memory management integration...")
+            try:
+                if hasattr(vae, 'patcher') and vae.patcher is not None:
+                    print("1a. ✅ VAE is wrapped in ModelPatcher")
+                    
+                    # Test if VAE respects ComfyUI memory management
+                    vae_device = comfy.model_management.vae_device()
+                    print(f"1a. VAE target device: {vae_device}")
+                    
+                    # Check if VAE is in ComfyUI's model tracking
+                    if hasattr(comfy.model_management, 'current_loaded_models'):
+                        vae_in_tracking = any(
+                            hasattr(m, 'model') and m.model == vae.patcher 
+                            for m in comfy.model_management.current_loaded_models
+                        )
+                        if vae_in_tracking:
+                            print("1a. ✅ VAE is tracked by ComfyUI memory management")
+                        else:
+                            print("1a. ⚠️  VAE is NOT tracked by ComfyUI memory management")
+                    else:
+                        print("1a. ⚠️  ComfyUI model tracking not available")
+                        
+                else:
+                    print("1a. ❌ VAE is NOT wrapped in ModelPatcher")
+                    print("1a. ⚠️  VAE will not use ComfyUI memory management")
+                    
+            except Exception as e:
+                print(f"1a. ⚠️  VAE memory management test failed: {e}")
             
             # Check memory after letting ComfyUI handle loading
             if torch.cuda.is_available():
@@ -1517,11 +1674,74 @@ class ReferenceVideoPipeline:
                     print("✅ All ComfyUI memory management functions are working!")
                     print("   Ready to proceed with Step 5 VAE encoding")
                     
+                    # Test VAE memory preparation
+                    print("\n🧪 TESTING VAE MEMORY PREPARATION...")
+                    try:
+                        # Create a small test tensor
+                        test_tensor = torch.ones((1, 64, 64, 3), device='cpu')
+                        
+                        # Test memory preparation
+                        self._prepare_vae_memory(vae, test_tensor)
+                        print("   ✅ VAE memory preparation test passed")
+                        
+                        # Test chunked encoding with small data
+                        print("   Testing chunked encoding...")
+                        test_frames = torch.ones((2, 64, 64, 3), device='cpu')
+                        test_latents = self._encode_video_chunked(vae, test_frames, chunk_size=1)
+                        print(f"   ✅ Chunked encoding test passed: {test_latents.shape}")
+                        
+                    except Exception as e:
+                        print(f"   ❌ VAE memory preparation test failed: {e}")
+                        print("   ⚠️  Step 5 may fail due to VAE memory issues")
+                    
+                    print("\n🧪 TESTING VAE MEMORY MANAGEMENT INTEGRATION...")
+                    
+                    try:
+                        # Check if VAE is properly integrated
+                        if hasattr(vae, 'patcher') and vae.patcher is not None:
+                            print("   ✅ VAE is wrapped in ModelPatcher")
+                            
+                            # Test VAE device placement
+                            vae_device = comfy.model_management.vae_device()
+                            print(f"   VAE target device: {vae_device}")
+                            
+                            # Check VAE memory usage
+                            if hasattr(vae, 'model_memory'):
+                                vae_memory = vae.model_memory()
+                                print(f"   VAE model memory: {vae_memory / (1024**2):.1f} MB")
+                            else:
+                                print("   VAE model memory: Not accessible")
+                            
+                            # Test VAE memory management functions
+                            print("   Testing VAE-specific memory management...")
+                            
+                            # Check if VAE is in ComfyUI tracking
+                            if hasattr(comfy.model_management, 'current_loaded_models'):
+                                vae_in_tracking = any(
+                                    hasattr(m, 'model') and m.model == vae.patcher 
+                                    for m in comfy.model_management.current_loaded_models
+                                )
+                                if vae_in_tracking:
+                                    print("   ✅ VAE is tracked by ComfyUI memory management")
+                                else:
+                                    print("   ⚠️  VAE is NOT tracked by ComfyUI memory management")
+                            
+                            print("   ✅ VAE memory management integration test passed")
+                            
+                        else:
+                            print("   ❌ VAE is NOT wrapped in ModelPatcher")
+                            print("   ⚠️  VAE will not use ComfyUI memory management")
+                            print("   💡 This explains why VAE encoding fails with OOM")
+                            
+                    except Exception as e:
+                        print(f"   ❌ VAE memory management test failed: {e}")
+                        print("   ⚠️  VAE memory management is not working properly")
+                    
                 except Exception as e:
                     print(f"❌ ComfyUI memory management test failed: {e}")
                     print("   ⚠️  Step 5 may fail due to memory management issues")
                     print("   Continuing anyway...")
-            else:
+                        else:
                 print("⚠️  No model registry available - ComfyUI integration not working")
                 print("   Step 5 will likely fail")
             
@@ -1561,7 +1781,7 @@ class ReferenceVideoPipeline:
             else:
                 device = vae.first_stage_model.device if hasattr(vae, 'first_stage_model') else 'cpu'
                 control_video = torch.ones((length, height, width, 3), device=device) * 0.5
-
+                        
             # Prepare reference image (optional)
             ref_img = None
             if reference_image is not None:
@@ -1591,13 +1811,23 @@ class ReferenceVideoPipeline:
             reactive = (control_video_norm * mask) + 0.5
 
             # VAE encode inactive/reactive paths (exact ComfyUI logic)
+            # Prepare memory before encoding operations
+            print("🔍 Preparing VAE memory for encoding operations...")
+            self._prepare_vae_memory(vae, inactive)
+            self._prepare_vae_memory(vae, reactive)
+            
+            # Now encode with proper memory management
+            print("🔍 Encoding inactive frames...")
             inactive_latent = vae.encode(inactive[:, :, :, :3])
+            print("🔍 Encoding reactive frames...")
             reactive_latent = vae.encode(reactive[:, :, :, :3])
             control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
 
             # Reference image path (optional) - exact ComfyUI logic
             trim_latent = 0
             if ref_img is not None:
+                print("🔍 Encoding reference image...")
+                self._prepare_vae_memory(vae, ref_img)
                 ref_latent = vae.encode(ref_img[:, :, :, :3])
                 ref_latent = torch.cat([
                     ref_latent,
