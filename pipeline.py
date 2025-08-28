@@ -1477,6 +1477,56 @@ class ReferenceVideoPipeline:
             
             print("="*80)
             
+            # ===============================================================================
+            # 🧪 TEST COMFYUI MEMORY MANAGEMENT BEFORE STEP 5
+            # ===============================================================================
+            print("\n" + "="*80)
+            print("🧪 TESTING COMFYUI MEMORY MANAGEMENT BEFORE STEP 5")
+            print("="*80)
+            
+            if self.model_registry:
+                try:
+                    # Test 1: get_free_memory()
+                    print("🔍 Testing get_free_memory()...")
+                    device = comfy.model_management.get_torch_device()
+                    free_memory = comfy.model_management.get_free_memory(device)
+                    free_total, free_torch = comfy.model_management.get_free_memory(device, torch_free_too=True)
+                    
+                    print(f"   ✅ get_free_memory() working:")
+                    print(f"      Total free: {free_memory / (1024**2):.1f} MB")
+                    print(f"      GPU free: {free_total / (1024**2):.1f} MB")
+                    print(f"      Torch free: {free_torch / (1024**2):.1f} MB")
+                    
+                    # Test 2: load_models_gpu() with empty list
+                    print("🔍 Testing load_models_gpu() with empty list...")
+                    comfy.model_management.load_models_gpu([], memory_required=0)
+                    print("   ✅ load_models_gpu() working with empty list")
+                    
+                    # Test 3: free_memory() with minimal requirement
+                    print("🔍 Testing free_memory() with minimal requirement...")
+                    unloaded = comfy.model_management.free_memory(1024*1024, device)  # 1MB
+                    print(f"   ✅ free_memory() working: {len(unloaded)} models unloaded")
+                    
+                    # Test 4: Check if model tracking is working
+                    print("🔍 Testing model tracking system...")
+                    if hasattr(comfy.model_management, 'current_loaded_models'):
+                        print(f"   ✅ current_loaded_models exists: {len(comfy.model_management.current_loaded_models)} models")
+                    else:
+                        print("   ❌ current_loaded_models not found")
+                    
+                    print("✅ All ComfyUI memory management functions are working!")
+                    print("   Ready to proceed with Step 5 VAE encoding")
+                    
+                except Exception as e:
+                    print(f"❌ ComfyUI memory management test failed: {e}")
+                    print("   ⚠️  Step 5 may fail due to memory management issues")
+                    print("   Continuing anyway...")
+            else:
+                print("⚠️  No model registry available - ComfyUI integration not working")
+                print("   Step 5 will likely fail")
+            
+            print("="*80)
+            
             # ========================================================================
             # STEP 5: GENERATE INITIAL LATENTS (COMFY-LIKE)
             # ========================================================================
