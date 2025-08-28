@@ -22,7 +22,7 @@ from pathlib import Path
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
 # Create minimal CLI args that ComfyUI expects
-sys.argv = ['pipeline.py', '--cpu-vae']  # Start with CPU VAE for safety
+sys.argv = ['pipeline.py', '--cpu-vae', '--lowvram', '--disable-smart-memory']  # Force CPU-first loading and aggressive offloading
 
 # Add the current directory to Python path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -33,6 +33,13 @@ sys.path.insert(0, str(Path(__file__).parent / "comfy"))
 # NOW import ComfyUI modules AFTER setting argv and environment
 import comfy.cli_args
 import comfy.model_management
+
+# Initialize ComfyUI CLI arguments system
+comfy.cli_args.args = comfy.cli_args.parser.parse_args()
+
+# Force ComfyUI to use aggressive memory management
+comfy.model_management.vram_state = comfy.model_management.VRAMState.LOW_VRAM
+comfy.model_management.set_vram_to = comfy.model_management.VRAMState.LOW_VRAM
 
 import torch
 from pathlib import Path
@@ -369,6 +376,16 @@ def initialize_comfy_memory_system():
     print("🔧 INITIALIZING COMFYUI MEMORY MANAGEMENT SYSTEM")
     print("="*80)
     
+    # Ensure ComfyUI CLI arguments are properly parsed
+    if not hasattr(comfy.cli_args, 'args') or comfy.cli_args.args is None:
+        comfy.cli_args.args = comfy.cli_args.parser.parse_args()
+        print("✅ ComfyUI CLI arguments: Parsed and initialized")
+    
+    # Force aggressive memory management settings
+    comfy.model_management.vram_state = comfy.model_management.VRAMState.LOW_VRAM
+    comfy.model_management.set_vram_to = comfy.model_management.VRAMState.LOW_VRAM
+    print("✅ ComfyUI VRAM state: LOW_VRAM mode set (enables CPU-first loading)")
+    
     initialize_comfy_device_system()
     set_memory_totals()
     detect_backends()
@@ -378,8 +395,39 @@ def initialize_comfy_memory_system():
         comfy.model_management.current_loaded_models = []
         print("✅ ComfyUI model tracking: current_loaded_models initialized")
     
+    # Ensure other required attributes exist
+    if not hasattr(comfy.model_management, 'current_models'):
+        comfy.model_management.current_models = []
+        print("✅ ComfyUI model tracking: current_models initialized")
+    
     print("✅ ComfyUI memory management system initialization completed")
     print("="*80 + "\n")
+
+def force_comfy_memory_cleanup():
+    """Force ComfyUI to clean up memory and offload models to CPU"""
+    try:
+        print("🧹 Forcing ComfyUI memory cleanup...")
+        
+        # Force free memory
+        if hasattr(comfy.model_management, 'free_memory'):
+            freed_models = comfy.model_management.free_memory(0, comfy.model_management.get_torch_device())
+            print(f"   ✅ Freed {len(freed_models)} models from GPU")
+        
+        # Force PyTorch cache cleanup
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print("   ✅ PyTorch CUDA cache cleared")
+        
+        # Check current memory state
+        if torch.cuda.is_available():
+            allocated = torch.cuda.memory_allocated() / 1024**2
+            reserved = torch.cuda.memory_reserved() / 1024**2
+            print(f"   📊 Current VRAM: {allocated:.1f} MB allocated, {reserved:.1f} MB reserved")
+        
+        print("✅ Memory cleanup completed")
+        
+    except Exception as e:
+        print(f"⚠️  Warning: Memory cleanup failed: {e}")
 
 # ===============================================================================
 # STEP 3: Create Model Registry for ComfyUI Memory Management
@@ -1478,6 +1526,9 @@ class ReferenceVideoPipeline:
             # Initial VRAM analysis before Step 5
             self._detailed_vram_analysis("STEP5_START")
             
+            # Force ComfyUI memory cleanup before starting VAE encoding
+            force_comfy_memory_cleanup()
+            
             try:
                 import comfy.model_management
                 
@@ -2343,6 +2394,11 @@ class ReferenceVideoPipeline:
                 inactive_latent = self._comfy_vae_encode(vae, inactive[:, :, :, :3])
                 print(f"   Inactive latent shape: {inactive_latent.shape}")
                 self._quick_memory_snapshot("after_inactive")
+                
+                # Force memory cleanup after inactive encoding to prevent accumulation
+                print("🧹 Cleaning up memory after inactive encoding...")
+                force_comfy_memory_cleanup()
+                
             except Exception as e:
                 self._analyze_oom_cause(e, "INACTIVE_ENCODING")
                 raise
@@ -2356,6 +2412,11 @@ class ReferenceVideoPipeline:
                 reactive_latent = self._comfy_vae_encode(vae, reactive[:, :, :, :3])
                 print(f"   Reactive latent shape: {reactive_latent.shape}")
                 self._quick_memory_snapshot("after_reactive")
+                
+                # Force memory cleanup after reactive encoding to prevent accumulation
+                print("🧹 Cleaning up memory after reactive encoding...")
+                force_comfy_memory_cleanup()
+                
             except Exception as e:
                 self._analyze_oom_cause(e, "REACTIVE_ENCODING")
                 raise
@@ -2392,6 +2453,11 @@ class ReferenceVideoPipeline:
                     ref_latent = self._comfy_vae_encode(vae, ref_img[:, :, :, :3])
                     print(f"   Reference latent shape: {ref_latent.shape}")
                     self._quick_memory_snapshot("after_reference")
+                    
+                    # Force memory cleanup after reference encoding to prevent accumulation
+                    print("🧹 Cleaning up memory after reference encoding...")
+                    force_comfy_memory_cleanup()
+                    
                 except Exception as e:
                     self._analyze_oom_cause(e, "REFERENCE_ENCODING")
                     raise
