@@ -1248,6 +1248,14 @@ class ReferenceVideoPipeline:
             print(f"🔍 STEP 5: GENERATE INITIAL LATENTS (COMFY-LIKE)")
             print(f"{'='*80}")
 
+            # Ensure inputs are loaded locally for this step
+            control_video = locals().get('control_video', None)
+            if control_video is None:
+                control_video = self.load_video(control_video_path) if control_video_path else None
+            reference_image = locals().get('reference_image', None)
+            if reference_image is None:
+                reference_image = self.load_image(reference_image_path) if reference_image_path else None
+
             # Comfy-like implementation of WanVaceToVideo.encode
             from comfy import node_helpers
 
@@ -1352,9 +1360,6 @@ class ReferenceVideoPipeline:
             print(f"✅ STEP 5 COMPLETE: Generate Initial Latents (Comfy-like)")
             print(f"{'='*80}")
 
-            print(f"\n�� STOPPING EXECUTION AFTER STEP 5")
-            print(f"🔍 VAE encoding completed successfully (Comfy-like path)")
-            
             print(f"\n🔍 Step 1: Model Loading - COMPLETED")
             print(f"🔍 Step 2: LoRA Application - COMPLETED")
             print(f"🔍 Step 3: Text Encoding - COMPLETED")
@@ -2066,39 +2071,47 @@ class ReferenceVideoPipeline:
             raise
     
     def load_video(self, video_path):
-        """Load control video from path"""
+        """Load control video from path as float tensor (T, H, W, 3) in [0,1]."""
         if not video_path or not os.path.exists(video_path):
             print(f"Warning: Video file not found: {video_path}")
             return None
-            
         try:
-            # For now, create a dummy video tensor
-            # In a real implementation, you'd use torchvision.io.read_video or similar
+            from torchvision.io import read_video
             print(f"Loading video from: {video_path}")
-            # Create dummy video tensor (37 frames, height=832, width=480, 3 channels)
-            dummy_video = torch.ones((37, 832, 480, 3)) * 0.5
-            print(f"Created dummy video tensor: {dummy_video.shape}")
-            return dummy_video
+            video, audio, info = read_video(video_path, pts_unit='sec')  # (T, H, W, C) uint8
+            if video is None or video.numel() == 0:
+                print(f"Warning: Empty video: {video_path}")
+                return None
+            # Normalize to [0,1] float32 and ensure CPU tensor
+            video = video.float() / 255.0
+            # Ensure 3 channels; if more, take first 3; if 1, repeat to 3
+            if video.shape[-1] > 3:
+                video = video[..., :3]
+            elif video.shape[-1] == 1:
+                video = video.repeat(1, 1, 1, 3)
+            print(f"Loaded video tensor: {tuple(video.shape)} (T,H,W,C)")
+            return video
         except Exception as e:
-            print(f"Error loading video: {e}")
+            print(f"Error loading video '{video_path}': {e}")
             return None
     
     def load_image(self, image_path):
-        """Load reference image from path"""
+        """Load reference image from path as float tensor (1, H, W, 3) in [0,1]."""
         if not image_path or not os.path.exists(image_path):
             print(f"Warning: Image file not found: {image_path}")
             return None
-            
         try:
-            # For now, create a dummy image tensor
-            # In a real implementation, you'd use PIL or torchvision
+            from PIL import Image
+            import numpy as np
             print(f"Loading image from: {image_path}")
-            # Create dummy image tensor (1 frame, height=832, width=480, 3 channels)
-            dummy_image = torch.ones((1, 832, 480, 3)) * 0.5
-            print(f"Created dummy image tensor: {dummy_image.shape}")
-            return dummy_image
+            img = Image.open(image_path).convert('RGB')
+            arr = np.asarray(img).astype('float32') / 255.0  # (H,W,3)
+            # Add time dimension of 1 frame to match expected shape
+            tensor = torch.from_numpy(arr).unsqueeze(0)  # (1,H,W,3)
+            print(f"Loaded image tensor: {tuple(tensor.shape)} (1,H,W,3)")
+            return tensor
         except Exception as e:
-            print(f"Error loading image: {e}")
+            print(f"Error loading image '{image_path}': {e}")
             return None
     
     def _encode_single_frame_fallback(self, video_generator, positive, negative, vae, width, height, 
