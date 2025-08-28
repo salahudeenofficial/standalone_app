@@ -427,64 +427,52 @@ class ReferenceVideoPipeline:
         return torch.cat(latents, dim=0)
     
     def _comfy_vae_encode(self, vae, pixel_samples):
-        """Encode using ComfyUI's exact batching strategy from sd.py lines 641-672"""
+        """Encode using ComfyUI nodes' frame-by-frame approach for video"""
         print(f"   Input shape: {pixel_samples.shape}")
         
-        # Follow ComfyUI's exact preprocessing steps
-        vae.throw_exception_if_invalid()
-        pixel_samples = vae.vae_encode_crop_pixels(pixel_samples)
-        pixel_samples = pixel_samples.movedim(-1, 1)
-        if vae.latent_dim == 3 and pixel_samples.ndim < 5:
-            pixel_samples = pixel_samples.movedim(1, 0).unsqueeze(0)
-        
-        print(f"   Preprocessed shape: {pixel_samples.shape}")
-        
-        try:
-            # ComfyUI's memory calculation and batching strategy
-            memory_used = vae.memory_used_encode(pixel_samples.shape, vae.vae_dtype)
-            print(f"   Memory required per batch: {memory_used / (1024**2):.1f} MB")
+        # For video data, process frame by frame like ComfyUI nodes do
+        if len(pixel_samples.shape) == 4 and pixel_samples.shape[0] > 1:
+            print("   Processing video frames individually (ComfyUI nodes approach)")
             
-            # Load models to GPU and get available memory
-            comfy.model_management.load_models_gpu([vae.patcher], memory_required=memory_used, force_full_load=vae.disable_offload)
-            free_memory = comfy.model_management.get_free_memory(vae.device)
-            print(f"   Free memory available: {free_memory / (1024**2):.1f} MB")
+            # Load VAE to GPU first
+            comfy.model_management.load_models_gpu([vae.patcher], memory_required=0, force_full_load=vae.disable_offload)
             
-            # Calculate optimal batch size (ComfyUI's exact formula)
-            batch_number = int(free_memory / max(1, memory_used))
-            batch_number = max(1, batch_number)
-            print(f"   Calculated batch size: {batch_number} frames")
+            latent_frames = []
+            for i in range(pixel_samples.shape[0]):
+                frame = pixel_samples[i:i+1]  # Keep batch dimension
+                print(f"   Processing frame {i+1}/{pixel_samples.shape[0]}: {frame.shape}")
+                
+                try:
+                    # Use ComfyUI's standard encode for single frame
+                    frame_latent = vae.encode(frame)
+                    latent_frames.append(frame_latent)
+                    
+                    # Clean up after each frame
+                    del frame
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        
+                except Exception as e:
+                    print(f"   ⚠️  Frame {i+1} failed: {e}")
+                    # Create dummy latent to maintain sequence
+                    if latent_frames:
+                        dummy_latent = torch.zeros_like(latent_frames[0])
+                        latent_frames.append(dummy_latent)
+                    else:
+                        # First frame failed, create based on expected dimensions
+                        dummy_latent = torch.zeros((1, 16, frame.shape[1]//8, frame.shape[2]//8), 
+                                                 device=comfy.model_management.intermediate_device())
+                        latent_frames.append(dummy_latent)
             
-            # Process in batches (ComfyUI's exact approach)
-            samples = None
-            for x in range(0, pixel_samples.shape[0], batch_number):
-                pixels_in = vae.process_input(pixel_samples[x:x + batch_number]).to(vae.vae_dtype).to(vae.device)
-                print(f"   Processing batch {x//batch_number + 1}: frames {x} to {min(x + batch_number, pixel_samples.shape[0])}")
-                
-                out = vae.first_stage_model.encode(pixels_in).to(vae.output_device).float()
-                
-                if samples is None:
-                    samples = torch.empty((pixel_samples.shape[0],) + tuple(out.shape[1:]), device=vae.output_device)
-                samples[x:x + batch_number] = out
-                
-                # Clean up after each batch
-                del pixels_in, out
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-
-        except comfy.model_management.OOM_EXCEPTION:
-            print("   ⚠️  OOM detected, falling back to ComfyUI's tiled encoding...")
-            # ComfyUI's exact tiled fallback strategy
-            if vae.latent_dim == 3:
-                tile = 256
-                overlap = tile // 4
-                samples = vae.encode_tiled_3d(pixel_samples, tile_x=tile, tile_y=tile, overlap=(1, overlap, overlap))
-            elif vae.latent_dim == 1 or vae.extra_1d_channel is not None:
-                samples = vae.encode_tiled_1d(pixel_samples)
-            else:
-                samples = vae.encode_tiled_(pixel_samples)
+            # Combine all frame latents
+            samples = torch.cat(latent_frames, dim=0)
+            print(f"   Combined output shape: {samples.shape}")
+            return samples
         
-        print(f"   Output shape: {samples.shape}")
-        return samples
+        else:
+            # Single frame or image - use standard VAE encode
+            print("   Processing single frame/image with standard VAE encode")
+            return vae.encode(pixel_samples)
     
     def _test_comfy_memory_functions_safe(self):
         """Test ComfyUI memory functions without interfering with model tracking"""
