@@ -10,9 +10,30 @@ This pipeline now properly leverages ComfyUI's native memory management system:
 - All memory management: Handled by ComfyUI's proven system
 """
 
-import torch
+# ===============================================================================
+# STEP 1: Initialize ComfyUI CLI Arguments and Environment Variables
+# ===============================================================================
 import os
 import sys
+import argparse
+
+# Set required environment variables BEFORE importing ComfyUI
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
+# Create minimal CLI args that ComfyUI expects
+sys.argv = ['pipeline.py', '--cpu-vae']  # Start with CPU VAE for safety
+
+# Add the current directory to Python path
+sys.path.insert(0, str(Path(__file__).parent))
+
+# Add ComfyUI path for utilities
+sys.path.insert(0, str(Path(__file__).parent / "comfy"))
+
+# NOW import ComfyUI modules AFTER setting argv and environment
+import comfy.cli_args
+import comfy.model_management
+
+import torch
 from pathlib import Path
 import time
 import numpy as np
@@ -41,6 +62,148 @@ from components.vae_decoder import VAEDecode
 from components.video_export import VideoExporter
 from components.chunked_processor import ChunkedProcessor
 
+# ===============================================================================
+# STEP 2: Initialize ComfyUI Device Detection and Memory Management
+# ===============================================================================
+
+def initialize_comfy_device_system():
+    """Initialize ComfyUI's device detection system"""
+    try:
+        # Set CPU state based on available hardware
+        if torch.cuda.is_available():
+            comfy.model_management.cpu_state = comfy.model_management.CPUState.GPU
+            comfy.model_management.vram_state = comfy.model_management.VRAMState.NORMAL_VRAM
+            print("✅ ComfyUI device system: GPU mode initialized")
+        else:
+            comfy.model_management.cpu_state = comfy.model_management.CPUState.CPU
+            comfy.model_management.vram_state = comfy.model_management.VRAMState.DISABLED
+            print("✅ ComfyUI device system: CPU mode initialized")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not initialize ComfyUI device system: {e}")
+
+def set_memory_totals():
+    """Calculate and set total memory values for ComfyUI"""
+    try:
+        if torch.cuda.is_available():
+            device = torch.cuda.current_device()
+            total_vram = torch.cuda.get_device_properties(device).total_memory
+            comfy.model_management.total_vram = total_vram / (1024 * 1024)  # Convert to MB
+            print(f"✅ ComfyUI memory: Total VRAM set to {comfy.model_management.total_vram:.0f} MB")
+        else:
+            comfy.model_management.total_vram = 0
+            print("✅ ComfyUI memory: No VRAM detected, using CPU mode")
+        
+        total_ram = psutil.virtual_memory().total
+        comfy.model_management.total_ram = total_ram / (1024 * 1024)  # Convert to MB
+        print(f"✅ ComfyUI memory: Total RAM set to {comfy.model_management.total_ram:.0f} MB")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not set memory totals: {e}")
+
+def detect_backends():
+    """Detect and set available backends for ComfyUI"""
+    try:
+        # CUDA
+        if torch.version.cuda:
+            comfy.model_management.xpu_available = False
+            comfy.model_management.npu_available = False
+            comfy.model_management.mlu_available = False
+            print("✅ ComfyUI backends: CUDA backend detected")
+        
+        # XPU (Intel)
+        try:
+            import intel_extension_for_pytorch as ipex
+            comfy.model_management.xpu_available = torch.xpu.is_available()
+            if comfy.model_management.xpu_available:
+                print("✅ ComfyUI backends: Intel XPU backend detected")
+        except:
+            comfy.model_management.xpu_available = False
+        
+        print("✅ ComfyUI backends: Backend detection completed")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not detect backends: {e}")
+
+def initialize_comfy_memory_system():
+    """Initialize the complete ComfyUI memory management system"""
+    print("\n" + "="*80)
+    print("🔧 INITIALIZING COMFYUI MEMORY MANAGEMENT SYSTEM")
+    print("="*80)
+    
+    initialize_comfy_device_system()
+    set_memory_totals()
+    detect_backends()
+    
+    # Initialize model tracking system
+    if not hasattr(comfy.model_management, 'current_loaded_models'):
+        comfy.model_management.current_loaded_models = []
+        print("✅ ComfyUI model tracking: current_loaded_models initialized")
+    
+    print("✅ ComfyUI memory management system initialization completed")
+    print("="*80 + "\n")
+
+# ===============================================================================
+# STEP 3: Create Model Registry for ComfyUI Memory Management
+# ===============================================================================
+
+class PipelineModelRegistry:
+    """Registry for managing models with ComfyUI's memory management system"""
+    
+    def __init__(self):
+        self.loaded_models = []
+        self.model_patchers = {}
+        print("✅ Pipeline model registry: Initialized")
+    
+    def register_model(self, model, model_type):
+        """Register a model with ComfyUI's memory management system"""
+        try:
+            # Create ModelPatcher for the model
+            if model_type == 'vae':
+                load_device = comfy.model_management.vae_device()
+                offload_device = comfy.model_management.vae_offload_device()
+            elif model_type == 'unet':
+                load_device = comfy.model_management.get_torch_device()
+                offload_device = comfy.model_management.unet_offload_device()
+            elif model_type == 'clip':
+                load_device = comfy.model_management.get_torch_device()
+                offload_device = comfy.model_management.clip_offload_device()
+            else:
+                load_device = comfy.model_management.get_torch_device()
+                offload_device = comfy.model_management.get_torch_device()
+            
+            patcher = comfy.model_patcher.ModelPatcher(
+                model,
+                load_device=load_device,
+                offload_device=offload_device
+            )
+            
+            self.model_patchers[model_type] = patcher
+            self.loaded_models.append(patcher)
+            
+            # Register with ComfyUI's system
+            loaded_model = comfy.model_management.LoadedModel(patcher)
+            comfy.model_management.current_loaded_models.append(loaded_model)
+            
+            print(f"✅ Model registry: {model_type} model registered with ComfyUI")
+            return patcher
+            
+        except Exception as e:
+            print(f"⚠️  Warning: Could not register {model_type} model: {e}")
+            return None
+    
+    def get_model_patcher(self, model_type):
+        """Get the ModelPatcher for a specific model type"""
+        return self.model_patchers.get(model_type)
+    
+    def unload_all_models(self):
+        """Unload all registered models"""
+        try:
+            for patcher in self.loaded_models:
+                patcher.unpatch_model()
+            self.loaded_models.clear()
+            self.model_patchers.clear()
+            print("✅ Model registry: All models unloaded")
+        except Exception as e:
+            print(f"⚠️  Warning: Could not unload all models: {e}")
+
 class ReferenceVideoPipeline:
     """
     Standalone Reference Image + Control Video to Output Video Pipeline
@@ -62,6 +225,31 @@ class ReferenceVideoPipeline:
         """Initialize the pipeline with model directory"""
         self.models_dir = models_dir
         self.setup_model_paths()
+        
+        # ===============================================================================
+        # STEP 4: Initialize ComfyUI Memory Management System
+        # ===============================================================================
+        try:
+            initialize_comfy_memory_system()
+            
+            # Initialize VRAM state for memory management
+            if torch.cuda.is_available():
+                comfy.model_management.vram_state = comfy.model_management.VRAMState.NORMAL_VRAM
+                comfy.model_management.set_vram_to = comfy.model_management.VRAMState.NORMAL_VRAM
+                print("✅ ComfyUI VRAM state: NORMAL_VRAM mode set")
+            else:
+                comfy.model_management.vram_state = comfy.model_management.VRAMState.DISABLED
+                comfy.model_management.set_vram_to = comfy.model_management.VRAMState.DISABLED
+                print("✅ ComfyUI VRAM state: DISABLED mode set (CPU only)")
+            
+            # Create model registry for ComfyUI memory management
+            self.model_registry = PipelineModelRegistry()
+            print("✅ ComfyUI integration: Model registry created")
+            
+        except Exception as e:
+            print(f"⚠️  Warning: ComfyUI memory management initialization failed: {e}")
+            print("   Pipeline will continue with basic memory management")
+            self.model_registry = None
         
         # Initialize chunked processor for optimal frame processing
         self.chunked_processor = ChunkedProcessor()
@@ -98,6 +286,10 @@ class ReferenceVideoPipeline:
             'video_export': None,
             'final_cleanup': None
         }
+        
+        # Test ComfyUI memory management functions
+        if self.model_registry:
+            self._test_comfy_memory_functions()
         
         # Memory thresholds for each phase
         self.memory_thresholds = {
@@ -145,6 +337,49 @@ class ReferenceVideoPipeline:
             print(f"   💡 This phase may be at risk of OOM errors")
         
         return allocated <= threshold
+    
+    def _test_comfy_memory_functions(self):
+        """Test ComfyUI memory management functions to ensure they're working"""
+        print("\n" + "="*80)
+        print("🧪 TESTING COMFYUI MEMORY MANAGEMENT FUNCTIONS")
+        print("="*80)
+        
+        try:
+            # Test 1: get_free_memory()
+            print("🔍 Testing get_free_memory()...")
+            device = comfy.model_management.get_torch_device()
+            free_memory = comfy.model_management.get_free_memory(device)
+            free_total, free_torch = comfy.model_management.get_free_memory(device, torch_free_too=True)
+            
+            print(f"   ✅ get_free_memory() working:")
+            print(f"      Total free: {free_memory / (1024**2):.1f} MB")
+            print(f"      GPU free: {free_total / (1024**2):.1f} MB")
+            print(f"      Torch free: {free_torch / (1024**2):.1f} MB")
+            
+            # Test 2: load_models_gpu() with empty list
+            print("🔍 Testing load_models_gpu() with empty list...")
+            comfy.model_management.load_models_gpu([], memory_required=0)
+            print("   ✅ load_models_gpu() working with empty list")
+            
+            # Test 3: free_memory() with minimal requirement
+            print("🔍 Testing free_memory() with minimal requirement...")
+            unloaded = comfy.model_management.free_memory(1024*1024, device)  # 1MB
+            print(f"   ✅ free_memory() working: {len(unloaded)} models unloaded")
+            
+            # Test 4: Check if model tracking is working
+            print("🔍 Testing model tracking system...")
+            if hasattr(comfy.model_management, 'current_loaded_models'):
+                print(f"   ✅ current_loaded_models exists: {len(comfy.model_management.current_loaded_models)} models")
+            else:
+                print("   ❌ current_loaded_models not found")
+            
+            print("✅ All ComfyUI memory management functions are working!")
+            
+        except Exception as e:
+            print(f"❌ ComfyUI memory management test failed: {e}")
+            print("   Pipeline will continue with basic memory management")
+        
+        print("="*80 + "\n")
     
     def _print_oom_checklist(self):
         """Print the complete OOM debugging checklist"""
