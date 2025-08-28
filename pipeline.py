@@ -37,6 +37,10 @@ import comfy.model_management
 # Initialize ComfyUI CLI arguments system
 comfy.cli_args.args = comfy.cli_args.parser.parse_args()
 
+# Ensure args.fast is properly initialized (ComfyUI expects this)
+if comfy.cli_args.args.fast is None:
+    comfy.cli_args.args.fast = set()
+
 # Force ComfyUI to use aggressive memory management
 comfy.model_management.vram_state = comfy.model_management.VRAMState.LOW_VRAM
 comfy.model_management.set_vram_to = comfy.model_management.VRAMState.LOW_VRAM
@@ -380,6 +384,11 @@ def initialize_comfy_memory_system():
     if not hasattr(comfy.cli_args, 'args') or comfy.cli_args.args is None:
         comfy.cli_args.args = comfy.cli_args.parser.parse_args()
         print("✅ ComfyUI CLI arguments: Parsed and initialized")
+    
+    # Ensure args.fast is properly initialized (ComfyUI expects this)
+    if comfy.cli_args.args.fast is None:
+        comfy.cli_args.args.fast = set()
+        print("✅ ComfyUI CLI arguments: args.fast initialized")
     
     # Force aggressive memory management settings
     comfy.model_management.vram_state = comfy.model_management.VRAMState.LOW_VRAM
