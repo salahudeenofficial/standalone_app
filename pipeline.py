@@ -16,6 +16,7 @@ This pipeline now properly leverages ComfyUI's native memory management system:
 import os
 import sys
 import argparse
+from pathlib import Path
 
 # Set required environment variables BEFORE importing ComfyUI
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
