@@ -2475,6 +2475,10 @@ class ReferenceVideoPipeline:
                     print("🧹 Cleaning up memory after reference encoding...")
                     force_comfy_memory_cleanup()
                     
+                    # Investigate memory state after reference encoding
+                    print("🔍 Memory investigation after reference encoding:")
+                    investigate_unaccounted_memory()
+                    
                 except Exception as e:
                     self._analyze_oom_cause(e, "REFERENCE_ENCODING")
                     raise
@@ -2540,6 +2544,10 @@ class ReferenceVideoPipeline:
             print(f"🔍 Step 4: Sampling - COMPLETED")
             print(f"🔍 Step 5: VAE Encoding - COMPLETED")
             print(f"{'='*80}")
+            
+            # Final memory investigation to see the complete picture
+            print("🔍 FINAL MEMORY INVESTIGATION - STEP 5 COMPLETE:")
+            investigate_unaccounted_memory()
             
             return "pipeline_stopped_after_step_5_for_debugging"
             
