@@ -38,9 +38,6 @@ import torch
 from pathlib import Path
 import time
 import numpy as np
-import threading
-import queue
-from collections import deque
 
 # Add the current directory to Python path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -65,241 +62,6 @@ from components.video_processor import TrimVideoLatent
 from components.vae_decoder import VAEDecode
 from components.video_export import VideoExporter
 from components.chunked_processor import ChunkedProcessor
-
-# ===============================================================================
-# REAL-TIME MEMORY MONITORING SYSTEM
-# ===============================================================================
-
-class RealTimeMemoryMonitor:
-    """Real-time VRAM monitoring using threading"""
-    
-    def __init__(self, sample_interval=0.5, max_samples=1000):
-        self.sample_interval = sample_interval  # seconds
-        self.max_samples = max_samples
-        self.monitoring = False
-        self.monitor_thread = None
-        self.memory_data = deque(maxlen=max_samples)
-        self.event_queue = queue.Queue()
-        self.lock = threading.Lock()
-        
-        # Memory thresholds for alerts
-        self.high_memory_threshold = 0.85  # 85% of VRAM
-        self.critical_memory_threshold = 0.95  # 95% of VRAM
-        
-    def start_monitoring(self, label="MONITORING"):
-        """Start real-time memory monitoring"""
-        if self.monitoring:
-            return
-            
-        self.monitoring = True
-        self.current_label = label
-        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
-        self.monitor_thread.start()
-        print(f"🚀 Real-time memory monitoring started: {label}")
-        
-    def stop_monitoring(self):
-        """Stop memory monitoring"""
-        if not self.monitoring:
-            return
-            
-        self.monitoring = False
-        if self.monitor_thread:
-            self.monitor_thread.join(timeout=2.0)
-        print("🛑 Real-time memory monitoring stopped")
-        
-    def _monitor_loop(self):
-        """Main monitoring loop running in separate thread"""
-        while self.monitoring:
-            try:
-                # Capture memory snapshot
-                snapshot = self._capture_memory_snapshot()
-                
-                # Add to data queue
-                with self.lock:
-                    self.memory_data.append(snapshot)
-                
-                # Check for memory alerts
-                self._check_memory_alerts(snapshot)
-                
-                # Process any events from main thread
-                self._process_events()
-                
-                time.sleep(self.sample_interval)
-                
-            except Exception as e:
-                print(f"❌ Memory monitoring error: {e}")
-                time.sleep(1.0)
-    
-    def _capture_memory_snapshot(self):
-        """Capture current memory state"""
-        timestamp = time.time()
-        snapshot = {
-            'timestamp': timestamp,
-            'label': self.current_label,
-            'pytorch_allocated': 0,
-            'pytorch_reserved': 0,
-            'comfy_free': 0,
-            'gpu_utilization': 0,
-            'model_count': 0,
-            'tensor_count': 0,
-            'system_ram_used': 0,
-            'system_ram_available': 0
-        }
-        
-        try:
-            if torch.cuda.is_available():
-                device = torch.cuda.current_device()
-                
-                # PyTorch memory
-                snapshot['pytorch_allocated'] = torch.cuda.memory_allocated(device) / (1024**3)
-                snapshot['pytorch_reserved'] = torch.cuda.memory_reserved(device) / (1024**3)
-                
-                # GPU utilization
-                props = torch.cuda.get_device_properties(device)
-                total_vram = props.total_memory / (1024**3)
-                snapshot['gpu_utilization'] = (snapshot['pytorch_reserved'] / total_vram) * 100
-                
-                # ComfyUI free memory
-                try:
-                    snapshot['comfy_free'] = comfy.model_management.get_free_memory(device) / (1024**3)
-                except:
-                    snapshot['comfy_free'] = 0
-                
-                # Model count
-                if hasattr(comfy.model_management, 'current_loaded_models'):
-                    snapshot['model_count'] = len(comfy.model_management.current_loaded_models)
-                
-                # Tensor count (quick estimate)
-                snapshot['tensor_count'] = len([obj for obj in gc.get_objects() if torch.is_tensor(obj) and obj.is_cuda])
-            
-            # System RAM
-            try:
-                import psutil
-                ram = psutil.virtual_memory()
-                snapshot['system_ram_used'] = ram.used / (1024**3)
-                snapshot['system_ram_available'] = ram.available / (1024**3)
-            except:
-                pass
-                
-        except Exception as e:
-            snapshot['error'] = str(e)
-            
-        return snapshot
-    
-    def _check_memory_alerts(self, snapshot):
-        """Check for memory threshold alerts"""
-        if snapshot.get('gpu_utilization', 0) > self.critical_memory_threshold * 100:
-            self._send_alert("🚨 CRITICAL VRAM USAGE", snapshot, "critical")
-        elif snapshot.get('gpu_utilization', 0) > self.high_memory_threshold * 100:
-            self._send_alert("⚠️  HIGH VRAM USAGE", snapshot, "warning")
-    
-    def _send_alert(self, message, snapshot, level):
-        """Send memory alert with current state"""
-        alert = f"{message} - {snapshot['label']}"
-        alert += f"\n   GPU: {snapshot['gpu_utilization']:.1f}% ({snapshot['pytorch_allocated']:.2f}GB)"
-        alert += f"\n   Models: {snapshot['model_count']}, Tensors: {snapshot['tensor_count']}"
-        alert += f"\n   ComfyUI Free: {snapshot['comfy_free']:.2f}GB"
-        
-        if level == "critical":
-            print(f"\n{alert}")
-        else:
-            print(f"\n{alert}")
-    
-    def _process_events(self):
-        """Process events from main thread"""
-        try:
-            while not self.event_queue.empty():
-                event = self.event_queue.get_nowait()
-                if event['type'] == 'label_change':
-                    self.current_label = event['label']
-                elif event['type'] == 'memory_check':
-                    self._handle_memory_check_request(event)
-        except queue.Empty:
-            pass
-    
-    def _handle_memory_check_request(self, event):
-        """Handle memory check requests from main thread"""
-        with self.lock:
-            if self.memory_data:
-                latest = self.memory_data[-1]
-                event['callback'](latest)
-    
-    def change_label(self, new_label):
-        """Change monitoring label (e.g., for different pipeline steps)"""
-        self.event_queue.put({
-            'type': 'label_change',
-            'label': new_label
-        })
-    
-    def get_current_memory_state(self, callback):
-        """Get current memory state (non-blocking)"""
-        self.event_queue.put({
-            'type': 'memory_check',
-            'callback': callback
-        })
-    
-    def get_memory_history(self):
-        """Get all captured memory data"""
-        with self.lock:
-            return list(self.memory_data)
-    
-    def get_memory_summary(self):
-        """Get summary statistics of captured data"""
-        with self.lock:
-            if not self.memory_data:
-                return None
-                
-            data = list(self.memory_data)
-            allocated_values = [d['pytorch_allocated'] for d in data if 'pytorch_allocated' in d]
-            reserved_values = [d['pytorch_reserved'] for d in data if 'pytorch_reserved' in d]
-            utilization_values = [d['gpu_utilization'] for d in data if 'gpu_utilization' in d]
-            
-            summary = {
-                'samples': len(data),
-                'duration': data[-1]['timestamp'] - data[0]['timestamp'] if len(data) > 1 else 0,
-                'allocated': {
-                    'min': min(allocated_values) if allocated_values else 0,
-                    'max': max(allocated_values) if allocated_values else 0,
-                    'avg': sum(allocated_values) / len(allocated_values) if allocated_values else 0
-                },
-                'reserved': {
-                    'min': min(reserved_values) if reserved_values else 0,
-                    'max': max(reserved_values) if reserved_values else 0,
-                    'avg': sum(reserved_values) / len(reserved_values) if reserved_values else 0
-                },
-                'utilization': {
-                    'min': min(utilization_values) if utilization_values else 0,
-                    'max': max(utilization_values) if utilization_values else 0,
-                    'avg': sum(utilization_values) / len(utilization_values) if utilization_values else 0
-                }
-            }
-            
-            return summary
-    
-    def print_memory_summary(self):
-        """Print formatted memory summary"""
-        summary = self.get_memory_summary()
-        if not summary:
-            print("📊 No memory data available")
-            return
-            
-        print(f"\n📊 MEMORY MONITORING SUMMARY")
-        print("="*60)
-        print(f"📈 Samples: {summary['samples']}")
-        print(f"⏱️  Duration: {summary['duration']:.1f}s")
-        print(f"📊 GPU Utilization:")
-        print(f"   Min: {summary['utilization']['min']:.1f}%")
-        print(f"   Max: {summary['utilization']['max']:.1f}%")
-        print(f"   Avg: {summary['utilization']['avg']:.1f}%")
-        print(f"💾 Allocated Memory:")
-        print(f"   Min: {summary['allocated']['min']:.2f} GB")
-        print(f"   Max: {summary['allocated']['max']:.2f} GB")
-        print(f"   Avg: {summary['allocated']['avg']:.2f} GB")
-        print(f"🔒 Reserved Memory:")
-        print(f"   Min: {summary['reserved']['min']:.2f} GB")
-        print(f"   Max: {summary['reserved']['max']:.2f} GB")
-        print(f"   Avg: {summary['reserved']['avg']:.2f} GB")
-        print("="*60)
 
 # ===============================================================================
 # STEP 2: Initialize ComfyUI Device Detection and Memory Management
@@ -543,9 +305,6 @@ class ReferenceVideoPipeline:
         # Test ComfyUI memory management functions
         if self.model_registry:
             self._test_comfy_memory_functions_safe()
-        
-        # Initialize real-time memory monitoring
-        self.memory_monitor = RealTimeMemoryMonitor(sample_interval=0.5, max_samples=2000)
     
     def _create_vae_with_proper_patcher(self, vae_state_dict):
         """Create VAE with proper patcher like ComfyUI does"""
@@ -1249,7 +1008,7 @@ class ReferenceVideoPipeline:
             operations=['vae_encode', 'unet_process', 'vae_decode']
         )
         self.chunked_processor.print_processing_plan(processing_plan)
-
+        
         try:
             # 1. Load Diffusion Model Components using ComfyUI's native system
             print("1. Loading diffusion model components using ComfyUI...")
@@ -1334,7 +1093,7 @@ class ReferenceVideoPipeline:
                 print("⚠️  VAE integration issues detected - may cause OOM")
             
             # Register VAE with model registry if available
-            if hasattr(self, 'model_registry') and self.model_registry:
+                if hasattr(self, 'model_registry') and self.model_registry:
                 try:
                     # Register the VAE itself, not the patcher
                     self.model_registry.register_model(vae, 'vae')
@@ -1403,9 +1162,6 @@ class ReferenceVideoPipeline:
             
             # Check ComfyUI's model management system
             print("1a. 🔍 Checking ComfyUI's model management system...")
-        except Exception as e:
-            print(f"1a. ⚠️  Could not check ComfyUI model management: {e}")
-            
             try:
                 import comfy.model_management
                 
@@ -1778,81 +1534,10 @@ class ReferenceVideoPipeline:
                 
                 # Return early to stop execution
                 print("✅ Pipeline continuing to Step 3...")
-                
-                # ========================================================================
-                # STEP 3: LOAD VIDEO AND IMAGE DATA
-                # ========================================================================
-                print("\n" + "="*80)
-                print("🔍 STEP 3: LOAD VIDEO AND IMAGE DATA")
-                print("="*80)
-                
-                # Load control video
-                print("3a. Loading control video...")
-                if control_video_path:
-                    control_video = self.load_video(control_video_path)
-                    if control_video is not None:
-                        print(f"   ✅ Control video loaded: {control_video.shape}")
-                    else:
-                        print("   ❌ Failed to load control video")
-                        control_video = None
-                else:
-                    print("   ⚠️  No control video path specified")
-                    control_video = None
-                
-                # Load reference image
-                print("3b. Loading reference image...")
-                if reference_image_path:
-                    reference_image = self.load_image(reference_image_path)
-                    if reference_image is not None:
-                        print(f"   ✅ Reference image loaded: {reference_image.shape}")
-                    else:
-                        print("   ❌ Failed to load reference image")
-                        reference_image = None
-                else:
-                    print("   ⚠️  No reference image path specified")
-                    reference_image = None
-                
-                print("✅ Step 3 completed - continuing to Step 5...")
-                
             else:
                 print("2. No LoRA specified, skipping LoRA application")
                 print("2a. Models remain in original state")
                 print("✅ Step 2 completed - continuing to Step 3...")
-                
-                # ========================================================================
-                # STEP 3: LOAD VIDEO AND IMAGE DATA (No LoRA path)
-                # ========================================================================
-                print("\n" + "="*80)
-                print("🔍 STEP 3: LOAD VIDEO AND IMAGE DATA (No LoRA)")
-                print("="*80)
-                
-                # Load control video
-                print("3a. Loading control video...")
-                if control_video_path:
-                    control_video = self.load_video(control_video_path)
-                    if control_video is not None:
-                        print(f"   ✅ Control video loaded: {control_video.shape}")
-                    else:
-                        print("   ❌ Failed to load control video")
-                        control_video = None
-                else:
-                    print("   ⚠️  No control video path specified")
-                    control_video = None
-                
-                # Load reference image
-                print("3b. Loading reference image...")
-                if reference_image_path:
-                    reference_image = self.load_image(reference_image_path)
-                    if reference_image is not None:
-                        print(f"   ✅ Reference image loaded: {reference_image.shape}")
-                    else:
-                        print("   ❌ Failed to load reference image")
-                        reference_image = None
-                else:
-                    print("   ⚠️  No reference image path specified")
-                    reference_image = None
-                
-                print("✅ Step 3 completed - continuing to Step 5...")
                 
                 # === LORA APPLICATION MONITORING SYSTEM START (No LoRA) ===
                 print("\n🔍 LORA APPLICATION MONITORING SYSTEM ACTIVATED (No LoRA)")
@@ -2107,11 +1792,10 @@ class ReferenceVideoPipeline:
                     print("🔍 Testing model tracking system...")
                     if hasattr(comfy.model_management, 'current_loaded_models'):
                         print(f"   ✅ current_loaded_models exists: {len(comfy.model_management.current_loaded_models)} models")
-                    else:
+            else:
                         print("   ❌ current_loaded_models not found")
                     
                     print("✅ All ComfyUI memory management functions are working!")
-
                     print("   Ready to proceed with Step 5 VAE encoding")
                     
                     # Test VAE memory preparation
@@ -2181,11 +1865,10 @@ class ReferenceVideoPipeline:
                     print(f"❌ ComfyUI memory management test failed: {e}")
                     print("   ⚠️  Step 5 may fail due to memory management issues")
                     print("   Continuing anyway...")
-                    
-                    if not hasattr(self, 'model_registry') or not self.model_registry:
-                        print("⚠️  No model registry available - ComfyUI integration not working")
-                        print("   Step 5 will likely fail")
-                
+                        else:
+                print("⚠️  No model registry available - ComfyUI integration not working")
+                print("   Step 5 will likely fail")
+            
             print("="*80)
             
             # ========================================================================
@@ -2194,15 +1877,6 @@ class ReferenceVideoPipeline:
             print(f"\n{'='*80}")
             print(f"🔍 STEP 5: GENERATE INITIAL LATENTS (COMFY-LIKE)")
             print(f"{'='*80}")
-            
-            # Enable comprehensive memory tracking for Step 5
-            self._track_memory_during_step5()
-            
-            # Start real-time memory monitoring for Step 5
-            self.memory_monitor.start_monitoring("STEP5_VAE_ENCODING")
-            
-            # Initial VRAM analysis before Step 5
-            self._detailed_vram_analysis("STEP5_START")
 
             # Ensure inputs are loaded locally for this step
             control_video = locals().get('control_video', None)
@@ -2219,7 +1893,7 @@ class ReferenceVideoPipeline:
             latent_length = ((length - 1) // 4) + 1
 
             # Prepare control video
-            if control_video is not None:
+                        if control_video is not None:
                 control_video = control_video[:length]
                 control_video = comfy.utils.common_upscale(
                     control_video.movedim(-1, 1), width, height, "bilinear", "center"
@@ -2228,13 +1902,13 @@ class ReferenceVideoPipeline:
                     control_video = torch.nn.functional.pad(
                         control_video, (0, 0, 0, 0, 0, 0, 0, length - control_video.shape[0]), value=0.5
                     )
-                else:
-                    device = vae.first_stage_model.device if hasattr(vae, 'first_stage_model') else 'cpu'
-                    control_video = torch.ones((length, height, width, 3), device=device) * 0.5
+                        else:
+                device = vae.first_stage_model.device if hasattr(vae, 'first_stage_model') else 'cpu'
+                control_video = torch.ones((length, height, width, 3), device=device) * 0.5
                         
             # Prepare reference image (optional)
             ref_img = None
-            if reference_image is not None:
+                        if reference_image is not None:
                 ref_img = comfy.utils.common_upscale(
                     reference_image[:1].movedim(-1, 1), width, height, "bilinear", "center"
                 ).movedim(1, -1)
@@ -2262,30 +1936,12 @@ class ReferenceVideoPipeline:
 
             # VAE encode inactive/reactive paths using ComfyUI's batching strategy
             print("🔍 Encoding inactive frames with ComfyUI batching strategy...")
-            
-            # Monitor memory before inactive encoding
-            self._monitor_vae_encoding_memory(vae, inactive[:, :, :, :3], "INACTIVE_FRAMES")
-            
-            try:
-                inactive_latent = self._comfy_vae_encode(vae, inactive[:, :, :, :3])
-                print(f"   Inactive latent shape: {inactive_latent.shape}")
-                self._quick_memory_snapshot("after_inactive")
-            except Exception as e:
-                self._analyze_oom_cause(e, "INACTIVE_ENCODING")
-                raise
+            inactive_latent = self._comfy_vae_encode(vae, inactive[:, :, :, :3])
+            print(f"   Inactive latent shape: {inactive_latent.shape}")
             
             print("🔍 Encoding reactive frames with ComfyUI batching strategy...")
-            
-            # Monitor memory before reactive encoding
-            self._monitor_vae_encoding_memory(vae, reactive[:, :, :, :3], "REACTIVE_FRAMES")
-            
-            try:
-                reactive_latent = self._comfy_vae_encode(vae, reactive[:, :, :, :3])
-                print(f"   Reactive latent shape: {reactive_latent.shape}")
-                self._quick_memory_snapshot("after_reactive")
-            except Exception as e:
-                self._analyze_oom_cause(e, "REACTIVE_ENCODING")
-                raise
+            reactive_latent = self._comfy_vae_encode(vae, reactive[:, :, :, :3])
+            print(f"   Reactive latent shape: {reactive_latent.shape}")
             
             # Normalize tensor dimensions before concatenation
             print("🔍 Normalizing tensor dimensions...")
@@ -2311,17 +1967,8 @@ class ReferenceVideoPipeline:
             trim_latent = 0
             if ref_img is not None:
                 print("🔍 Encoding reference image with ComfyUI batching strategy...")
-                
-                # Monitor memory before reference encoding
-                self._monitor_vae_encoding_memory(vae, ref_img[:, :, :, :3], "REFERENCE_IMAGE")
-                
-                try:
-                    ref_latent = self._comfy_vae_encode(vae, ref_img[:, :, :, :3])
-                    print(f"   Reference latent shape: {ref_latent.shape}")
-                    self._quick_memory_snapshot("after_reference")
-                except Exception as e:
-                    self._analyze_oom_cause(e, "REFERENCE_ENCODING")
-                    raise
+                ref_latent = self._comfy_vae_encode(vae, ref_img[:, :, :, :3])
+                print(f"   Reference latent shape: {ref_latent.shape}")
                 
                 # Normalize reference latent dimensions
                 if len(ref_latent.shape) == 5 and ref_latent.shape[2] == 1:
@@ -3081,28 +2728,10 @@ class ReferenceVideoPipeline:
                     else:
                         print("⚠ Memory not fully restored to baseline state")
             
-            # Stop real-time memory monitoring
-            self.memory_monitor.stop_monitoring()
-            
-            # Print final memory summary
-            self.memory_monitor.print_memory_summary()
-            
-            # Final VRAM analysis at pipeline completion
-            self._detailed_vram_analysis("PIPELINE_COMPLETE")
-            
             return output_path
             
         except Exception as e:
             print(f"Pipeline failed with error: {str(e)}")
-            
-            # Stop memory monitoring on failure
-            if hasattr(self, 'memory_monitor'):
-                self.memory_monitor.stop_monitoring()
-                self.memory_monitor.print_memory_summary()
-            
-            # Analyze failure with detailed VRAM analysis
-            self._analyze_oom_cause(e, "PIPELINE_FAILURE")
-            
             # ComfyUI automatically handles cleanup on failure
             raise
     
@@ -4065,219 +3694,6 @@ class ReferenceVideoPipeline:
         self._print_final_workflow_summary(step_results)
         
         return False  # Signal to stop execution
-    
-    def _detailed_vram_analysis(self, step_name):
-        """Comprehensive VRAM analysis to identify memory bottlenecks"""
-        try:
-            import gc
-            import psutil
-            
-            print(f"\n🔍 DETAILED VRAM ANALYSIS - {step_name.upper()}")
-            print("="*80)
-            
-            # 1. PyTorch GPU Memory Analysis
-            if torch.cuda.is_available():
-                device = torch.cuda.current_device()
-                
-                # Basic memory stats
-                allocated = torch.cuda.memory_allocated(device) / (1024**3)  # GB
-                reserved = torch.cuda.memory_reserved(device) / (1024**3)   # GB
-                max_allocated = torch.cuda.max_memory_allocated(device) / (1024**3)  # GB
-                max_reserved = torch.cuda.max_memory_reserved(device) / (1024**3)   # GB
-                
-                print(f"📊 PyTorch Memory Stats:")
-                print(f"   Current Allocated: {allocated:.2f} GB")
-                print(f"   Current Reserved:  {reserved:.2f} GB") 
-                print(f"   Peak Allocated:    {max_allocated:.2f} GB")
-                print(f"   Peak Reserved:     {max_reserved:.2f} GB")
-                print(f"   Free (Reserved):   {(reserved - allocated):.2f} GB")
-                
-                # Memory breakdown by tensor types
-                memory_summary = torch.cuda.memory_summary(device)
-                print(f"\n🔬 Memory Summary:")
-                print(memory_summary)
-                
-                # 2. ComfyUI Model Tracking
-                print(f"\n🎯 ComfyUI Model Tracking:")
-                if hasattr(comfy.model_management, 'current_loaded_models'):
-                    loaded_models = comfy.model_management.current_loaded_models
-                    print(f"   Tracked Models: {len(loaded_models)}")
-                    
-                    total_model_memory = 0
-                    for i, model in enumerate(loaded_models):
-                        try:
-                            if hasattr(model, 'model'):
-                                model_type = type(model.model).__name__
-                                if hasattr(model, 'model_memory_required'):
-                                    mem_req = model.model_memory_required(device) / (1024**3)
-                                    total_model_memory += mem_req
-                                    print(f"   Model {i+1}: {model_type} - {mem_req:.2f} GB")
-                                else:
-                                    print(f"   Model {i+1}: {model_type} - Memory unknown")
-                        except Exception as e:
-                            print(f"   Model {i+1}: Error getting info - {e}")
-                    
-                    print(f"   Total Model Memory: {total_model_memory:.2f} GB")
-                    print(f"   Unaccounted Memory: {(allocated - total_model_memory):.2f} GB")
-                
-                # 3. ComfyUI Free Memory Check
-                try:
-                    free_mem = comfy.model_management.get_free_memory(device) / (1024**3)
-                    print(f"\n💾 ComfyUI Free Memory: {free_mem:.2f} GB")
-                except Exception as e:
-                    print(f"   Error getting ComfyUI free memory: {e}")
-                
-                # 4. GPU Device Properties
-                props = torch.cuda.get_device_properties(device)
-                total_vram = props.total_memory / (1024**3)
-                free_raw = (props.total_memory - torch.cuda.memory_reserved(device)) / (1024**3)
-                
-                print(f"\n🎮 GPU Hardware:")
-                print(f"   Device: {props.name}")
-                print(f"   Total VRAM: {total_vram:.2f} GB")
-                print(f"   Free (Raw): {free_raw:.2f} GB")
-                print(f"   Utilization: {(allocated/total_vram)*100:.1f}%")
-                
-            # 5. System RAM Analysis
-            ram = psutil.virtual_memory()
-            print(f"\n🖥️  System RAM:")
-            print(f"   Total: {ram.total / (1024**3):.2f} GB")
-            print(f"   Used: {ram.used / (1024**3):.2f} GB")
-            print(f"   Available: {ram.available / (1024**3):.2f} GB")
-            print(f"   Utilization: {ram.percent:.1f}%")
-            
-            # 6. Python Object Analysis
-            print(f"\n🐍 Python Objects:")
-            gc.collect()  # Force garbage collection
-            
-            # Count tensor objects
-            tensor_count = 0
-            tensor_memory = 0
-            for obj in gc.get_objects():
-                if torch.is_tensor(obj):
-                    tensor_count += 1
-                    if obj.is_cuda:
-                        tensor_memory += obj.element_size() * obj.nelement()
-            
-            print(f"   Total Tensors: {tensor_count}")
-            print(f"   GPU Tensor Memory: {tensor_memory / (1024**3):.2f} GB")
-            
-            print("="*80)
-            
-        except Exception as e:
-            print(f"❌ VRAM Analysis failed: {e}")
-    
-    def _monitor_vae_encoding_memory(self, vae, pixel_samples, operation_name):
-        """Monitor memory during VAE encoding specifically"""
-        print(f"\n🔍 VAE ENCODING MEMORY MONITOR - {operation_name}")
-        print("-"*60)
-        
-        # Before encoding
-        print("📍 BEFORE VAE ENCODING:")
-        self._quick_memory_snapshot("before_vae")
-        
-        # Check VAE model status
-        print(f"\n🎯 VAE Model Status:")
-        if hasattr(vae, 'patcher'):
-            patcher = vae.patcher
-            print(f"   Patcher Type: {type(patcher)}")
-            print(f"   Load Device: {patcher.load_device}")
-            print(f"   Offload Device: {patcher.offload_device}")
-            print(f"   Current Device: {getattr(patcher, 'current_device', 'Unknown')}")
-            
-            # Check if VAE is currently loaded
-            if hasattr(patcher, 'is_loaded'):
-                print(f"   Is Loaded: {patcher.is_loaded}")
-            
-            # Check VAE model memory
-            if hasattr(patcher, 'model_memory_required'):
-                try:
-                    mem_req = patcher.model_memory_required(torch.cuda.current_device()) / (1024**3)
-                    print(f"   Memory Required: {mem_req:.2f} GB")
-                except:
-                    print(f"   Memory Required: Unknown")
-        
-        # Predict encoding memory
-        try:
-            if hasattr(vae, 'memory_used_encode'):
-                predicted_mem = vae.memory_used_encode(pixel_samples.shape, vae.vae_dtype) / (1024**3)
-                print(f"   Predicted Encoding Memory: {predicted_mem:.2f} GB")
-        except Exception as e:
-            print(f"   Could not predict encoding memory: {e}")
-        
-        print(f"   Input Tensor Shape: {pixel_samples.shape}")
-        print(f"   Input Tensor Size: {pixel_samples.element_size() * pixel_samples.nelement() / (1024**3):.3f} GB")
-        
-        return True
-    
-    def _quick_memory_snapshot(self, label):
-        """Quick memory snapshot for frequent monitoring"""
-        if torch.cuda.is_available():
-            device = torch.cuda.current_device()
-            allocated = torch.cuda.memory_allocated(device) / (1024**3)
-            reserved = torch.cuda.memory_reserved(device) / (1024**3)
-            
-            try:
-                free_comfy = comfy.model_management.get_free_memory(device) / (1024**3)
-                print(f"   {label}: Allocated={allocated:.2f}GB, Reserved={reserved:.2f}GB, ComfyFree={free_comfy:.2f}GB")
-            except:
-                print(f"   {label}: Allocated={allocated:.2f}GB, Reserved={reserved:.2f}GB")
-    
-    def _track_memory_during_step5(self):
-        """Track memory throughout Step 5 execution"""
-        print(f"\n🎯 STEP 5 MEMORY TRACKING ENABLED")
-        print("="*80)
-        
-        # Enable PyTorch memory profiling
-        if torch.cuda.is_available():
-            torch.cuda.reset_peak_memory_stats()
-            print("✅ PyTorch memory profiling reset and enabled")
-            
-        return True
-    
-    def _analyze_oom_cause(self, error, context):
-        """Analyze the specific cause of OOM errors"""
-        print(f"\n💥 OOM ERROR ANALYSIS - {context}")
-        print("="*80)
-        
-        print(f"📋 Error Details:")
-        print(f"   Error Type: {type(error).__name__}")
-        print(f"   Error Message: {str(error)}")
-        
-        # Extract memory details from error message
-        import re
-        
-        # Try to extract memory amounts from error
-        tried_to_allocate = re.search(r'Tried to allocate (\d+\.?\d*)\s*(\w+)', str(error))
-        if tried_to_allocate:
-            amount = tried_to_allocate.group(1)
-            unit = tried_to_allocate.group(2)
-            print(f"   Allocation Attempt: {amount} {unit}")
-        
-        # Extract available memory
-        available_mem = re.search(r'(\d+\.?\d*)\s*(\w+) is free', str(error))
-        if available_mem:
-            amount = available_mem.group(1)
-            unit = available_mem.group(2)
-            print(f"   Available Memory: {amount} {unit}")
-        
-        # Current memory state
-        self._detailed_vram_analysis("OOM_ANALYSIS")
-        
-        # Suggestions based on analysis
-        print(f"\n💡 SUGGESTED SOLUTIONS:")
-        if torch.cuda.is_available():
-            allocated = torch.cuda.memory_allocated() / (1024**3)
-            reserved = torch.cuda.memory_reserved() / (1024**3)
-            
-            if allocated > 40:  # > 40GB
-                print("   🔧 High allocation detected - try reducing batch size")
-            if reserved - allocated > 5:  # > 5GB fragmentation
-                print("   🔧 Memory fragmentation detected - call torch.cuda.empty_cache()")
-            if len(comfy.model_management.current_loaded_models) > 1:
-                print("   🔧 Multiple models loaded - enable better offloading")
-                
-        print("="*80)
 
 def main():
     """Main function to run the pipeline"""
