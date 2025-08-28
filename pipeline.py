@@ -1334,7 +1334,7 @@ class ReferenceVideoPipeline:
                 print("⚠️  VAE integration issues detected - may cause OOM")
             
             # Register VAE with model registry if available
-                if hasattr(self, 'model_registry') and self.model_registry:
+            if hasattr(self, 'model_registry') and self.model_registry:
                 try:
                     # Register the VAE itself, not the patcher
                     self.model_registry.register_model(vae, 'vae')
@@ -2106,8 +2106,8 @@ class ReferenceVideoPipeline:
                     # Test 4: Check if model tracking is working
                     print("🔍 Testing model tracking system...")
                     if hasattr(comfy.model_management, 'current_loaded_models'):
-                        print(f"   ✅ current_loaded_models exists: {len(comfy.model_management.current_loaded_models)} models")
-            else:
+                        print(f"   ✅ current_loaded_models exists: {len(comfy.model_management.current_models)} models")
+                    else:
                         print("   ❌ current_loaded_models not found")
                     
                     print("✅ All ComfyUI memory management functions are working!")
@@ -2183,8 +2183,8 @@ class ReferenceVideoPipeline:
                     print("   Continuing anyway...")
                     
                     if not hasattr(self, 'model_registry') or not self.model_registry:
-                print("⚠️  No model registry available - ComfyUI integration not working")
-                print("   Step 5 will likely fail")
+                        print("⚠️  No model registry available - ComfyUI integration not working")
+                        print("   Step 5 will likely fail")
             
             print("="*80)
             
@@ -2219,7 +2219,7 @@ class ReferenceVideoPipeline:
             latent_length = ((length - 1) // 4) + 1
 
             # Prepare control video
-                        if control_video is not None:
+            if control_video is not None:
                 control_video = control_video[:length]
                 control_video = comfy.utils.common_upscale(
                     control_video.movedim(-1, 1), width, height, "bilinear", "center"
@@ -2228,13 +2228,13 @@ class ReferenceVideoPipeline:
                     control_video = torch.nn.functional.pad(
                         control_video, (0, 0, 0, 0, 0, 0, 0, length - control_video.shape[0]), value=0.5
                     )
-                        else:
+            else:
                 device = vae.first_stage_model.device if hasattr(vae, 'first_stage_model') else 'cpu'
                 control_video = torch.ones((length, height, width, 3), device=device) * 0.5
                         
             # Prepare reference image (optional)
             ref_img = None
-                        if reference_image is not None:
+            if reference_image is not None:
                 ref_img = comfy.utils.common_upscale(
                     reference_image[:1].movedim(-1, 1), width, height, "bilinear", "center"
                 ).movedim(1, -1)
