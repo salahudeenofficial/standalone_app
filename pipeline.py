@@ -758,112 +758,69 @@ class ReferenceVideoPipeline:
         return torch.cat(latents, dim=0)
     
     def _comfy_vae_encode(self, vae, pixel_samples):
-        """Encode using ComfyUI's memory-aware approach with automatic tiled encoding"""
+        """Encode using forced tiled approach to prevent OOM"""
         print(f"   Input shape: {pixel_samples.shape}")
         
         # Load VAE to GPU if needed
         if hasattr(vae, 'patcher'):
             comfy.model_management.load_models_gpu([vae.patcher], memory_required=0, force_full_load=vae.disable_offload)
         
-        # Calculate memory requirement (like ComfyUI does)
-        try:
-            if hasattr(vae, 'memory_used_encode'):
-                memory_needed = vae.memory_used_encode(pixel_samples.shape, vae.vae_dtype)
-                print(f"   📊 Memory required: {memory_needed / 1024**3:.2f} GB")
+        # Force tiled encoding for video inputs to prevent OOM
+        if len(pixel_samples.shape) == 4 and pixel_samples.shape[0] > 1:
+            print("   🎯 FORCING TILED ENCODING for video input (preventing OOM)")
+            
+            # Calculate optimal tile sizes based on available memory
+            available_memory = comfy.model_management.get_free_memory(comfy.model_management.get_torch_device())
+            available_memory_gb = available_memory / (1024**3)
+            
+            print(f"   📊 Available memory: {available_memory_gb:.2f} GB")
+            
+            # Conservative tile sizes to ensure they fit in memory
+            if available_memory_gb > 20:
+                tile_x, tile_y = 512, 512  # Large tiles for high memory
+                print("   🧱 Using large tiles: 512x512")
+            elif available_memory_gb > 10:
+                tile_x, tile_y = 256, 256  # Medium tiles for medium memory
+                print("   🧱 Using medium tiles: 256x256")
             else:
-                memory_needed = None
-                print("   📊 Memory requirement: Unknown (no memory_used_encode method)")
-        except Exception as e:
-            memory_needed = None
-            print(f"   📊 Memory calculation failed: {e}")
-        
-        # Check available memory
-        try:
-            device = comfy.model_management.get_torch_device()
-            available_memory = comfy.model_management.get_free_memory(device)
-            print(f"   📊 Available memory: {available_memory / 1024**3:.2f} GB")
-        except Exception as e:
-            available_memory = None
-            print(f"   📊 Memory check failed: {e}")
-        
-        # Decide encoding strategy based on memory
-        use_tiled = False
-        if memory_needed and available_memory:
-            if memory_needed > available_memory:
-                use_tiled = True
-                print(f"   🚨 Memory insufficient ({memory_needed/1024**3:.2f} GB > {available_memory/1024**3:.2f} GB)")
-                print("   🔧 Switching to ComfyUI tiled encoding...")
-            else:
-                print(f"   ✅ Memory sufficient ({memory_needed/1024**3:.2f} GB <= {available_memory/1024**3:.2f} GB)")
-                print("   🚀 Using direct encoding...")
-        else:
-            # If we can't determine memory, use tiled encoding for safety
-            use_tiled = True
-            print("   ⚠️  Memory info unavailable, using safe tiled encoding...")
-        
-        try:
-            if use_tiled:
-                # Use ComfyUI's tiled encoding with optimal tile sizes
-                print("   🧩 Using ComfyUI tiled encoding...")
-                
-                # Calculate optimal tile sizes for video
-                if len(pixel_samples.shape) == 4:  # Video data
-                    # For video, use smaller tiles to fit in memory
-                    tile_x = min(256, pixel_samples.shape[2] // 2)
-                    tile_y = min(256, pixel_samples.shape[1] // 2)
-                    tile_t = min(8, pixel_samples.shape[0])  # Temporal tiles
-                    overlap = 8
-                else:
-                    # For single images, use standard tiles
-                    tile_x = 512
-                    tile_y = 512
-                    tile_t = 1
-                    overlap = 8
-                
-                print(f"   🧩 Tile configuration: T={tile_t}, X={tile_x}, Y={tile_y}, Overlap={overlap}")
-                
-                # Use ComfyUI's tiled encoding
+                tile_x, tile_y = 128, 128  # Small tiles for low memory
+                print("   🧱 Using small tiles: 128x128")
+            
+            try:
+                # Force ComfyUI's tiled encoding with calculated tile sizes
+                print(f"   🔧 Starting tiled encoding with tiles: {tile_x}x{tile_y}")
                 samples = vae.encode_tiled_3d(
                     pixel_samples, 
                     tile_x=tile_x, 
                     tile_y=tile_y, 
-                    tile_t=tile_t,
-                    overlap=(overlap, overlap, overlap)
+                    overlap=32  # Conservative overlap
                 )
+                print(f"   ✅ Tiled encoding successful! Output shape: {samples.shape}")
+                return samples
                 
-                print(f"   ✅ Tiled encoding successful")
+            except Exception as e:
+                print(f"   ⚠️  Tiled encoding failed: {e}")
+                print("   🔧 Trying with even smaller tiles...")
                 
-            else:
-                # Use direct encoding
-                print("   🚀 Using direct encoding...")
-                samples = vae.encode(pixel_samples)
-                print(f"   ✅ Direct encoding successful")
-            
-            print(f"   📊 Output shape: {samples.shape}")
-            return samples
-            
-        except Exception as e:
-            print(f"   ❌ Encoding failed: {e}")
-            
-            # If tiled encoding also fails, try with even smaller tiles
-            if use_tiled and "CUDA out of memory" in str(e):
-                print("   🚨 Tiled encoding failed, trying with minimal tiles...")
+                # Fallback to very small tiles
                 try:
-                    # Use minimal tile sizes
                     samples = vae.encode_tiled_3d(
                         pixel_samples, 
-                        tile_x=128, 
-                        tile_y=128, 
-                        tile_t=4,
-                        overlap=(4, 4, 4)
+                        tile_x=64, 
+                        tile_y=64, 
+                        overlap=16
                     )
-                    print(f"   ✅ Minimal tiled encoding successful")
-                    print(f"   📊 Output shape: {samples.shape}")
+                    print(f"   ✅ Fallback tiled encoding successful! Output shape: {samples.shape}")
                     return samples
+                    
                 except Exception as e2:
-                    print(f"   ❌ Minimal tiled encoding also failed: {e2}")
-            
-            raise
+                    print(f"   ❌ All tiled encoding attempts failed: {e2}")
+                    raise e2
+        
+        else:
+            # Single frame or image - use standard VAE encode
+            print("   📷 Processing single frame/image with standard VAE encode")
+            return vae.encode(pixel_samples)
     
     def _test_comfy_memory_functions_safe(self):
         """Test ComfyUI memory functions without interfering with model tracking"""
