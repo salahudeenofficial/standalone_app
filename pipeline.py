@@ -775,16 +775,42 @@ class ReferenceVideoPipeline:
             
             print(f"   📊 Available memory: {available_memory_gb:.2f} GB")
             
-            # Conservative tile sizes to ensure they fit in memory
+            # Get video dimensions
+            _, height, width, _ = pixel_samples.shape
+            print(f"   📐 Video dimensions: {height}x{width}")
+            
+            # Conservative tile sizes that ensure tile > overlap
             if available_memory_gb > 20:
                 tile_x, tile_y = 512, 512  # Large tiles for high memory
-                print("   🧱 Using large tiles: 512x512")
+                overlap = 64  # Ensure overlap < tile
+                print("   🧱 Using large tiles: 512x512 with overlap 64")
             elif available_memory_gb > 10:
                 tile_x, tile_y = 256, 256  # Medium tiles for medium memory
-                print("   🧱 Using medium tiles: 256x256")
+                overlap = 32  # Ensure overlap < tile
+                print("   🧱 Using medium tiles: 256x256 with overlap 32")
             else:
                 tile_x, tile_y = 128, 128  # Small tiles for low memory
-                print("   🧱 Using small tiles: 128x128")
+                overlap = 16  # Ensure overlap < tile
+                print("   🧱 Using small tiles: 128x128 with overlap 16")
+            
+            # Ensure tiles fit within video dimensions
+            if tile_x > width:
+                tile_x = width
+                overlap = min(overlap, tile_x // 4)  # Overlap must be < tile/4
+                print(f"   🔧 Adjusted tile_x to {tile_x} (video width)")
+            
+            if tile_y > height:
+                tile_y = height
+                overlap = min(overlap, tile_y // 4)  # Overlap must be < tile/4
+                print(f"   🔧 Adjusted tile_y to {tile_y} (video height)")
+            
+            # Final validation
+            if tile_x <= overlap or tile_y <= overlap:
+                print("   ⚠️  Tile sizes too small, using minimal safe values")
+                tile_x = max(64, overlap * 2)
+                tile_y = max(64, overlap * 2)
+            
+            print(f"   🎯 Final tile configuration: {tile_x}x{tile_y} with overlap {overlap}")
             
             try:
                 # Force ComfyUI's tiled encoding with calculated tile sizes
@@ -793,7 +819,7 @@ class ReferenceVideoPipeline:
                     pixel_samples, 
                     tile_x=tile_x, 
                     tile_y=tile_y, 
-                    overlap=32  # Conservative overlap
+                    overlap=overlap
                 )
                 print(f"   ✅ Tiled encoding successful! Output shape: {samples.shape}")
                 return samples
@@ -804,11 +830,15 @@ class ReferenceVideoPipeline:
                 
                 # Fallback to very small tiles
                 try:
+                    fallback_tile = 64
+                    fallback_overlap = 8
+                    print(f"   🔧 Fallback: {fallback_tile}x{fallback_tile} with overlap {fallback_overlap}")
+                    
                     samples = vae.encode_tiled_3d(
                         pixel_samples, 
-                        tile_x=64, 
-                        tile_y=64, 
-                        overlap=16
+                        tile_x=fallback_tile, 
+                        tile_y=fallback_tile, 
+                        overlap=fallback_overlap
                     )
                     print(f"   ✅ Fallback tiled encoding successful! Output shape: {samples.shape}")
                     return samples
