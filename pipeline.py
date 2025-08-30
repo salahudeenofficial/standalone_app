@@ -757,100 +757,82 @@ class ReferenceVideoPipeline:
         
         return torch.cat(latents, dim=0)
     
+    def _fix_vae_memory_calculation(self, vae):
+        """Fix VAE memory calculation to use correct frame count for proper tiled encoding triggering"""
+        if not hasattr(vae, 'memory_used_encode'):
+            print("   ⚠️  VAE has no memory_used_encode function - cannot fix calculation")
+            return
+        
+        # Store original calculation
+        original_calc = vae.memory_used_encode
+        print("   🔧 Fixing VAE memory calculation for correct tiled encoding triggering...")
+        
+        def corrected_memory_calc(shape, dtype):
+            """Corrected memory calculation that uses actual frame count"""
+            try:
+                if len(shape) == 4:
+                    # Input format: [frames, height, width, channels]
+                    frames, height, width, channels = shape
+                    print(f"   📊 Memory calc for: {frames} frames, {height}x{width}, {channels} channels")
+                    
+                    # Use the ACTUAL frame count in WAN VAE calculation
+                    # Original formula: (70 * max(shape[2], 7) * shape[3] * shape[4])
+                    # Corrected: Use actual frames instead of shape[2] (which was width)
+                    memory_needed = (70 * max(frames, 7) * height * width) * comfy.model_management.dtype_size(dtype)
+                    memory_gb = memory_needed / (1024**3)
+                    print(f"   📊 Corrected memory estimate: {memory_gb:.2f} GB")
+                    
+                    return memory_needed
+                
+                elif len(shape) == 5:
+                    # Input format: [batch, channels, frames, height, width]
+                    batch, channels, frames, height, width = shape
+                    print(f"   📊 Memory calc for 5D: {batch}x{channels}x{frames}x{height}x{width}")
+                    
+                    # Use the actual frame count from correct position
+                    memory_needed = (70 * max(frames, 7) * height * width) * comfy.model_management.dtype_size(dtype)
+                    memory_gb = memory_needed / (1024**3)
+                    print(f"   📊 Corrected memory estimate: {memory_gb:.2f} GB")
+                    
+                    return memory_needed
+                
+                else:
+                    # Fall back to original calculation for other shapes
+                    print(f"   📊 Using original calc for shape: {shape}")
+                    return original_calc(shape, dtype)
+                    
+            except Exception as e:
+                print(f"   ⚠️  Memory calculation failed: {e}, using original")
+                return original_calc(shape, dtype)
+        
+        # Replace the VAE's memory calculation with our corrected version
+        vae.memory_used_encode = corrected_memory_calc
+        print("   ✅ VAE memory calculation fixed - will now trigger tiled encoding correctly")
+    
     def _comfy_vae_encode(self, vae, pixel_samples):
-        """Encode using forced tiled approach to prevent OOM"""
+        """Encode using ComfyUI's natural approach with corrected memory calculation"""
         print(f"   Input shape: {pixel_samples.shape}")
+        
+        # Fix the VAE memory calculation first
+        self._fix_vae_memory_calculation(vae)
         
         # Load VAE to GPU if needed
         if hasattr(vae, 'patcher'):
             comfy.model_management.load_models_gpu([vae.patcher], memory_required=0, force_full_load=vae.disable_offload)
         
-        # Force tiled encoding for video inputs to prevent OOM
-        if len(pixel_samples.shape) == 4 and pixel_samples.shape[0] > 1:
-            print("   🎯 FORCING TILED ENCODING for video input (preventing OOM)")
-            
-            # Calculate optimal tile sizes based on available memory
-            available_memory = comfy.model_management.get_free_memory(comfy.model_management.get_torch_device())
-            available_memory_gb = available_memory / (1024**3)
-            
-            print(f"   📊 Available memory: {available_memory_gb:.2f} GB")
-            
-            # Get video dimensions
-            _, height, width, _ = pixel_samples.shape
-            print(f"   📐 Video dimensions: {height}x{width}")
-            
-            # Conservative tile sizes that ensure tile > overlap
-            if available_memory_gb > 20:
-                tile_x, tile_y = 512, 512  # Large tiles for high memory
-                overlap = 64  # Ensure overlap < tile
-                print("   🧱 Using large tiles: 512x512 with overlap 64")
-            elif available_memory_gb > 10:
-                tile_x, tile_y = 256, 256  # Medium tiles for medium memory
-                overlap = 32  # Ensure overlap < tile
-                print("   🧱 Using medium tiles: 256x256 with overlap 32")
-            else:
-                tile_x, tile_y = 128, 128  # Small tiles for low memory
-                overlap = 16  # Ensure overlap < tile
-                print("   🧱 Using small tiles: 128x128 with overlap 16")
-            
-            # Ensure tiles fit within video dimensions
-            if tile_x > width:
-                tile_x = width
-                overlap = min(overlap, tile_x // 4)  # Overlap must be < tile/4
-                print(f"   🔧 Adjusted tile_x to {tile_x} (video width)")
-            
-            if tile_y > height:
-                tile_y = height
-                overlap = min(overlap, tile_y // 4)  # Overlap must be < tile/4
-                print(f"   🔧 Adjusted tile_y to {tile_y} (video height)")
-            
-            # Final validation
-            if tile_x <= overlap or tile_y <= overlap:
-                print("   ⚠️  Tile sizes too small, using minimal safe values")
-                tile_x = max(64, overlap * 2)
-                tile_y = max(64, overlap * 2)
-            
-            print(f"   🎯 Final tile configuration: {tile_x}x{tile_y} with overlap {overlap}")
-            
-            try:
-                # Force ComfyUI's tiled encoding with calculated tile sizes
-                print(f"   🔧 Starting tiled encoding with tiles: {tile_x}x{tile_y}")
-                samples = vae.encode_tiled_3d(
-                    pixel_samples, 
-                    tile_x=tile_x, 
-                    tile_y=tile_y, 
-                    overlap=overlap
-                )
-                print(f"   ✅ Tiled encoding successful! Output shape: {samples.shape}")
-                return samples
-                
-            except Exception as e:
-                print(f"   ⚠️  Tiled encoding failed: {e}")
-                print("   🔧 Trying with even smaller tiles...")
-                
-                # Fallback to very small tiles
-                try:
-                    fallback_tile = 64
-                    fallback_overlap = 8
-                    print(f"   🔧 Fallback: {fallback_tile}x{fallback_tile} with overlap {fallback_overlap}")
-                    
-                    samples = vae.encode_tiled_3d(
-                        pixel_samples, 
-                        tile_x=fallback_tile, 
-                        tile_y=fallback_tile, 
-                        overlap=fallback_overlap
-                    )
-                    print(f"   ✅ Fallback tiled encoding successful! Output shape: {samples.shape}")
-                    return samples
-                    
-                except Exception as e2:
-                    print(f"   ❌ All tiled encoding attempts failed: {e2}")
-                    raise e2
+        # Now use ComfyUI's natural vae.encode() which will automatically trigger tiled encoding
+        print("   🎯 Using ComfyUI's natural vae.encode() with corrected memory calculation")
         
-        else:
-            # Single frame or image - use standard VAE encode
-            print("   📷 Processing single frame/image with standard VAE encode")
-            return vae.encode(pixel_samples)
+        try:
+            # Let ComfyUI decide whether to use direct or tiled encoding based on corrected memory calculation
+            samples = vae.encode(pixel_samples)
+            print(f"   ✅ VAE encoding successful! Output shape: {samples.shape}")
+            return samples
+            
+        except Exception as e:
+            print(f"   ❌ VAE encoding failed: {e}")
+            print("   💡 This suggests even tiled encoding couldn't handle the video")
+            raise
     
     def _test_comfy_memory_functions_safe(self):
         """Test ComfyUI memory functions without interfering with model tracking"""
