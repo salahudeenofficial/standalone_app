@@ -906,13 +906,175 @@ class ReferenceVideoPipeline:
             except:
                 pass
         
-        # Now use ComfyUI's natural vae.encode() which will automatically trigger tiled encoding
-        print("   🎯 Using ComfyUI's natural vae.encode() with corrected memory calculation")
+        # Monitor CPU offloading during VAE encoding
+        print("   🎯 Using ComfyUI's natural vae.encode() with CPU offloading monitoring")
+        
+        # Check initial memory state
+        initial_gpu_memory = torch.cuda.memory_allocated() / (1024**3)
+        print(f"   📊 Initial GPU memory: {initial_gpu_memory:.2f}GB")
+        
+        # Monitor VAE intermediate device setup
+        print(f"🔍 DEBUG - CPU Offloading Configuration:")
+        print(f"   VAE output_device: {vae.output_device}")
+        if hasattr(comfy.model_management, 'intermediate_device'):
+            intermediate_dev = comfy.model_management.intermediate_device()
+            print(f"   ComfyUI intermediate_device(): {intermediate_dev}")
+        
+        # Check CLI args that affect offloading
+        if hasattr(comfy.cli_args, 'args'):
+            print(f"   CLI args.cpu_vae: {getattr(comfy.cli_args.args, 'cpu_vae', 'not set')}")
+            print(f"   CLI args.gpu_only: {getattr(comfy.cli_args.args, 'gpu_only', 'not set')}")
+            print(f"   CLI args.lowvram: {getattr(comfy.cli_args.args, 'lowvram', 'not set')}")
+        
+        # Hook into VAE encoding to monitor tensor movements
+        original_encode = vae.first_stage_model.encode if hasattr(vae, 'first_stage_model') else None
+        original_encode_tiled_3d = vae.encode_tiled_3d if hasattr(vae, 'encode_tiled_3d') else None
+        tensor_movements = []
+        tile_operations = []
+        
+        if original_encode:
+            def monitored_encode(pixels_in):
+                # Monitor input tensor
+                input_device = pixels_in.device
+                input_size = pixels_in.element_size() * pixels_in.nelement() / (1024**3)
+                gpu_before = torch.cuda.memory_allocated() / (1024**3)
+                
+                print(f"   🔄 VAE encode: {input_device} tensor ({input_size:.3f}GB) -> GPU memory: {gpu_before:.2f}GB")
+                
+                result = original_encode(pixels_in)
+                
+                # Monitor output tensor
+                output_device = result.device
+                output_size = result.element_size() * result.nelement() / (1024**3)
+                gpu_after = torch.cuda.memory_allocated() / (1024**3)
+                
+                movement_info = {
+                    'input_device': str(input_device),
+                    'output_device': str(output_device),
+                    'input_size_gb': input_size,
+                    'output_size_gb': output_size,
+                    'gpu_before': gpu_before,
+                    'gpu_after': gpu_after,
+                    'gpu_delta': gpu_after - gpu_before
+                }
+                tensor_movements.append(movement_info)
+                
+                print(f"   ✅ VAE result: {output_device} tensor ({output_size:.3f}GB) -> GPU memory: {gpu_after:.2f}GB (Δ{gpu_after - gpu_before:+.2f}GB)")
+                
+                return result
+            
+            # Temporarily replace the encode method
+            vae.first_stage_model.encode = monitored_encode
+        
+        # Also monitor tiled encoding specifically
+        if original_encode_tiled_3d:
+            def monitored_encode_tiled_3d(samples, tile_t=9999, tile_x=512, tile_y=512, overlap=(1, 64, 64)):
+                print(f"🧩 TILED ENCODING START:")
+                print(f"   Input shape: {samples.shape}")
+                print(f"   Tile config: t={tile_t}, x={tile_x}, y={tile_y}, overlap={overlap}")
+                
+                gpu_before_tiled = torch.cuda.memory_allocated() / (1024**3)
+                print(f"   GPU memory before tiling: {gpu_before_tiled:.2f}GB")
+                
+                tile_info = {
+                    'input_shape': samples.shape,
+                    'tile_config': (tile_t, tile_x, tile_y),
+                    'overlap': overlap,
+                    'gpu_before': gpu_before_tiled
+                }
+                tile_operations.append(tile_info)
+                
+                try:
+                    result = original_encode_tiled_3d(samples, tile_t, tile_x, tile_y, overlap)
+                    
+                    gpu_after_tiled = torch.cuda.memory_allocated() / (1024**3)
+                    print(f"🧩 TILED ENCODING SUCCESS:")
+                    print(f"   Output shape: {result.shape}")
+                    print(f"   Output device: {result.device}")
+                    print(f"   GPU memory after tiling: {gpu_after_tiled:.2f}GB (Δ{gpu_after_tiled - gpu_before_tiled:+.2f}GB)")
+                    
+                    tile_info['success'] = True
+                    tile_info['output_shape'] = result.shape
+                    tile_info['output_device'] = str(result.device)
+                    tile_info['gpu_after'] = gpu_after_tiled
+                    
+                    return result
+                    
+                except Exception as e:
+                    gpu_at_failure = torch.cuda.memory_allocated() / (1024**3)
+                    print(f"🧩 TILED ENCODING FAILED:")
+                    print(f"   Error: {e}")
+                    print(f"   GPU memory at failure: {gpu_at_failure:.2f}GB")
+                    
+                    tile_info['success'] = False
+                    tile_info['error'] = str(e)
+                    tile_info['gpu_at_failure'] = gpu_at_failure
+                    
+                    raise
+            
+            # Replace tiled encoding method
+            vae.encode_tiled_3d = monitored_encode_tiled_3d
         
         try:
             # Let ComfyUI decide whether to use direct or tiled encoding based on corrected memory calculation
             samples = vae.encode(pixel_samples)
+            
+            # Restore original encode methods
+            if original_encode:
+                vae.first_stage_model.encode = original_encode
+            if original_encode_tiled_3d:
+                vae.encode_tiled_3d = original_encode_tiled_3d
+            
             print(f"   ✅ VAE encoding successful! Output shape: {samples.shape}")
+            print(f"   📍 Final output device: {samples.device}")
+            
+            # Analyze tensor movements
+            if tensor_movements:
+                print(f"🔍 DEBUG - Tensor Movement Analysis:")
+                print(f"   Total encode operations: {len(tensor_movements)}")
+                
+                cpu_offloaded = sum(1 for m in tensor_movements if 'cpu' in m['output_device'])
+                gpu_kept = sum(1 for m in tensor_movements if 'cuda' in m['output_device'])
+                
+                print(f"   Operations with CPU offloading: {cpu_offloaded}")
+                print(f"   Operations keeping GPU tensors: {gpu_kept}")
+                
+                total_input_size = sum(m['input_size_gb'] for m in tensor_movements)
+                total_output_size = sum(m['output_size_gb'] for m in tensor_movements)
+                
+                print(f"   Total processed data: {total_input_size:.2f}GB input -> {total_output_size:.2f}GB output")
+                
+                if tensor_movements:
+                    max_gpu_usage = max(m['gpu_after'] for m in tensor_movements)
+                    min_gpu_usage = min(m['gpu_before'] for m in tensor_movements)
+                    print(f"   GPU memory range during encoding: {min_gpu_usage:.2f}GB - {max_gpu_usage:.2f}GB")
+            
+            # Analyze tile operations
+            if tile_operations:
+                print(f"🔍 DEBUG - Tile Operation Analysis:")
+                print(f"   Total tile operations: {len(tile_operations)}")
+                
+                successful_tiles = sum(1 for t in tile_operations if t.get('success', False))
+                failed_tiles = len(tile_operations) - successful_tiles
+                
+                print(f"   Successful tile operations: {successful_tiles}")
+                print(f"   Failed tile operations: {failed_tiles}")
+                
+                for i, tile_op in enumerate(tile_operations):
+                    print(f"   Tile {i+1}: {tile_op['tile_config']} -> {'✅' if tile_op.get('success') else '❌'}")
+                    if not tile_op.get('success') and 'error' in tile_op:
+                        print(f"     Error: {tile_op['error']}")
+                    
+                    if 'gpu_after' in tile_op:
+                        gpu_delta = tile_op['gpu_after'] - tile_op['gpu_before']
+                        print(f"     GPU memory: {tile_op['gpu_before']:.2f}GB -> {tile_op['gpu_after']:.2f}GB (Δ{gpu_delta:+.2f}GB)")
+                    elif 'gpu_at_failure' in tile_op:
+                        gpu_delta = tile_op['gpu_at_failure'] - tile_op['gpu_before']
+                        print(f"     GPU memory: {tile_op['gpu_before']:.2f}GB -> {tile_op['gpu_at_failure']:.2f}GB (Δ{gpu_delta:+.2f}GB) [FAILED]")
+            
+            # Final memory check
+            final_gpu_memory = torch.cuda.memory_allocated() / (1024**3)
+            print(f"   📊 Final GPU memory: {final_gpu_memory:.2f}GB (delta: {final_gpu_memory - initial_gpu_memory:+.2f}GB)")
             
             # Calculate actual downscaling that occurred
             input_spatial = (pixel_samples.shape[-3], pixel_samples.shape[-2])  # H, W
@@ -923,8 +1085,24 @@ class ReferenceVideoPipeline:
             return samples
             
         except Exception as e:
+            # Restore original encode methods in case of error
+            if original_encode:
+                vae.first_stage_model.encode = original_encode
+            if original_encode_tiled_3d:
+                vae.encode_tiled_3d = original_encode_tiled_3d
+                
             print(f"   ❌ VAE encoding failed: {e}")
-            print("   💡 This suggests even tiled encoding couldn't handle the video")
+            print(f"   💡 This suggests even tiled encoding couldn't handle the video")
+            
+            # Show partial tensor movement analysis if available
+            if tensor_movements:
+                print(f"🔍 DEBUG - Partial Tensor Movement Analysis (before failure):")
+                print(f"   Completed operations: {len(tensor_movements)}")
+                if tensor_movements:
+                    last_movement = tensor_movements[-1]
+                    print(f"   Last operation: {last_movement['input_device']} -> {last_movement['output_device']}")
+                    print(f"   GPU memory at failure: {last_movement['gpu_after']:.2f}GB")
+            
             raise
     
     def _test_comfy_memory_functions_safe(self):
