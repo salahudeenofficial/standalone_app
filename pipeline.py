@@ -2532,7 +2532,7 @@ class ReferenceVideoPipeline:
                     
                     # Investigate memory state after reference encoding
                     print("🔍 Memory investigation after reference encoding:")
-                    investigate_unaccounted_memory()
+                    self.investigate_unaccounted_memory()
                     
                 except Exception as e:
                     self._analyze_oom_cause(e, "REFERENCE_ENCODING")
@@ -2602,7 +2602,7 @@ class ReferenceVideoPipeline:
             
             # Final memory investigation to see the complete picture
             print("🔍 FINAL MEMORY INVESTIGATION - STEP 5 COMPLETE:")
-            investigate_unaccounted_memory()
+            self.investigate_unaccounted_memory()
             
             return "pipeline_stopped_after_step_5_for_debugging"
             
@@ -4453,6 +4453,44 @@ class ReferenceVideoPipeline:
             print("✅ PyTorch memory profiling reset and enabled")
             
         return True
+    
+    def investigate_unaccounted_memory(self):
+        """Investigate unaccounted GPU memory usage"""
+        try:
+            # Get current memory state
+            allocated = torch.cuda.memory_allocated() / (1024**3)
+            reserved = torch.cuda.memory_reserved() / (1024**3)
+            
+            try:
+                device = comfy.model_management.get_torch_device()
+                free_memory = comfy.model_management.get_free_memory(device) / (1024**3)
+                print(f"   📊 Current VRAM: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+                print(f"   📊 ComfyUI Free Memory: {free_memory:.2f}GB")
+            except:
+                print(f"   📊 Current VRAM: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+            
+            # Check ComfyUI model tracking
+            try:
+                if hasattr(comfy.model_management, 'current_loaded_models'):
+                    tracked_models = len(comfy.model_management.current_loaded_models)
+                    print(f"   🎯 ComfyUI Tracked Models: {tracked_models}")
+            except:
+                print(f"   🎯 ComfyUI model tracking unavailable")
+            
+            # Memory efficiency analysis
+            if reserved > 0:
+                efficiency = (allocated / reserved) * 100
+                print(f"   📈 Memory Efficiency: {efficiency:.1f}% (allocated/reserved)")
+            
+            return {
+                'allocated': allocated,
+                'reserved': reserved,
+                'investigation_complete': True
+            }
+            
+        except Exception as e:
+            print(f"   ⚠️  Memory investigation failed: {e}")
+            return {'error': str(e)}
     
     def _analyze_oom_cause(self, error, context):
         """Analyze the specific cause of OOM errors"""
