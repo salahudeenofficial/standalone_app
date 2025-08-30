@@ -833,6 +833,21 @@ class ReferenceVideoPipeline:
             except Exception as e:
                 print(f"   Spatial compression encode error: {e}")
         
+        # Debug VAE data types and device settings
+        print(f"🔍 DEBUG - VAE configuration:")
+        if hasattr(vae, 'vae_dtype'):
+            print(f"   VAE dtype: {vae.vae_dtype}")
+        if hasattr(vae, 'device'):
+            print(f"   VAE device: {vae.device}")
+        if hasattr(vae, 'output_device'):
+            print(f"   VAE output device: {vae.output_device}")
+        if hasattr(vae, 'disable_offload'):
+            print(f"   VAE disable_offload: {vae.disable_offload}")
+        
+        # Check input tensor dtype and device
+        print(f"   Input tensor dtype: {pixel_samples.dtype}")
+        print(f"   Input tensor device: {pixel_samples.device}")
+        
         # Check what vae_encode_crop_pixels does
         try:
             print(f"   Before crop_pixels: {pixel_samples.shape}")
@@ -848,9 +863,26 @@ class ReferenceVideoPipeline:
         # Fix the VAE memory calculation first
         self._fix_vae_memory_calculation(vae)
         
-        # Load VAE to GPU if needed
+        # Load VAE to GPU if needed and unload other models
         if hasattr(vae, 'patcher'):
-            comfy.model_management.load_models_gpu([vae.patcher], memory_required=0, force_full_load=vae.disable_offload)
+            print(f"🔍 DEBUG - Before VAE loading:")
+            if hasattr(comfy.model_management, 'current_loaded_models'):
+                print(f"   Currently loaded models: {len(comfy.model_management.current_loaded_models)}")
+                for i, model in enumerate(comfy.model_management.current_loaded_models):
+                    model_size = getattr(model, 'model_size', 'unknown')
+                    print(f"   Model {i+1}: {type(model).__name__} - {model_size}")
+            
+            # This should unload other models to make room for VAE
+            memory_needed = 5 * (1024**3)  # Estimate 5GB for VAE operations
+            print(f"   Requesting VAE load with {memory_needed/(1024**3):.1f}GB memory requirement")
+            comfy.model_management.load_models_gpu([vae.patcher], memory_required=memory_needed, force_full_load=vae.disable_offload)
+            
+            print(f"🔍 DEBUG - After VAE loading:")
+            if hasattr(comfy.model_management, 'current_loaded_models'):
+                print(f"   Currently loaded models: {len(comfy.model_management.current_loaded_models)}")
+                for i, model in enumerate(comfy.model_management.current_loaded_models):
+                    model_size = getattr(model, 'model_size', 'unknown')
+                    print(f"   Model {i+1}: {type(model).__name__} - {model_size}")
         
         # Now use ComfyUI's natural vae.encode() which will automatically trigger tiled encoding
         print("   🎯 Using ComfyUI's natural vae.encode() with corrected memory calculation")
