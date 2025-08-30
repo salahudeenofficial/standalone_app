@@ -2538,10 +2538,20 @@ class ReferenceVideoPipeline:
                     self._analyze_oom_cause(e, "REFERENCE_ENCODING")
                     raise
                 
-                # Normalize reference latent dimensions
+                # Normalize reference latent dimensions to match control_video_latent
+                print(f"   Reference latent before normalization: {ref_latent.shape}")
+                print(f"   Control video latent shape: {control_video_latent.shape}")
+                
+                # Ensure ref_latent has same dimensions as control_video_latent
                 if len(ref_latent.shape) == 5 and ref_latent.shape[2] == 1:
                     print("   Squeezing reference latent dimension 2 (removing singleton)")
                     ref_latent = ref_latent.squeeze(2)  # Remove singleton dimension
+                
+                # If control_video_latent is 5D but ref_latent is now 4D, add time dimension back
+                if len(control_video_latent.shape) == 5 and len(ref_latent.shape) == 4:
+                    print("   Adding time dimension back to reference latent for concatenation")
+                    ref_latent = ref_latent.unsqueeze(2)  # Add time dimension: [B, C, H, W] -> [B, C, 1, H, W]
+                
                 print(f"   Normalized reference latent shape: {ref_latent.shape}")
                 
                 ref_latent = torch.cat([
@@ -2549,6 +2559,11 @@ class ReferenceVideoPipeline:
                     comfy.latent_formats.Wan21().process_out(torch.zeros_like(ref_latent))
                 ], dim=1)
                 print(f"   Reference latent after zero-cat shape: {ref_latent.shape}")
+                
+                # Verify dimensions match before concatenation
+                if len(ref_latent.shape) != len(control_video_latent.shape):
+                    raise ValueError(f"Dimension mismatch before concatenation: ref_latent {ref_latent.shape} vs control_video_latent {control_video_latent.shape}")
+                
                 control_video_latent = torch.cat((ref_latent, control_video_latent), dim=2)
                 print(f"   Final control video latent shape: {control_video_latent.shape}")
                 trim_latent = ref_latent.shape[2]
