@@ -863,26 +863,48 @@ class ReferenceVideoPipeline:
         # Fix the VAE memory calculation first
         self._fix_vae_memory_calculation(vae)
         
-        # Load VAE to GPU if needed and unload other models
+        # Force unload all other models before VAE operations (like ComfyUI does)
         if hasattr(vae, 'patcher'):
             print(f"🔍 DEBUG - Before VAE loading:")
             if hasattr(comfy.model_management, 'current_loaded_models'):
                 print(f"   Currently loaded models: {len(comfy.model_management.current_loaded_models)}")
-                for i, model in enumerate(comfy.model_management.current_loaded_models):
-                    model_size = getattr(model, 'model_size', 'unknown')
-                    print(f"   Model {i+1}: {type(model).__name__} - {model_size}")
+                
+                # FORCE UNLOAD OTHER MODELS - This is what ComfyUI does automatically
+                models_to_unload = []
+                for model in comfy.model_management.current_loaded_models:
+                    if hasattr(model, 'model') and model.model != vae.patcher:
+                        models_to_unload.append(model)
+                        print(f"   🔧 Marking for unload: {type(model).__name__}")
+                
+                # Manually unload non-VAE models
+                for model in models_to_unload:
+                    try:
+                        print(f"   🗑️  Unloading model: {type(model).__name__}")
+                        if hasattr(model, 'model_unload'):
+                            model.model_unload()
+                        comfy.model_management.current_loaded_models.remove(model)
+                    except Exception as e:
+                        print(f"   ⚠️  Failed to unload model: {e}")
+                
+                # Clear GPU cache after unloading
+                torch.cuda.empty_cache()
+                print(f"   🧹 GPU cache cleared after model unloading")
             
-            # This should unload other models to make room for VAE
-            memory_needed = 5 * (1024**3)  # Estimate 5GB for VAE operations
-            print(f"   Requesting VAE load with {memory_needed/(1024**3):.1f}GB memory requirement")
+            # Now load VAE with much more available memory
+            memory_needed = 5 * (1024**3)  # Estimate 5GB for VAE operations  
+            print(f"   📊 Requesting VAE load with {memory_needed/(1024**3):.1f}GB memory requirement")
             comfy.model_management.load_models_gpu([vae.patcher], memory_required=memory_needed, force_full_load=vae.disable_offload)
             
             print(f"🔍 DEBUG - After VAE loading:")
             if hasattr(comfy.model_management, 'current_loaded_models'):
                 print(f"   Currently loaded models: {len(comfy.model_management.current_loaded_models)}")
-                for i, model in enumerate(comfy.model_management.current_loaded_models):
-                    model_size = getattr(model, 'model_size', 'unknown')
-                    print(f"   Model {i+1}: {type(model).__name__} - {model_size}")
+                
+            # Check available memory after unloading
+            try:
+                free_memory = comfy.model_management.get_free_memory(comfy.model_management.get_torch_device())
+                print(f"   💾 Available memory after model unloading: {free_memory/(1024**3):.1f}GB")
+            except:
+                pass
         
         # Now use ComfyUI's natural vae.encode() which will automatically trigger tiled encoding
         print("   🎯 Using ComfyUI's natural vae.encode() with corrected memory calculation")
