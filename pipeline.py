@@ -758,7 +758,7 @@ class ReferenceVideoPipeline:
         return torch.cat(latents, dim=0)
     
     def _fix_vae_memory_calculation(self, vae):
-        """Fix VAE memory calculation to use correct frame count for proper tiled encoding triggering"""
+        """Fix VAE memory calculation to use correct frame count and force aggressive tiling"""
         if not hasattr(vae, 'memory_used_encode'):
             print("   ⚠️  VAE has no memory_used_encode function - cannot fix calculation")
             return
@@ -768,33 +768,42 @@ class ReferenceVideoPipeline:
         print("   🔧 Fixing VAE memory calculation for correct tiled encoding triggering...")
         
         def corrected_memory_calc(shape, dtype):
-            """Corrected memory calculation that uses actual frame count"""
+            """Corrected memory calculation that forces tiled encoding for videos"""
             try:
                 if len(shape) == 4:
                     # Input format: [frames, height, width, channels]
                     frames, height, width, channels = shape
                     print(f"   📊 Memory calc for: {frames} frames, {height}x{width}, {channels} channels")
                     
-                    # Use the ACTUAL frame count in WAN VAE calculation
-                    # Original formula: (70 * max(shape[2], 7) * shape[3] * shape[4])
-                    # Corrected: Use actual frames instead of shape[2] (which was width)
-                    memory_needed = (70 * max(frames, 7) * height * width) * comfy.model_management.dtype_size(dtype)
-                    memory_gb = memory_needed / (1024**3)
-                    print(f"   📊 Corrected memory estimate: {memory_gb:.2f} GB")
-                    
-                    return memory_needed
+                    # For video inputs (frames > 1), force tiled encoding by returning very high memory estimate
+                    if frames > 1:
+                        # Force tiled encoding by returning memory requirement higher than available
+                        forced_memory = 50 * (1024**3)  # 50GB - higher than any reasonable GPU memory
+                        print(f"   🎯 FORCING TILED ENCODING: Returning {forced_memory/(1024**3):.1f}GB estimate")
+                        return forced_memory
+                    else:
+                        # Single frame - use reasonable calculation
+                        memory_needed = (70 * max(frames, 7) * height * width) * comfy.model_management.dtype_size(dtype)
+                        memory_gb = memory_needed / (1024**3)
+                        print(f"   📊 Single frame memory estimate: {memory_gb:.2f} GB")
+                        return memory_needed
                 
                 elif len(shape) == 5:
                     # Input format: [batch, channels, frames, height, width]
                     batch, channels, frames, height, width = shape
                     print(f"   📊 Memory calc for 5D: {batch}x{channels}x{frames}x{height}x{width}")
                     
-                    # Use the actual frame count from correct position
-                    memory_needed = (70 * max(frames, 7) * height * width) * comfy.model_management.dtype_size(dtype)
-                    memory_gb = memory_needed / (1024**3)
-                    print(f"   📊 Corrected memory estimate: {memory_gb:.2f} GB")
-                    
-                    return memory_needed
+                    # For video inputs (frames > 1), force tiled encoding
+                    if frames > 1:
+                        forced_memory = 50 * (1024**3)  # 50GB
+                        print(f"   🎯 FORCING TILED ENCODING: Returning {forced_memory/(1024**3):.1f}GB estimate")
+                        return forced_memory
+                    else:
+                        # Single frame - use reasonable calculation
+                        memory_needed = (70 * max(frames, 7) * height * width) * comfy.model_management.dtype_size(dtype)
+                        memory_gb = memory_needed / (1024**3)
+                        print(f"   📊 Single frame memory estimate: {memory_gb:.2f} GB")
+                        return memory_needed
                 
                 else:
                     # Fall back to original calculation for other shapes
@@ -807,11 +816,34 @@ class ReferenceVideoPipeline:
         
         # Replace the VAE's memory calculation with our corrected version
         vae.memory_used_encode = corrected_memory_calc
-        print("   ✅ VAE memory calculation fixed - will now trigger tiled encoding correctly")
+        print("   ✅ VAE memory calculation fixed - will now FORCE tiled encoding for videos")
     
     def _comfy_vae_encode(self, vae, pixel_samples):
         """Encode using ComfyUI's natural approach with corrected memory calculation"""
         print(f"   Input shape: {pixel_samples.shape}")
+        
+        # Debug VAE downscaling configuration
+        print(f"🔍 DEBUG - VAE downscaling configuration:")
+        if hasattr(vae, 'downscale_ratio'):
+            print(f"   VAE downscale_ratio: {vae.downscale_ratio}")
+        if hasattr(vae, 'spacial_compression_encode'):
+            try:
+                spatial_compression = vae.spacial_compression_encode()
+                print(f"   Spatial compression encode: {spatial_compression}")
+            except Exception as e:
+                print(f"   Spatial compression encode error: {e}")
+        
+        # Check what vae_encode_crop_pixels does
+        try:
+            print(f"   Before crop_pixels: {pixel_samples.shape}")
+            cropped = vae.vae_encode_crop_pixels(pixel_samples)
+            print(f"   After crop_pixels: {cropped.shape}")
+            if cropped.shape != pixel_samples.shape:
+                print(f"   ✅ Cropping applied - shape changed from {pixel_samples.shape} to {cropped.shape}")
+            else:
+                print(f"   ⚠️  No cropping applied - shape unchanged")
+        except Exception as e:
+            print(f"   ❌ Crop pixels test failed: {e}")
         
         # Fix the VAE memory calculation first
         self._fix_vae_memory_calculation(vae)
@@ -827,6 +859,13 @@ class ReferenceVideoPipeline:
             # Let ComfyUI decide whether to use direct or tiled encoding based on corrected memory calculation
             samples = vae.encode(pixel_samples)
             print(f"   ✅ VAE encoding successful! Output shape: {samples.shape}")
+            
+            # Calculate actual downscaling that occurred
+            input_spatial = (pixel_samples.shape[-3], pixel_samples.shape[-2])  # H, W
+            output_spatial = (samples.shape[-2], samples.shape[-1])  # H, W
+            actual_downscale = (input_spatial[0] / output_spatial[0], input_spatial[1] / output_spatial[1])
+            print(f"   📊 Actual spatial downscaling: {input_spatial} -> {output_spatial} (ratio: {actual_downscale})")
+            
             return samples
             
         except Exception as e:
@@ -2415,10 +2454,22 @@ class ReferenceVideoPipeline:
 
             # Prepare control video
             if control_video is not None:
+                print(f"🔍 DEBUG - Video preparation:")
+                print(f"   Original control_video shape: {control_video.shape}")
+                print(f"   Target length parameter: {length}")
+                print(f"   Target width x height: {width} x {height}")
+                
                 control_video = control_video[:length]
+                print(f"   After length limiting: {control_video.shape}")
+                
                 control_video = comfy.utils.common_upscale(
                     control_video.movedim(-1, 1), width, height, "bilinear", "center"
                 ).movedim(1, -1)
+                print(f"   After upscaling to {width}x{height}: {control_video.shape}")
+                
+                # Check if 8x downsampling is happening
+                expected_latent_size = (control_video.shape[1] // 8, control_video.shape[2] // 8)
+                print(f"   Expected VAE latent size (with 8x downsampling): {expected_latent_size}")
                 if control_video.shape[0] < length:
                     control_video = torch.nn.functional.pad(
                         control_video, (0, 0, 0, 0, 0, 0, 0, length - control_video.shape[0]), value=0.5
@@ -2458,6 +2509,9 @@ class ReferenceVideoPipeline:
 
             # VAE encode inactive/reactive paths using direct approach
             print("🔍 Encoding inactive frames with direct VAE approach...")
+            print(f"🔍 DEBUG - VAE encoding inputs:")
+            print(f"   Inactive tensor shape: {inactive.shape}")
+            print(f"   Inactive[:, :, :, :3] shape: {inactive[:, :, :, :3].shape}")
             
             # Monitor memory before inactive encoding
             self._monitor_vae_encoding_memory(vae, inactive[:, :, :, :3], "INACTIVE_FRAMES")
