@@ -4605,7 +4605,20 @@ class FocusedVAEDebugger:
         print(f"   VAE device: {self.original_vae.device}")
         print(f"   Output device: {getattr(self.original_vae, 'output_device', 'Not set')}")
         print(f"   First stage model device: {self.original_vae.first_stage_model.device}")
-        print(f"   Memory used encode function: {self.original_vae.memory_used_encode(pixel_samples.shape, pixel_samples.dtype) / 1024**3:.2f} GB")
+        
+        # Safely calculate memory usage
+        try:
+            memory_estimate = self.original_vae.memory_used_encode(pixel_samples.shape, pixel_samples.dtype)
+            print(f"   Memory used encode function: {memory_estimate / 1024**3:.2f} GB")
+        except Exception as e:
+            print(f"   Memory used encode function: Error - {type(e).__name__}: {e}")
+            # Fallback calculation for 4D tensors [B, H, W, C]
+            if len(pixel_samples.shape) == 4:
+                B, H, W, C = pixel_samples.shape
+                estimated_memory = B * H * W * C * pixel_samples.element_size() / (1024**3)
+                print(f"   Fallback memory estimate: {estimated_memory:.2f} GB (4D tensor)")
+            else:
+                print(f"   Fallback memory estimate: Unknown (shape: {pixel_samples.shape})")
         
         # 5. CUDA Memory Summary
         print("\n💾 CUDA MEMORY SUMMARY:")
