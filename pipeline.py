@@ -4580,8 +4580,16 @@ class FocusedVAEDebugger:
         print(f"   Current loaded models: {len(comfy.model_management.current_loaded_models)}")
         for i, model in enumerate(comfy.model_management.current_loaded_models):
             print(f"   Model {i+1}: {type(model.model).__name__} on {model.device}")
-            if hasattr(model.model, 'model_size'):
-                print(f"     Size: {model.model_size / 1024**3:.2f} GB")
+            # Try to get model size safely
+            try:
+                if hasattr(model.model, 'model_size'):
+                    print(f"     Size: {model.model_size / 1024**3:.2f} GB")
+                elif hasattr(model.model, 'size'):
+                    print(f"     Size: {model.model.size / 1024**3:.2f} GB")
+                else:
+                    print(f"     Size: Unknown")
+            except:
+                print(f"     Size: Unknown")
         
         # 3. Input Tensor Analysis
         print("\n📥 INPUT TENSOR ANALYSIS:")
