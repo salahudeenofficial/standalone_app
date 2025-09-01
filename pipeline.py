@@ -4579,7 +4579,7 @@ class FocusedVAEDebugger:
         print("\n🏗️  COMFYUI MODEL STATUS:")
         print(f"   Current loaded models: {len(comfy.model_management.current_loaded_models)}")
         for i, model in enumerate(comfy.model_management.current_loaded_models):
-            print(f"   Model {i+1}: {type(model.model).__name__} on {model.current_device}")
+            print(f"   Model {i+1}: {type(model.model).__name__} on {model.device}")
             if hasattr(model.model, 'model_size'):
                 print(f"     Size: {model.model_size / 1024**3:.2f} GB")
         
