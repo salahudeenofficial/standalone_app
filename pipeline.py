@@ -1758,9 +1758,15 @@ class ReferenceVideoPipeline:
             # ========================================================================
             # STEP 5: GENERATE INITIAL LATENTS (COMFY-LIKE)
             # ========================================================================
-            print("\n" + "="*80)
-            print("🔍 STEP 5: GENERATE INITIAL LATENTS (COMFY-LIKE)")
-            print("="*80)
+            print(f"\n{'='*80}")
+            print(f"🔍 STEP 5: GENERATE INITIAL LATENTS (COMFY-LIKE)")
+            print(f"{'='*80}")
+            
+            # Focus only on VAE encoding with wrapper monitoring
+            print("🎯 FOCUSED VAE ENCODING - Using encoder wrapper with GPU monitoring")
+            
+            # Prepare control video
+            latent_length = ((length - 1) // 4) + 1
             
             # Enable comprehensive memory tracking for Step 5
             self._track_memory_during_step5()
@@ -2566,6 +2572,12 @@ class ReferenceVideoPipeline:
             print(f"🔍 STEP 5: GENERATE INITIAL LATENTS (COMFY-LIKE)")
             print(f"{'='*80}")
             
+            # Focus only on VAE encoding with wrapper monitoring
+            print("🎯 FOCUSED VAE ENCODING - Using encoder wrapper with GPU monitoring")
+            
+            # Prepare control video
+            latent_length = ((length - 1) // 4) + 1
+            
             # Enable comprehensive memory tracking for Step 5
             self._track_memory_during_step5()
             
@@ -2650,13 +2662,9 @@ class ReferenceVideoPipeline:
             print(f"   Inactive tensor shape: {inactive.shape}")
             print(f"   Inactive[:, :, :, :3] shape: {inactive[:, :, :, :3].shape}")
             
-            # Monitor memory before inactive encoding
-            self._monitor_vae_encoding_memory(vae, inactive[:, :, :, :3], "INACTIVE_FRAMES")
-            
             try:
-                # MINIMAL TEST: Use ComfyUI's exact approach - direct vae.encode()
-                print("🧪 MINIMAL TEST: Using ComfyUI's exact vae.encode() approach")
-                inactive_latent = vae.encode(inactive[:, :, :, :3])
+                # Use VAE encoder wrapper with monitoring
+                inactive_latent = self._comfy_vae_encode(vae, inactive[:, :, :, :3])
                 print(f"   ✅ Inactive latent shape: {inactive_latent.shape}")
                 
             except Exception as e:
@@ -2665,13 +2673,9 @@ class ReferenceVideoPipeline:
             
             print("🔍 Encoding reactive frames with direct VAE approach...")
             
-            # Monitor memory before reactive encoding
-            self._monitor_vae_encoding_memory(vae, reactive[:, :, :, :3], "REACTIVE_FRAMES")
-            
             try:
-                # MINIMAL TEST: Use ComfyUI's exact approach - direct vae.encode()
-                print("🧪 MINIMAL TEST: Using ComfyUI's exact vae.encode() approach")
-                reactive_latent = vae.encode(reactive[:, :, :, :3])
+                # Use VAE encoder wrapper with monitoring
+                reactive_latent = self._comfy_vae_encode(vae, reactive[:, :, :, :3])
                 print(f"   ✅ Reactive latent shape: {reactive_latent.shape}")
                 
             except Exception as e:
