@@ -819,272 +819,195 @@ class ReferenceVideoPipeline:
         print("   ✅ VAE memory calculation fixed - will now FORCE tiled encoding for videos")
     
     def _comfy_vae_encode(self, vae, pixel_samples):
-        """ComfyUI-compatible VAE encoding with memory management"""
+        """VAE Encoder Wrapper with Real-time GPU Monitoring"""
         print(f"🎬 VAE ENCODING: input shape {pixel_samples.shape}")
         
-        initial_gpu_memory = torch.cuda.memory_allocated() / (1024**3)
-        print(f"   📊 Initial GPU memory: {initial_gpu_memory:.2f}GB")
-        
-        # Fix VAE memory calculation to force tiled encoding for videos
-        self._fix_vae_memory_calculation(vae)
-        
-        # Force unload non-VAE models to maximize available memory
-        if hasattr(vae, 'patcher'):
-            print(f"   🔍 Scanning loaded models before VAE encoding...")
-            models_to_unload = []
-            for model in comfy.model_management.current_loaded_models:
-                if hasattr(model, 'model') and model.model != vae.patcher:
-                    models_to_unload.append(model)
-            
-            if models_to_unload:
-                print(f"   🧹 Unloading {len(models_to_unload)} non-VAE models...")
-                for model in models_to_unload:
-                    model.model_unload()
-                    if model in comfy.model_management.current_loaded_models:
-                        comfy.model_management.current_loaded_models.remove(model)
-                torch.cuda.empty_cache()
+        # Create VAE encoder wrapper with monitoring
+        class VAEMonitorWrapper:
+            def __init__(self, original_vae):
+                self.original_vae = original_vae
+                self.encode_calls = []
+                self.peak_gpu_usage = 0.0
+                self.monitoring_active = False
+                self.monitor_thread = None
+                self.gpu_samples = []
                 
-                freed_memory = torch.cuda.memory_allocated() / (1024**3)
-                print(f"   ✅ Models unloaded. GPU memory: {freed_memory:.2f}GB")
-            
-            # Ensure VAE is loaded with correct memory management
-            try:
-                memory_required = vae.memory_used_encode(pixel_samples.shape, vae.vae_dtype)
-                print(f"   🧮 VAE memory estimate: {memory_required / (1024**3):.2f}GB")
-                comfy.model_management.load_models_gpu([vae.patcher], memory_required=memory_required, force_full_load=vae.disable_offload)
-            except Exception as e:
-                print(f"   ⚠️  VAE loading failed: {e}")
-
-        # Show CPU offloading configuration
-        print(f"   📍 VAE output_device: {vae.output_device}")
-        
-        # COMMENT OUT CURRENT DEBUGGING - REPLACED WITH FOCUSED DEBUGGING BELOW
-        # # Check CLI args that affect offloading
-        # if hasattr(comfy.cli_args, 'args'):
-        #     print(f"   CLI args.cpu_vae: {getattr(comfy.cli_args.args, 'cpu_vae', 'not set')}")
-        #     print(f"   CLI args.gpu_only: {getattr(comfy.cli_args.args, 'gpu_only', 'not set')}")
-        #     print(f"   CLI args.lowvram: {getattr(comfy.cli_args.args, 'lowvram', 'not set')}")
-        
-        # # Hook into VAE encoding to monitor tensor movements
-        # original_encode = vae.first_stage_model.encode if hasattr(vae, 'first_stage_model') else None
-        # original_encode_tiled_3d = vae.encode_tiled_3d if hasattr(vae, 'encode_tiled_3d') else None
-        # tensor_movements = []
-        # tile_operations = []
-        
-        # NEW FOCUSED DEBUGGING: Track OOM recovery and GPU computations
-        gpu_computation_log = []
-        oom_recovery_detected = False
-        
-        # Hook the VAE encode method to detect OOM and tiled encoding fallback
-        original_vae_encode = vae.encode
-        
-        def debug_vae_encode(pixel_samples):
-            nonlocal oom_recovery_detected, gpu_computation_log
-            
-            print(f"🎯 VAE.encode() called with shape: {pixel_samples.shape}")
-            gpu_before_vae = torch.cuda.memory_allocated() / (1024**3)
-            print(f"   📊 GPU memory before VAE.encode(): {gpu_before_vae:.2f}GB")
-            
-            try:
-                # Try the normal encoding path
-                result = original_vae_encode(pixel_samples)
+            def start_monitoring(self):
+                """Start multithreaded GPU monitoring"""
+                self.monitoring_active = True
+                self.gpu_samples = []
                 
-                gpu_after_vae = torch.cuda.memory_allocated() / (1024**3)
-                print(f"   ✅ VAE.encode() completed normally")
-                print(f"   📊 GPU memory after VAE.encode(): {gpu_after_vae:.2f}GB (Δ{gpu_after_vae - gpu_before_vae:+.2f}GB)")
+                def monitor_gpu():
+                    while self.monitoring_active:
+                        try:
+                            gpu_allocated = torch.cuda.memory_allocated() / (1024**3)
+                            gpu_reserved = torch.cuda.memory_reserved() / (1024**3)
+                            
+                            sample = {
+                                'timestamp': time.time(),
+                                'allocated_gb': gpu_allocated,
+                                'reserved_gb': gpu_reserved
+                            }
+                            self.gpu_samples.append(sample)
+                            
+                            # Update peak usage
+                            if gpu_allocated > self.peak_gpu_usage:
+                                self.peak_gpu_usage = gpu_allocated
+                            
+                            time.sleep(0.1)  # Sample every 100ms
+                        except Exception as e:
+                            print(f"   ⚠️  GPU monitoring error: {e}")
+                            break
                 
-                return result
+                self.monitor_thread = threading.Thread(target=monitor_gpu, daemon=True)
+                self.monitor_thread.start()
+                print(f"   📊 GPU monitoring started (multithreaded)")
+            
+            def stop_monitoring(self):
+                """Stop GPU monitoring and get results"""
+                self.monitoring_active = False
+                if self.monitor_thread:
+                    self.monitor_thread.join(timeout=1.0)
                 
-            except Exception as e:
-                if "out of memory" in str(e).lower() or "oom" in str(e).lower():
-                    oom_recovery_detected = True
-                    gpu_at_oom = torch.cuda.memory_allocated() / (1024**3)
-                    print(f"💥 OOM DETECTED in VAE.encode()!")
-                    print(f"   📊 GPU memory at OOM: {gpu_at_oom:.2f}GB")
-                    print(f"   🔄 ComfyUI should now attempt tiled encoding fallback...")
+                if self.gpu_samples:
+                    min_allocated = min(s['allocated_gb'] for s in self.gpu_samples)
+                    max_allocated = max(s['allocated_gb'] for s in self.gpu_samples)
+                    avg_allocated = sum(s['allocated_gb'] for s in self.gpu_samples) / len(self.gpu_samples)
                     
-                    # Check memory cleanup before tiled encoding
-                    torch.cuda.empty_cache()
-                    gpu_after_cleanup = torch.cuda.memory_allocated() / (1024**3)
-                    print(f"   🧹 GPU memory after cache cleanup: {gpu_after_cleanup:.2f}GB (freed: {gpu_at_oom - gpu_after_cleanup:.2f}GB)")
-                    
-                    # Re-raise to let ComfyUI handle the fallback
-                    raise
-                else:
-                    print(f"   ❌ VAE.encode() failed with non-OOM error: {e}")
-                    raise
-        
-        # Hook first_stage_model.encode to track individual GPU computations
-        original_encode = vae.first_stage_model.encode if hasattr(vae, 'first_stage_model') else None
-        
-        if original_encode:
-            def debug_gpu_computation(pixels_in):
-                nonlocal gpu_computation_log
+                    print(f"   📊 GPU Memory Summary:")
+                    print(f"      Min: {min_allocated:.2f}GB")
+                    print(f"      Max: {max_allocated:.2f}GB (Peak)")
+                    print(f"      Avg: {avg_allocated:.2f}GB")
+                    print(f"      Samples: {len(self.gpu_samples)}")
                 
-                computation_id = len(gpu_computation_log) + 1
-                gpu_before = torch.cuda.memory_allocated() / (1024**3)
+                return {
+                    'peak_gpu_usage': self.peak_gpu_usage,
+                    'gpu_samples': self.gpu_samples
+                }
+            
+            def encode(self, pixel_samples):
+                """Monitored encode call"""
+                call_id = len(self.encode_calls) + 1
+                input_shape = pixel_samples.shape
+                input_size_gb = pixel_samples.element_size() * pixel_samples.nelement() / (1024**3)
                 
-                print(f"   🖥️  GPU Computation #{computation_id}: Starting")
-                print(f"   📊 GPU memory before: {gpu_before:.2f}GB")
-                print(f"   📏 Input tensor: {pixels_in.shape} on {pixels_in.device}")
+                print(f"   🔄 VAE.encode() Call #{call_id}:")
+                print(f"      Input: {input_shape} ({input_size_gb:.3f}GB)")
+                print(f"      Device: {pixel_samples.device}")
+                
+                # Start GPU monitoring for this encode call
+                self.start_monitoring()
                 
                 try:
-                    result = original_encode(pixels_in)
+                    # Call the original VAE encode
+                    result = self.original_vae.encode(pixel_samples)
                     
-                    gpu_after = torch.cuda.memory_allocated() / (1024**3)
-                    result_size = result.element_size() * result.nelement() / (1024**3)
+                    # Stop monitoring and get results
+                    gpu_stats = self.stop_monitoring()
                     
-                    computation_info = {
-                        'id': computation_id,
-                        'input_shape': pixels_in.shape,
-                        'input_device': str(pixels_in.device),
+                    # Record successful call
+                    call_info = {
+                        'id': call_id,
+                        'input_shape': input_shape,
+                        'input_size_gb': input_size_gb,
                         'output_shape': result.shape,
+                        'output_size_gb': result.element_size() * result.nelement() / (1024**3),
                         'output_device': str(result.device),
-                        'output_size_gb': result_size,
-                        'gpu_before': gpu_before,
-                        'gpu_after': gpu_after,
-                        'gpu_delta': gpu_after - gpu_before,
-                        'success': True
+                        'peak_gpu_usage': gpu_stats['peak_gpu_usage'],
+                        'tiling_used': False,  # Will be updated if tiled encoding detected
+                        'success': True,
+                        'error': None
                     }
-                    gpu_computation_log.append(computation_info)
                     
-                    print(f"   ✅ GPU Computation #{computation_id}: Success")
-                    print(f"   📊 GPU memory after: {gpu_after:.2f}GB (Δ{gpu_after - gpu_before:+.2f}GB)")
-                    print(f"   📏 Output tensor: {result.shape} on {result.device} ({result_size:.3f}GB)")
+                    print(f"      ✅ Success!")
+                    print(f"      Output: {result.shape} on {result.device}")
+                    print(f"      Peak GPU: {gpu_stats['peak_gpu_usage']:.2f}GB")
                     
+                    # Check if tiled encoding was used by examining the result
+                    if hasattr(result, 'shape') and len(result.shape) >= 4:
+                        # If output has expected downsampled dimensions, tiling might have been used
+                        expected_h = input_shape[-2] // 8
+                        expected_w = input_shape[-1] // 8
+                        if result.shape[-2] == expected_h and result.shape[-1] == expected_w:
+                            call_info['tiling_used'] = True
+                            print(f"      🧩 Tiled encoding detected (8x downsampling)")
+                    
+                    self.encode_calls.append(call_info)
                     return result
                     
                 except Exception as e:
-                    gpu_at_failure = torch.cuda.memory_allocated() / (1024**3)
+                    # Stop monitoring and get results
+                    gpu_stats = self.stop_monitoring()
                     
-                    computation_info = {
-                        'id': computation_id,
-                        'input_shape': pixels_in.shape,
-                        'input_device': str(pixels_in.device),
-                        'gpu_before': gpu_before,
-                        'gpu_at_failure': gpu_at_failure,
-                        'gpu_delta': gpu_at_failure - gpu_before,
-                        'error': str(e),
-                        'success': False
+                    # Record failed call
+                    call_info = {
+                        'id': call_id,
+                        'input_shape': input_shape,
+                        'input_size_gb': input_size_gb,
+                        'output_shape': None,
+                        'output_size_gb': 0,
+                        'output_device': None,
+                        'peak_gpu_usage': gpu_stats['peak_gpu_usage'],
+                        'tiling_used': False,
+                        'success': False,
+                        'error': str(e)
                     }
-                    gpu_computation_log.append(computation_info)
                     
-                    print(f"   ❌ GPU Computation #{computation_id}: FAILED")
-                    print(f"   📊 GPU memory at failure: {gpu_at_failure:.2f}GB (Δ{gpu_at_failure - gpu_before:+.2f}GB)")
-                    print(f"   ⚠️  Error: {e}")
+                    print(f"      ❌ Failed: {e}")
+                    print(f"      Peak GPU: {gpu_stats['peak_gpu_usage']:.2f}GB")
                     
+                    self.encode_calls.append(call_info)
                     raise
             
-            # Apply the GPU computation debugging hook
-            vae.first_stage_model.encode = debug_gpu_computation
-        
-        # Hook tiled encoding to detect when it's triggered
-        original_encode_tiled_3d = vae.encode_tiled_3d if hasattr(vae, 'encode_tiled_3d') else None
-        
-        if original_encode_tiled_3d:
-            def debug_tiled_encoding(samples, tile_t=9999, tile_x=512, tile_y=512, overlap=(1, 64, 64)):
-                print(f"🧩 TILED ENCODING FALLBACK TRIGGERED!")
-                print(f"   📏 Input shape: {samples.shape}")
-                print(f"   🔧 Tile config: t={tile_t}, x={tile_x}, y={tile_y}")
-                print(f"   🔧 Overlap: {overlap}")
+            def get_summary(self):
+                """Get summary of all encode calls"""
+                if not self.encode_calls:
+                    return "No encode calls recorded"
                 
-                gpu_before_tiled = torch.cuda.memory_allocated() / (1024**3)
-                print(f"   📊 GPU memory before tiled encoding: {gpu_before_tiled:.2f}GB")
+                successful_calls = [c for c in self.encode_calls if c['success']]
+                failed_calls = [c for c in self.encode_calls if not c['success']]
                 
-                try:
-                    result = original_encode_tiled_3d(samples, tile_t, tile_x, tile_y, overlap)
+                summary = f"\n🔍 VAE ENCODE MONITORING SUMMARY:\n"
+                summary += f"   Total Calls: {len(self.encode_calls)}\n"
+                summary += f"   Successful: {len(successful_calls)}\n"
+                summary += f"   Failed: {len(failed_calls)}\n"
+                
+                if successful_calls:
+                    max_peak = max(c['peak_gpu_usage'] for c in successful_calls)
+                    summary += f"   Peak GPU Usage: {max_peak:.2f}GB\n"
+                
+                tiling_used = sum(1 for c in self.encode_calls if c['tiling_used'])
+                summary += f"   Tiling Used: {tiling_used}/{len(self.encode_calls)} calls\n"
+                
+                summary += f"\n   Call Details:\n"
+                for call in self.encode_calls:
+                    status = "✅" if call['success'] else "❌"
+                    tiling = "🧩" if call['tiling_used'] else "📐"
+                    summary += f"     #{call['id']}: {status} {tiling} {call['input_shape']} -> "
                     
-                    gpu_after_tiled = torch.cuda.memory_allocated() / (1024**3)
-                    print(f"   ✅ TILED ENCODING SUCCESS!")
-                    print(f"   📏 Output shape: {result.shape} on {result.device}")
-                    print(f"   📊 GPU memory after tiled encoding: {gpu_after_tiled:.2f}GB (Δ{gpu_after_tiled - gpu_before_tiled:+.2f}GB)")
-                    
-                    return result
-                    
-                except Exception as e:
-                    gpu_at_tiled_failure = torch.cuda.memory_allocated() / (1024**3)
-                    print(f"   ❌ TILED ENCODING FAILED!")
-                    print(f"   📊 GPU memory at tiled failure: {gpu_at_tiled_failure:.2f}GB")
-                    print(f"   ⚠️  Tiled error: {e}")
-                    raise
+                    if call['success']:
+                        summary += f"{call['output_shape']} (Peak: {call['peak_gpu_usage']:.2f}GB)"
+                    else:
+                        summary += f"FAILED (Peak: {call['peak_gpu_usage']:.2f}GB) - {call['error']}"
+                    summary += "\n"
+                
+                return summary
         
-        # Apply the main VAE encode debugging hook
-        vae.encode = debug_vae_encode
+        # Create and use the wrapper
+        wrapper = VAEMonitorWrapper(vae)
         
         try:
-            # Execute VAE encoding with focused debugging
-            samples = vae.encode(pixel_samples)
+            # Use the monitored encode method
+            result = wrapper.encode(pixel_samples)
             
-            # Restore original methods
-            vae.encode = original_vae_encode
-            if original_encode:
-                vae.first_stage_model.encode = original_encode
-            if original_encode_tiled_3d:
-                vae.encode_tiled_3d = original_encode_tiled_3d
+            # Print summary
+            print(wrapper.get_summary())
             
-            print(f"   ✅ VAE encoding completed! Output shape: {samples.shape}")
-            print(f"   📍 Final output device: {samples.device}")
-            
-            # FOCUSED DEBUGGING SUMMARY
-            print(f"\n🔍 FOCUSED DEBUGGING SUMMARY:")
-            print(f"   OOM Recovery Detected: {'YES' if oom_recovery_detected else 'NO'}")
-            print(f"   Total GPU Computations: {len(gpu_computation_log)}")
-            
-            if gpu_computation_log:
-                successful_computations = sum(1 for comp in gpu_computation_log if comp['success'])
-                failed_computations = len(gpu_computation_log) - successful_computations
-                
-                print(f"   Successful GPU Computations: {successful_computations}")
-                print(f"   Failed GPU Computations: {failed_computations}")
-                
-                # Show memory usage pattern
-                if successful_computations > 0:
-                    max_gpu_usage = max(comp['gpu_after'] for comp in gpu_computation_log if comp['success'])
-                    min_gpu_usage = min(comp['gpu_before'] for comp in gpu_computation_log)
-                    print(f"   GPU Memory Range: {min_gpu_usage:.2f}GB - {max_gpu_usage:.2f}GB")
-                
-                # Show individual computation details
-                print(f"   GPU Computation Details:")
-                for comp in gpu_computation_log:
-                    status = "✅" if comp['success'] else "❌"
-                    if comp['success']:
-                        print(f"     #{comp['id']}: {status} {comp['input_shape']} -> {comp['output_shape']} "
-                              f"({comp['gpu_before']:.2f}GB -> {comp['gpu_after']:.2f}GB, Δ{comp['gpu_delta']:+.2f}GB)")
-                        print(f"          Output: {comp['output_device']} tensor ({comp['output_size_gb']:.3f}GB)")
-                    else:
-                        print(f"     #{comp['id']}: {status} {comp['input_shape']} -> FAILED "
-                              f"({comp['gpu_before']:.2f}GB -> {comp['gpu_at_failure']:.2f}GB, Δ{comp['gpu_delta']:+.2f}GB)")
-                        print(f"          Error: {comp['error']}")
-            
-            # Final memory check
-            final_gpu_memory = torch.cuda.memory_allocated() / (1024**3)
-            print(f"   📊 Final GPU memory: {final_gpu_memory:.2f}GB (net change: {final_gpu_memory - initial_gpu_memory:+.2f}GB)")
-            
-            return samples
+            return result
             
         except Exception as e:
-            # Restore original methods in case of error
-            vae.encode = original_vae_encode
-            if original_encode:
-                vae.first_stage_model.encode = original_encode
-            if original_encode_tiled_3d:
-                vae.encode_tiled_3d = original_encode_tiled_3d
-                
-            print(f"   ❌ VAE encoding failed: {e}")
-            
-            # Show partial debugging results
-            if gpu_computation_log:
-                print(f"🔍 PARTIAL DEBUGGING RESULTS (before failure):")
-                print(f"   OOM Recovery Detected: {'YES' if oom_recovery_detected else 'NO'}")
-                print(f"   Completed GPU Computations: {len(gpu_computation_log)}")
-                
-                for comp in gpu_computation_log:
-                    status = "✅" if comp['success'] else "❌"
-                    if comp['success']:
-                        print(f"     #{comp['id']}: {status} GPU: {comp['gpu_before']:.2f}GB -> {comp['gpu_after']:.2f}GB (Δ{comp['gpu_delta']:+.2f}GB)")
-                    else:
-                        print(f"     #{comp['id']}: {status} GPU: {comp['gpu_before']:.2f}GB -> {comp['gpu_at_failure']:.2f}GB (Δ{comp['gpu_delta']:+.2f}GB)")
-            
+            # Print summary even on failure
+            print(wrapper.get_summary())
             raise
     
     def _test_comfy_memory_functions_safe(self):
@@ -2554,7 +2477,7 @@ class ReferenceVideoPipeline:
                     # Test 4: Check if model tracking is working
                     print("🔍 Testing model tracking system...")
                     if hasattr(comfy.model_management, 'current_loaded_models'):
-                        print(f"   ✅ current_loaded_models exists: {len(comfy.model_management.current_models)} models")
+                        print(f"   ✅ current_loaded_models exists: {len(comfy.model_management.current_loaded_models)} models")
                     else:
                         print("   ❌ current_loaded_models not found")
                     
@@ -2731,13 +2654,10 @@ class ReferenceVideoPipeline:
             self._monitor_vae_encoding_memory(vae, inactive[:, :, :, :3], "INACTIVE_FRAMES")
             
             try:
-                inactive_latent = self._comfy_vae_encode(vae, inactive[:, :, :, :3])
-                print(f"   Inactive latent shape: {inactive_latent.shape}")
-                self._quick_memory_snapshot("after_inactive")
-                
-                # Force memory cleanup after inactive encoding to prevent accumulation
-                print("🧹 Cleaning up memory after inactive encoding...")
-                force_comfy_memory_cleanup()
+                # MINIMAL TEST: Use ComfyUI's exact approach - direct vae.encode()
+                print("🧪 MINIMAL TEST: Using ComfyUI's exact vae.encode() approach")
+                inactive_latent = vae.encode(inactive[:, :, :, :3])
+                print(f"   ✅ Inactive latent shape: {inactive_latent.shape}")
                 
             except Exception as e:
                 self._analyze_oom_cause(e, "INACTIVE_ENCODING")
@@ -2749,13 +2669,10 @@ class ReferenceVideoPipeline:
             self._monitor_vae_encoding_memory(vae, reactive[:, :, :, :3], "REACTIVE_FRAMES")
             
             try:
-                reactive_latent = self._comfy_vae_encode(vae, reactive[:, :, :, :3])
-                print(f"   Reactive latent shape: {reactive_latent.shape}")
-                self._quick_memory_snapshot("after_reactive")
-                
-                # Force memory cleanup after reactive encoding to prevent accumulation
-                print("🧹 Cleaning up memory after reactive encoding...")
-                force_comfy_memory_cleanup()
+                # MINIMAL TEST: Use ComfyUI's exact approach - direct vae.encode()
+                print("🧪 MINIMAL TEST: Using ComfyUI's exact vae.encode() approach")
+                reactive_latent = vae.encode(reactive[:, :, :, :3])
+                print(f"   ✅ Reactive latent shape: {reactive_latent.shape}")
                 
             except Exception as e:
                 self._analyze_oom_cause(e, "REACTIVE_ENCODING")
