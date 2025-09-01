@@ -819,40 +819,38 @@ class ReferenceVideoPipeline:
         print("   ✅ VAE memory calculation fixed - will now FORCE tiled encoding for videos")
     
     def _comfy_vae_encode(self, vae, pixel_samples):
-        """VAE Encoder Wrapper with Real-time GPU Monitoring"""
-        print(f"🎬 VAE ENCODING: input shape {pixel_samples.shape}")
+        """Comprehensive VAE Encoder Monitoring System"""
+        print(f"🔧 EXECUTING VAE ENCODE WITH COMPREHENSIVE MONITORING...")
         
-        # Create VAE encoder wrapper with monitoring
-        class VAEMonitorWrapper:
+        # Create comprehensive VAE monitoring system
+        class ComprehensiveVAEMonitor:
             def __init__(self, original_vae):
                 self.original_vae = original_vae
                 self.encode_calls = []
-                self.peak_gpu_usage = 0.0
+                self.call_counter = 0
                 self.monitoring_active = False
                 self.monitor_thread = None
                 self.gpu_samples = []
+                self.start_time = None
                 
             def start_monitoring(self):
                 """Start multithreaded GPU monitoring"""
                 self.monitoring_active = True
                 self.gpu_samples = []
+                self.start_time = time.time()
                 
                 def monitor_gpu():
                     while self.monitoring_active:
                         try:
-                            gpu_allocated = torch.cuda.memory_allocated() / (1024**3)
-                            gpu_reserved = torch.cuda.memory_reserved() / (1024**3)
+                            gpu_allocated = torch.cuda.memory_allocated() / (1024**2)  # MB
+                            gpu_reserved = torch.cuda.memory_reserved() / (1024**2)   # MB
                             
                             sample = {
                                 'timestamp': time.time(),
-                                'allocated_gb': gpu_allocated,
-                                'reserved_gb': gpu_reserved
+                                'allocated_mb': gpu_allocated,
+                                'reserved_mb': gpu_reserved
                             }
                             self.gpu_samples.append(sample)
-                            
-                            # Update peak usage
-                            if gpu_allocated > self.peak_gpu_usage:
-                                self.peak_gpu_usage = gpu_allocated
                             
                             time.sleep(0.1)  # Sample every 100ms
                         except Exception as e:
@@ -861,7 +859,7 @@ class ReferenceVideoPipeline:
                 
                 self.monitor_thread = threading.Thread(target=monitor_gpu, daemon=True)
                 self.monitor_thread.start()
-                print(f"   📊 GPU monitoring started (multithreaded)")
+                print(f"   🔄 GPU monitoring thread started")
             
             def stop_monitoring(self):
                 """Stop GPU monitoring and get results"""
@@ -870,32 +868,42 @@ class ReferenceVideoPipeline:
                     self.monitor_thread.join(timeout=1.0)
                 
                 if self.gpu_samples:
-                    min_allocated = min(s['allocated_gb'] for s in self.gpu_samples)
-                    max_allocated = max(s['allocated_gb'] for s in self.gpu_samples)
-                    avg_allocated = sum(s['allocated_gb'] for s in self.gpu_samples) / len(self.gpu_samples)
+                    min_allocated = min(s['allocated_mb'] for s in self.gpu_samples)
+                    max_allocated = max(s['allocated_mb'] for s in self.gpu_samples)
+                    avg_allocated = sum(s['allocated_mb'] for s in self.gpu_samples) / len(self.gpu_samples)
                     
-                    print(f"   📊 GPU Memory Summary:")
-                    print(f"      Min: {min_allocated:.2f}GB")
-                    print(f"      Max: {max_allocated:.2f}GB (Peak)")
-                    print(f"      Avg: {avg_allocated:.2f}GB")
-                    print(f"      Samples: {len(self.gpu_samples)}")
-                
-                return {
-                    'peak_gpu_usage': self.peak_gpu_usage,
-                    'gpu_samples': self.gpu_samples
-                }
+                    return {
+                        'min_gpu_mb': min_allocated,
+                        'max_gpu_mb': max_allocated,
+                        'avg_gpu_mb': avg_allocated,
+                        'gpu_samples': self.gpu_samples
+                    }
+                return {'min_gpu_mb': 0, 'max_gpu_mb': 0, 'avg_gpu_mb': 0, 'gpu_samples': []}
             
-            def encode(self, pixel_samples):
-                """Monitored encode call"""
-                call_id = len(self.encode_calls) + 1
-                input_shape = pixel_samples.shape
-                input_size_gb = pixel_samples.element_size() * pixel_samples.nelement() / (1024**3)
+            def encode(self, pixel_samples, call_type="Unknown"):
+                """Monitored encode call with comprehensive tracking"""
+                self.call_counter += 1
+                call_id = self.call_counter
                 
-                print(f"   🔄 VAE.encode() Call #{call_id}:")
-                print(f"      Input: {input_shape} ({input_size_gb:.3f}GB)")
-                print(f"      Device: {pixel_samples.device}")
+                # Determine call type based on input
+                if call_type == "Unknown":
+                    if pixel_samples.shape[0] == 1:
+                        call_type = "Reference Image"
+                    else:
+                        call_type = "Video Frames"
+                
+                input_shape = pixel_samples.shape
+                input_size_mb = pixel_samples.element_size() * pixel_samples.nelement() / (1024**2)
+                
+                print(f"   🔍 INTERCEPTING VAE.encode() call #{call_id} ({call_type})")
+                print(f"      🔄 GPU monitoring thread started")
+                print(f"      🔧 Executing VAE.encode() call #{call_id} ({call_type})")
+                print(f"         Input shape: {input_shape}")
+                print(f"         Input size: {input_size_mb:.2f} MB")
+                print(f"         Tiled encoding: NO")  # Will be updated after execution
                 
                 # Start GPU monitoring for this encode call
+                call_start_time = time.time()
                 self.start_monitoring()
                 
                 try:
@@ -904,33 +912,48 @@ class ReferenceVideoPipeline:
                     
                     # Stop monitoring and get results
                     gpu_stats = self.stop_monitoring()
+                    call_duration = time.time() - call_start_time
+                    
+                    # Determine if tiled encoding was used
+                    tiled_encoding = "NO"
+                    if hasattr(result, 'shape') and len(result.shape) >= 4:
+                        # Check if output has expected downsampled dimensions
+                        expected_h = input_shape[-2] // 8
+                        expected_w = input_shape[-1] // 8
+                        if result.shape[-2] == expected_h and result.shape[-1] == expected_w:
+                            tiled_encoding = "YES"
+                    
+                    # Calculate GPU change
+                    initial_gpu = gpu_stats['gpu_samples'][0]['allocated_mb'] if gpu_stats['gpu_samples'] else 0
+                    final_gpu = gpu_stats['gpu_samples'][-1]['allocated_mb'] if gpu_stats['gpu_samples'] else 0
+                    gpu_change = final_gpu - initial_gpu
                     
                     # Record successful call
                     call_info = {
                         'id': call_id,
+                        'type': call_type,
                         'input_shape': input_shape,
-                        'input_size_gb': input_size_gb,
+                        'input_size_mb': input_size_mb,
                         'output_shape': result.shape,
-                        'output_size_gb': result.element_size() * result.nelement() / (1024**3),
+                        'output_size_mb': result.element_size() * result.nelement() / (1024**2),
                         'output_device': str(result.device),
-                        'peak_gpu_usage': gpu_stats['peak_gpu_usage'],
-                        'tiling_used': False,  # Will be updated if tiled encoding detected
+                        'duration': call_duration,
+                        'peak_gpu_mb': gpu_stats['max_gpu_mb'],
+                        'gpu_change_mb': gpu_change,
+                        'tiled_encoding': tiled_encoding,
                         'success': True,
                         'error': None
                     }
                     
-                    print(f"      ✅ Success!")
-                    print(f"      Output: {result.shape} on {result.device}")
-                    print(f"      Peak GPU: {gpu_stats['peak_gpu_usage']:.2f}GB")
-                    
-                    # Check if tiled encoding was used by examining the result
-                    if hasattr(result, 'shape') and len(result.shape) >= 4:
-                        # If output has expected downsampled dimensions, tiling might have been used
-                        expected_h = input_shape[-2] // 8
-                        expected_w = input_shape[-1] // 8
-                        if result.shape[-2] == expected_h and result.shape[-1] == expected_w:
-                            call_info['tiling_used'] = True
-                            print(f"      🧩 Tiled encoding detected (8x downsampling)")
+                    print(f"      🔄 GPU monitoring thread stopped")
+                    print(f"      ✅ VAE.encode() call #{call_id} completed")
+                    print(f"         Type: {call_type}")
+                    print(f"         Duration: {call_duration:.3f}s")
+                    print(f"         Input: {input_shape} ({input_size_mb:.2f} MB)")
+                    print(f"         Tiled: {tiled_encoding}")
+                    print(f"         Output: {result.shape} ({call_info['output_size_mb']:.2f} MB)")
+                    print(f"         Peak GPU: {gpu_stats['max_gpu_mb']:.1f} MB allocated")
+                    print(f"         GPU Change: {gpu_change:+.1f} MB allocated")
                     
                     self.encode_calls.append(call_info)
                     return result
@@ -938,76 +961,136 @@ class ReferenceVideoPipeline:
                 except Exception as e:
                     # Stop monitoring and get results
                     gpu_stats = self.stop_monitoring()
+                    call_duration = time.time() - call_start_time
                     
                     # Record failed call
                     call_info = {
                         'id': call_id,
+                        'type': call_type,
                         'input_shape': input_shape,
-                        'input_size_gb': input_size_gb,
+                        'input_size_mb': input_size_mb,
                         'output_shape': None,
-                        'output_size_gb': 0,
+                        'output_size_mb': 0,
                         'output_device': None,
-                        'peak_gpu_usage': gpu_stats['peak_gpu_usage'],
-                        'tiling_used': False,
+                        'duration': call_duration,
+                        'peak_gpu_mb': gpu_stats['max_gpu_mb'],
+                        'gpu_change_mb': 0,
+                        'tiled_encoding': "N/A",
                         'success': False,
                         'error': str(e)
                     }
                     
-                    print(f"      ❌ Failed: {e}")
-                    print(f"      Peak GPU: {gpu_stats['peak_gpu_usage']:.2f}GB")
+                    print(f"      🔄 GPU monitoring thread stopped")
+                    print(f"      ❌ VAE.encode() call #{call_id} FAILED")
+                    print(f"         Type: {call_type}")
+                    print(f"         Duration: {call_duration:.3f}s")
+                    print(f"         Input: {input_shape} ({input_size_mb:.2f} MB)")
+                    print(f"         Error: {e}")
+                    print(f"         Peak GPU: {gpu_stats['max_gpu_mb']:.1f} MB allocated")
                     
                     self.encode_calls.append(call_info)
                     raise
             
-            def get_summary(self):
-                """Get summary of all encode calls"""
+            def get_comprehensive_summary(self):
+                """Get comprehensive summary of all encode calls"""
                 if not self.encode_calls:
                     return "No encode calls recorded"
                 
                 successful_calls = [c for c in self.encode_calls if c['success']]
                 failed_calls = [c for c in self.encode_calls if not c['success']]
                 
-                summary = f"\n🔍 VAE ENCODE MONITORING SUMMARY:\n"
-                summary += f"   Total Calls: {len(self.encode_calls)}\n"
-                summary += f"   Successful: {len(successful_calls)}\n"
-                summary += f"   Failed: {len(failed_calls)}\n"
-                
-                if successful_calls:
-                    max_peak = max(c['peak_gpu_usage'] for c in successful_calls)
-                    summary += f"   Peak GPU Usage: {max_peak:.2f}GB\n"
-                
-                tiling_used = sum(1 for c in self.encode_calls if c['tiling_used'])
-                summary += f"   Tiling Used: {tiling_used}/{len(self.encode_calls)} calls\n"
-                
-                summary += f"\n   Call Details:\n"
+                # Group calls by type
+                call_types = {}
                 for call in self.encode_calls:
-                    status = "✅" if call['success'] else "❌"
-                    tiling = "🧩" if call['tiling_used'] else "📐"
-                    summary += f"     #{call['id']}: {status} {tiling} {call['input_shape']} -> "
+                    call_type = call['type']
+                    if call_type not in call_types:
+                        call_types[call_type] = []
+                    call_types[call_type].append(call)
+                
+                # Performance analysis
+                total_duration = sum(c['duration'] for c in self.encode_calls)
+                avg_duration = total_duration / len(self.encode_calls) if self.encode_calls else 0
+                
+                # GPU usage analysis
+                if successful_calls:
+                    peak_gpus = [c['peak_gpu_mb'] for c in successful_calls]
+                    max_peak = max(peak_gpus)
+                    min_peak = min(peak_gpus)
+                    avg_peak = sum(peak_gpus) / len(peak_gpus)
+                else:
+                    max_peak = min_peak = avg_peak = 0
+                
+                # Tiling analysis
+                tiled_calls = sum(1 for c in self.encode_calls if c['tiled_encoding'] == "YES")
+                non_tiled_calls = len(self.encode_calls) - tiled_calls
+                
+                summary = f"\n{'='*80}\n"
+                summary += f"🔍 VAE ENCODE MONITORING COMPREHENSIVE SUMMARY\n"
+                summary += f"{'='*80}\n"
+                summary += f"📊 TOTAL ENCODE CALLS: {len(self.encode_calls)}\n\n"
+                
+                # Call types breakdown
+                summary += f"📋 ENCODE CALLS BY TYPE:\n"
+                for call_type, calls in call_types.items():
+                    summary += f"   {call_type}: {len(calls)} calls\n"
+                
+                # Performance analysis
+                summary += f"\n⏱️  PERFORMANCE ANALYSIS:\n"
+                summary += f"   Total Duration: {total_duration:.3f}s\n"
+                summary += f"   Average Duration: {avg_duration:.3f}s\n"
+                
+                # GPU usage analysis
+                summary += f"\n🎮 GPU USAGE ANALYSIS:\n"
+                summary += f"   Peak GPU Usage:\n"
+                summary += f"      Maximum: {max_peak:.1f} MB\n"
+                summary += f"      Minimum: {min_peak:.1f} MB\n"
+                summary += f"      Average: {avg_peak:.1f} MB\n"
+                if successful_calls:
+                    highest_peak_call = max(successful_calls, key=lambda x: x['peak_gpu_mb'])
+                    summary += f"      Highest Peak: Call #{highest_peak_call['id']} ({highest_peak_call['type']})\n"
+                
+                # Tiling analysis
+                summary += f"\n🧩 TILING ANALYSIS:\n"
+                summary += f"   Tiled Encodes: {tiled_calls} calls\n"
+                summary += f"   Non-tiled Encodes: {non_tiled_calls} calls\n"
+                
+                # Detailed call breakdown
+                summary += f"\n📋 DETAILED CALL BREAKDOWN:\n"
+                for call in self.encode_calls:
+                    status = "✅ SUCCESS" if call['success'] else "❌ FAILED"
+                    summary += f"   {call['id']}. Call #{call['id']} ({call['type']})\n"
+                    summary += f"      Status: {status}\n"
+                    summary += f"      Duration: {call['duration']:.3f}s\n"
+                    summary += f"      Input: {call['input_shape']} ({call['input_size_mb']:.2f} MB)\n"
+                    summary += f"      Tiled: {call['tiled_encoding']}\n"
                     
                     if call['success']:
-                        summary += f"{call['output_shape']} (Peak: {call['peak_gpu_usage']:.2f}GB)"
+                        summary += f"         Output: {call['output_shape']} ({call['output_size_mb']:.2f} MB)\n"
+                        summary += f"         Peak GPU: {call['peak_gpu_mb']:.1f} MB allocated\n"
+                        summary += f"         GPU Change: {call['gpu_change_mb']:+.1f} MB allocated\n"
                     else:
-                        summary += f"FAILED (Peak: {call['peak_gpu_usage']:.2f}GB) - {call['error']}"
+                        summary += f"         Error: {call['error']}\n"
+                        summary += f"         Peak GPU: {call['peak_gpu_mb']:.1f} MB allocated\n"
+                    
                     summary += "\n"
                 
                 return summary
         
-        # Create and use the wrapper
-        wrapper = VAEMonitorWrapper(vae)
+        # Create and use the comprehensive monitor
+        monitor = ComprehensiveVAEMonitor(vae)
         
         try:
             # Use the monitored encode method
-            result = wrapper.encode(pixel_samples)
+            result = monitor.encode(pixel_samples)
             
-            # Print summary
-            print(wrapper.get_summary())
+            # Print comprehensive summary
+            print(monitor.get_comprehensive_summary())
             
             return result
             
         except Exception as e:
             # Print summary even on failure
-            print(wrapper.get_summary())
+            print(monitor.get_comprehensive_summary())
             raise
     
     def _test_comfy_memory_functions_safe(self):
