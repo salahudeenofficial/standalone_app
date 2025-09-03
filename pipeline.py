@@ -442,24 +442,22 @@ class ReferenceVideoPipeline:
         
         # Initialize real-time memory monitoring
         self.memory_monitor = RealTimeMemoryMonitor(sample_interval=0.5, max_samples=2000)
-    
-
-    
-    # Memory thresholds for each phase
-    self.memory_thresholds = {
-        'baseline': 100,           # MB - should be very low
-        'model_loading': 100,      # MB - ComfyUI lazy loading (models loaded on-demand)
-        'lora_application': 200,   # MB - LoRA applied (still lazy loading)
-        'text_encoding': 1000,     # MB - models may be loaded to GPU for encoding
-        'model_sampling': 2000,    # MB - models loaded for patching
-        'gpu_capability_test': 1000, # MB - should be low during testing
-        'vae_encoding': 8000,     # MB - VAE encoding in progress (models loaded)
-        'unet_sampling': 40000,   # MB - UNET sampling needs ~33GB (realistic)
-        'vae_decoding': 8000,     # MB - VAE decoding in progress
-        'final_cleanup': 100,      # MB - back to baseline
-        'video_trimming': 100,      # MB - back to baseline
-        'video_export': 100         # MB - back to baseline
-    }
+        
+        # Memory thresholds for each phase
+        self.memory_thresholds = {
+            'baseline': 100,           # MB - should be very low
+            'model_loading': 100,      # MB - ComfyUI lazy loading (models loaded on-demand)
+            'lora_application': 200,   # MB - LoRA applied (still lazy loading)
+            'text_encoding': 1000,     # MB - models may be loaded to GPU for encoding
+            'model_sampling': 2000,    # MB - models loaded for patching
+            'gpu_capability_test': 1000, # MB - should be low during testing
+            'vae_encoding': 8000,     # MB - VAE encoding in progress (models loaded)
+            'unet_sampling': 40000,   # MB - UNET sampling needs ~33GB (realistic)
+            'vae_decoding': 8000,     # MB - VAE decoding in progress
+            'final_cleanup': 100,      # MB - back to baseline
+            'video_trimming': 100,      # MB - back to baseline
+            'video_export': 100         # MB - back to baseline
+        }
     
     def _check_memory_usage(self, phase_name, expected_threshold=None):
         """Check memory usage and update OOM checklist"""
