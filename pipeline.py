@@ -1049,6 +1049,7 @@ class ReferenceVideoPipeline:
                 reference_image = torch.cat([reference_image, comfy.latent_formats.Wan21().process_out(torch.zeros_like(reference_image))], dim=1)
 
             # Prepare mask (default full mask if none provided) - exactly like WAN VAE-to-Video node
+            control_masks = None  # Define control_masks variable
             if control_masks is None:
                 mask = torch.ones((length, height, width, 1), device=control_video.device)
             else:
@@ -1822,9 +1823,6 @@ class ReferenceVideoPipeline:
             if hasattr(self, 'memory_monitor'):
                 self.memory_monitor.stop_monitoring()
                 self.memory_monitor.print_memory_summary()
-            
-            # Analyze failure with detailed VRAM analysis
-            self._analyze_oom_cause(e, "PIPELINE_FAILURE")
             
             # ComfyUI automatically handles cleanup on failure
             raise
