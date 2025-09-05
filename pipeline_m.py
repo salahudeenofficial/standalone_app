@@ -129,10 +129,9 @@ class ManualCLIP:
         
         # Import CLIP classes directly
         from comfy.sd import CLIP
-        from comfy.sd import CLIPType
         
         # Create CLIP instance manually
-        self.clip = CLIP(clip_state_dict, clip_type=CLIPType.WAN)
+        self.clip = CLIP(clip_state_dict)
         self.clip.to(self.device)
         
         print(f"✅ CLIP loaded manually on {self.device}")
