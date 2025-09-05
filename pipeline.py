@@ -114,8 +114,8 @@ class ReferenceVideoPipeline:
         self.setup_model_paths()
         
         # Initialize ComfyUI memory management system
-        initialize_comfy_memory_system()
-        
+            initialize_comfy_memory_system()
+            
         # ComfyUI handles all chunking automatically - no manual processor needed
         print("✅ ComfyUI memory management initialized")
         
@@ -164,7 +164,7 @@ class ReferenceVideoPipeline:
         - VAE moved to GPU for operations, then to CPU for memory management
         - Explicit memory management calls using proven working logic
         """
-    
+        
         try:
             # 1. Load Diffusion Model Components using ComfyUI's native system
             print("1. Loading diffusion model components using ComfyUI...")
@@ -172,7 +172,7 @@ class ReferenceVideoPipeline:
             # Import ComfyUI's model loading functions
             import comfy.sd
             import comfy.model_management
-           # Load UNET with proper WAN model detection
+            # Load UNET with proper WAN model detection
             print("1a. Loading UNET with automatic WAN detection...")
             unet_state_dict = comfy.utils.load_torch_file(unet_model_path)
             
@@ -253,7 +253,7 @@ class ReferenceVideoPipeline:
             # 2. Apply LoRA if specified
             if lora_path:
                 print("2. Applying LoRA...")
-
+                
 
                 lora_loader = LoraLoader()
                 
@@ -263,13 +263,13 @@ class ReferenceVideoPipeline:
                     original_clip_model = clip_model
                     
 
-                    import comfy.utils                    
+                    import comfy.utils
                     model, clip_model = lora_loader.load_lora(
                         model, clip_model, lora_path, 0.5, 1.0
                     )
                     
                     print("✅ LoRA applied successfully")
-
+                    
                 except Exception as e:
 
                     model = original_model
@@ -328,7 +328,7 @@ class ReferenceVideoPipeline:
             print(f"🔍 STEP 4: SAMPLING STEP (MONITORING COMMENTED OUT)")
             print(f"{'='*80}")
             
-      
+            
             
             print("4. Applying ModelSamplingSD3...")
             model_sampling = ModelSamplingSD3()
@@ -352,7 +352,7 @@ class ReferenceVideoPipeline:
             print(f"{'='*80}")
             # Prepare control video
             latent_length = ((length - 1) // 4) + 1
-  
+
             # Ensure inputs are loaded locally for this step
             control_video = locals().get('control_video', None)
             if control_video is None:
@@ -430,10 +430,12 @@ class ReferenceVideoPipeline:
             
             print("🔧 Starting VAE encoding...")
             
+
+            print("🔧 Encoding entire inactive video at once...")
             inactive = vae.encode(inactive[:, :, :, :3])
-            print("🔧 VAE encoding inactive completed")
+
+            print("🔧 Encoding entire reactive video at once...")
             reactive = vae.encode(reactive[:, :, :, :3])
-            print("🔧 VAE encoding reactive completed")
             control_video_latent = torch.cat((inactive, reactive), dim=1)
             
             # Reference image processing - exactly like WAN VAE-to-Video node
@@ -477,7 +479,7 @@ class ReferenceVideoPipeline:
 
             
             return "pipeline_stopped_after_step_5_for_debugging"
-
+            
         except Exception as e:
             print(f"Pipeline failed with error: {str(e)}")
             
