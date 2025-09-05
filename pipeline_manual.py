@@ -161,7 +161,7 @@ class ManualVideoPipeline:
             print(f"Error loading image '{image_path}': {e}")
             return None
     
-    def encode_video_chunked(self, vae, video_tensor, chunk_size=4):
+    def encode_video_chunked(self, vae, video_tensor, chunk_size=1):
         """Encode video in chunks to avoid OOM"""
         print(f"🔧 Encoding video in chunks of {chunk_size} frames")
         
