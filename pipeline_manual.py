@@ -309,8 +309,8 @@ class ManualVideoPipeline:
             
             # Encode video in chunks
             print("🔧 Starting chunked VAE encoding...")
-            inactive_encoded = self.encode_video_chunked(vae, inactive[:, :, :, :3], chunk_size=4)
-            reactive_encoded = self.encode_video_chunked(vae, reactive[:, :, :, :3], chunk_size=4)
+            inactive_encoded = self.encode_video_chunked(vae, inactive[:, :, :, :3], chunk_size=1)
+            reactive_encoded = self.encode_video_chunked(vae, reactive[:, :, :, :3], chunk_size=1)
             
             control_video_latent = torch.cat((inactive_encoded, reactive_encoded), dim=1)
             
