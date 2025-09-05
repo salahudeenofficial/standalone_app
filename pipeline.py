@@ -458,6 +458,12 @@ class ReferenceVideoPipeline:
 
             
             return "pipeline_stopped_after_step_5_for_debugging"
+
+        except Exception as e:
+            print(f"Pipeline failed with error: {str(e)}")
+            
+            # ComfyUI automatically handles cleanup on failure
+            raise
             
         #     # 4. Apply ModelSamplingSD3 Shift
         #     print("4. Applying ModelSamplingSD3...")
