@@ -125,13 +125,9 @@ class ManualCLIP:
         self.device = memory_manager.device
         
         print("🔧 Loading CLIP manually...")
-        clip_state_dict = memory_manager.load_state_dict(clip_path)
-        
-        # Import CLIP classes directly
-        from comfy.sd import CLIP
-        
-        # Create CLIP instance manually
-        self.clip = CLIP(clip_state_dict)
+        # Use ComfyUI's proper CLIP loading function
+        from comfy.sd import load_clip
+        self.clip = load_clip([clip_path])[0]  # Returns a list, take first element
         self.clip.to(self.device)
         
         print(f"✅ CLIP loaded manually on {self.device}")
