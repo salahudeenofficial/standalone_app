@@ -127,7 +127,8 @@ class ManualCLIP:
         print("🔧 Loading CLIP manually...")
         # Use ComfyUI's proper CLIP loading function with WAN type
         from comfy.sd import load_clip, CLIPType
-        self.clip = load_clip([clip_path], clip_type=CLIPType.WAN)[0]  # Use WAN CLIP type
+
+        self.clip = load_clip([clip_path], clip_type=CLIPType.WAN)  # Use WAN CLIP type
         self.clip.to(self.device)
         
         print(f"✅ CLIP loaded manually on {self.device}")
