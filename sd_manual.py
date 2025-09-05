@@ -5,10 +5,10 @@ from enum import Enum
 import logging
 
 from comfy.utils import ProgressBar
-from .ldm.models.autoencoder import AutoencoderKL, AutoencodingEngine
-from .ldm.cascade.stage_a import StageA
-from .ldm.cascade.stage_c_coder import StageC_coder
-from .ldm.audio.autoencoder import AudioOobleckVAE
+from comfy.ldm.models.autoencoder import AutoencoderKL, AutoencodingEngine
+from comfy.ldm.cascade.stage_a import StageA
+from comfy.ldm.cascade.stage_c_coder import StageC_coder
+from comfy.ldm.audio.autoencoder import AudioOobleckVAE
 import comfy.ldm.genmo.vae.model
 import comfy.ldm.lightricks.vae.causal_video_autoencoder
 import comfy.ldm.cosmos.vae
