@@ -414,6 +414,18 @@ class ReferenceVideoPipeline:
             reactive = (control_video * mask) + 0.5
 
 
+
+            # Force all models out of GPU memory before VAE encoding
+            print("🔧 Forcing all models out of GPU memory before VAE encoding...")
+            import comfy.model_management
+            comfy.model_management.free_memory()
+            torch.cuda.empty_cache()
+            
+            # Check available memory after cleanup
+            if torch.cuda.is_available():
+                free_memory = torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_reserved()
+                print(f"🔧 Available GPU memory after cleanup: {free_memory / 1024**3:.2f} GB")
+            
             print("🔧 Starting VAE encoding...")
             
             inactive = vae.encode(inactive[:, :, :, :3])
