@@ -22,13 +22,13 @@ import os
 
 import comfy.utils
 
-from . import clip_vision
-from . import gligen
-from . import diffusers_convert
-from . import model_detection
+from comfy import clip_vision
+from comfy import gligen
+from comfy import diffusers_convert
+from comfy import model_detection
 
-from . import sd1_clip
-from . import sdxl_clip
+from comfy import sd1_clip
+from comfy import sdxl_clip
 import comfy.text_encoders.sd2_clip
 import comfy.text_encoders.sd3_clip
 import comfy.text_encoders.sa_t5
