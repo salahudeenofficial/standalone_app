@@ -418,7 +418,8 @@ class ReferenceVideoPipeline:
             # Force all models out of GPU memory before VAE encoding
             print("🔧 Forcing all models out of GPU memory before VAE encoding...")
             import comfy.model_management
-            comfy.model_management.free_memory()
+
+            comfy.model_management.free_memory(0, "cpu")  # Free all memory and move to CPU
             torch.cuda.empty_cache()
             
             # Check available memory after cleanup
