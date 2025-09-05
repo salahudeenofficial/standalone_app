@@ -650,12 +650,6 @@ class VAE:
             free_memory = model_management.get_free_memory(self.device)
             batch_number = int(free_memory / max(1, memory_used))
             batch_number = max(1, batch_number)
-            
-            # Force 3 batches for video processing to avoid OOM
-            if pixel_samples.shape[0] > 10:  # Video processing (more than 10 frames)
-                batch_number = max(1, pixel_samples.shape[0] // 3)  # Process in 3 batches
-                print(f'🔧 VAE Encoding: Forcing 3 batches for video processing')
-                print(f'   Total frames: {pixel_samples.shape[0]}, Batch size: {batch_number}')
             samples = None
             for x in range(0, pixel_samples.shape[0], batch_number):
                 pixels_in = self.process_input(pixel_samples[x:x + batch_number]).to(self.vae_dtype).to(self.device)

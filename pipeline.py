@@ -413,8 +413,13 @@ class ReferenceVideoPipeline:
             inactive = (control_video * (1 - mask)) + 0.5
             reactive = (control_video * mask) + 0.5
 
+
+            print("🔧 Starting VAE encoding...")
+            
             inactive = vae.encode(inactive[:, :, :, :3])
+            print("🔧 VAE encoding inactive completed")
             reactive = vae.encode(reactive[:, :, :, :3])
+            print("🔧 VAE encoding reactive completed")
             control_video_latent = torch.cat((inactive, reactive), dim=1)
             
             # Reference image processing - exactly like WAN VAE-to-Video node
