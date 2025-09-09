@@ -5,7 +5,8 @@ Test script for standalone VAE implementation using WAN VAE model
 import torch
 import torch.nn as nn
 from standalone_vae import VAE, create_vae
-import utils
+import safetensors.torch
+
 
 def load_wan_vae_model(vae_path):
     """Load WAN VAE model from safetensors file"""
@@ -13,7 +14,8 @@ def load_wan_vae_model(vae_path):
     
     try:
         # Load the safetensors file
-        state_dict = utils.load_torch_file(vae_path, device=torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        state_dict = safetensors.torch.load_file(vae_path)
+        print(f"✅ Successfully loaded VAE model")
         print(f"Number of parameters: {len(state_dict)}")
         
         # Show some key parameters
@@ -63,9 +65,9 @@ def test_wan_vae_encode_decode(vae_path):
     # Test with different input sizes
     test_sizes = [
         (1, 3, 64, 64),    # Small image
-        # (1, 3, 128, 128),  # Medium image
-        # (1, 3, 256, 256),  # Large image
-        (37, 832, 480, 3),  # Batch of 2
+        (1, 3, 128, 128),  # Medium image
+        (1, 3, 256, 256),  # Large image
+        (2, 3, 128, 128),  # Batch of 2
     ]
     
     for i, size in enumerate(test_sizes):
@@ -133,10 +135,10 @@ def test_wan_vae_memory_usage(vae_path):
     # Test different input shapes
     test_shapes = [
         (1, 3, 64, 64),    # Small
-        # (1, 3, 128, 128),  # Medium
-        # (1, 3, 256, 256),  # Large
-        # (1, 3, 512, 512),  # Very large
-        (37, 832, 480, 3),  # Batch
+        (1, 3, 128, 128),  # Medium
+        (1, 3, 256, 256),  # Large
+        (1, 3, 512, 512),  # Very large
+        (2, 3, 256, 256),  # Batch
     ]
     
     for shape in test_shapes:
@@ -227,7 +229,7 @@ def main():
     print("=" * 50)
     
     # Path to the downloaded VAE model
-    vae_path = "./models/vaes/wan_vae.safetensors"
+    vae_path = "./motion/models/vaes/wan_vae.safetensors"
     
     print(f"Testing VAE model at: {vae_path}")
     

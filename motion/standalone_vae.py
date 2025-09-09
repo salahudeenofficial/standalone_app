@@ -272,6 +272,8 @@ class AutoencoderKL(nn.Module):
         self.regularizer = DiagonalGaussianRegularizer()
     
     def encode(self, x):
+        # Cast input to model dtype
+        x = x.to(self.vae_dtype)
         h = self.encoder(x)
         moments = self.quant_conv(h)
         z, mean, logvar = self.regularizer(moments)
@@ -296,6 +298,8 @@ class AutoencodingEngine(nn.Module):
         self.regularizer = DiagonalGaussianRegularizer()
     
     def encode(self, x):
+        # Cast input to model dtype
+        x = x.to(self.vae_dtype)
         h = self.encoder(x)
         z, mean, logvar = self.regularizer(h)
         return z, mean, logvar
@@ -404,6 +408,8 @@ class WanVAE(nn.Module):
         return nn.Sequential(*layers)
     
     def encode(self, x):
+        # Cast input to model dtype
+        x = x.to(self.vae_dtype)
         h = self.encoder(x)
         z, mean, logvar = self.regularizer(h)
         return z, mean, logvar
@@ -454,6 +460,8 @@ class TAESD(nn.Module):
         )
     
     def encode(self, x):
+        # Cast input to model dtype
+        x = x.to(self.vae_dtype)
         return self.encoder(x)
     
     def decode(self, z):
@@ -490,6 +498,8 @@ class StageA(nn.Module):
         )
     
     def encode(self, x):
+        # Cast input to model dtype
+        x = x.to(self.vae_dtype)
         return self.encoder(x)
     
     def decode(self, z):
@@ -530,6 +540,8 @@ class StageC_coder(nn.Module):
         )
     
     def encode(self, x):
+        # Cast input to model dtype
+        x = x.to(self.vae_dtype)
         return self.encoder(x)
     
     def decode(self, z):
@@ -566,6 +578,8 @@ class AudioOobleckVAE(nn.Module):
         )
     
     def encode(self, x):
+        # Cast input to model dtype
+        x = x.to(self.vae_dtype)
         return self.encoder(x)
     
     def decode(self, z):
@@ -725,8 +739,8 @@ class VAE:
                 ddconfig = {"dim": 160, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
                 self.first_stage_model = WanVAE(**ddconfig)
                 self.working_dtypes = [torch.bfloat16, torch.float16, torch.float32]
-                self.memory_used_encode = lambda shape, dtype: 3300 * shape[3] * shape[4] * dtype_size(dtype)
-                self.memory_used_decode = lambda shape, dtype: 8000 * shape[3] * shape[4] * (16 * 16) * dtype_size(dtype)
+                self.memory_used_encode = lambda shape, dtype: 3300 * shape[2] * shape[3] * dtype_size(dtype)
+                self.memory_used_decode = lambda shape, dtype: 8000 * shape[2] * shape[3] * (16 * 16) * dtype_size(dtype)
             else:  # Wan 2.1 VAE
                 self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 8, 8)
                 self.upscale_index_formula = (4, 8, 8)
@@ -737,8 +751,8 @@ class VAE:
                 ddconfig = {"dim": 96, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
                 self.first_stage_model = WanVAE(**ddconfig)
                 self.working_dtypes = [torch.bfloat16, torch.float16, torch.float32]
-                self.memory_used_encode = lambda shape, dtype: 6000 * shape[3] * shape[4] * dtype_size(dtype)
-                self.memory_used_decode = lambda shape, dtype: 7000 * shape[3] * shape[4] * (8 * 8) * dtype_size(dtype)
+                self.memory_used_encode = lambda shape, dtype: 6000 * shape[2] * shape[3] * dtype_size(dtype)
+                self.memory_used_decode = lambda shape, dtype: 7000 * shape[2] * shape[3] * (8 * 8) * dtype_size(dtype)
                 
         elif "decoder.conv_in.weight" in sd:
             # Standard SD VAE
@@ -800,6 +814,8 @@ class VAE:
         return new_sd
     
     def encode(self, x):
+        # Cast input to model dtype
+        x = x.to(self.vae_dtype)
         """Encode input to latent space"""
         if self.first_stage_model is None:
             raise RuntimeError("VAE not initialized")
