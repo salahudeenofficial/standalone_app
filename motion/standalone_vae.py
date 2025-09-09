@@ -889,7 +889,7 @@ class VAE:
             raise e
         
         # If it was video, reshape back to video format
-        if is_video:
+# Video handling removed - works like sd.py
             batch_size, channels, frames, height, width = original_shape
             latent_channels = samples.shape[1]
             latent_height = samples.shape[2]
