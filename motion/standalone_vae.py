@@ -272,8 +272,6 @@ class AutoencoderKL(nn.Module):
         self.regularizer = DiagonalGaussianRegularizer()
     
     def encode(self, x):
-        # Cast input to model dtype
-        x = x.to(self.vae_dtype)
         h = self.encoder(x)
         moments = self.quant_conv(h)
         z, mean, logvar = self.regularizer(moments)
@@ -298,8 +296,6 @@ class AutoencodingEngine(nn.Module):
         self.regularizer = DiagonalGaussianRegularizer()
     
     def encode(self, x):
-        # Cast input to model dtype
-        x = x.to(self.vae_dtype)
         h = self.encoder(x)
         z, mean, logvar = self.regularizer(h)
         return z, mean, logvar
@@ -407,14 +403,14 @@ class WanVAE(nn.Module):
         
         return nn.Sequential(*layers)
     
-    def encode(self, x):
-        # Cast input to model dtype
-        x = x.to(self.vae_dtype)
+    def encode(self, x, dtype=None):
+        x = x.to(dtype) if dtype is not None else x
         h = self.encoder(x)
         z, mean, logvar = self.regularizer(h)
         return z, mean, logvar
     
-    def decode(self, z):
+    def decode(self, z, dtype=None):
+        z = z.to(dtype) if dtype is not None else z
         return self.decoder(z)
     
     def forward(self, x):
@@ -460,8 +456,6 @@ class TAESD(nn.Module):
         )
     
     def encode(self, x):
-        # Cast input to model dtype
-        x = x.to(self.vae_dtype)
         return self.encoder(x)
     
     def decode(self, z):
@@ -498,8 +492,6 @@ class StageA(nn.Module):
         )
     
     def encode(self, x):
-        # Cast input to model dtype
-        x = x.to(self.vae_dtype)
         return self.encoder(x)
     
     def decode(self, z):
@@ -540,8 +532,6 @@ class StageC_coder(nn.Module):
         )
     
     def encode(self, x):
-        # Cast input to model dtype
-        x = x.to(self.vae_dtype)
         return self.encoder(x)
     
     def decode(self, z):
@@ -578,8 +568,6 @@ class AudioOobleckVAE(nn.Module):
         )
     
     def encode(self, x):
-        # Cast input to model dtype
-        x = x.to(self.vae_dtype)
         return self.encoder(x)
     
     def decode(self, z):
@@ -813,25 +801,93 @@ class VAE:
                 new_sd[k] = v
         return new_sd
     
-    def encode(self, x):
-        # Cast input to model dtype
-        x = x.to(self.vae_dtype)
-        """Encode input to latent space"""
+    def throw_exception_if_invalid(self):
+        """Check if VAE is valid"""
         if self.first_stage_model is None:
-            raise RuntimeError("VAE not initialized")
+            raise RuntimeError("ERROR: VAE is invalid: None\n\nIf the VAE is from a checkpoint loader node your checkpoint does not contain a valid VAE.")
+    
+    def spacial_compression_encode(self):
+        """Get spatial compression ratio for encoding"""
+        try:
+            return self.downscale_ratio[-1]
+        except:
+            return self.downscale_ratio
+    
+    def spacial_compression_decode(self):
+        """Get spatial compression ratio for decoding"""
+        try:
+            return self.upscale_ratio[-1]
+        except:
+            return self.upscale_ratio
+    
+    def temporal_compression_decode(self):
+        """Get temporal compression ratio for decoding"""
+        try:
+            return round(self.upscale_ratio[0](8192) / 8192)
+        except:
+            return None
+    
+    def vae_encode_crop_pixels(self, pixels):
+        """Crop pixels to be divisible by downscale ratio"""
+        downscale_ratio = self.spacial_compression_encode()
         
-        # Process input
-        x = self.process_input(x)
+        dims = pixels.shape[1:-1]
+        for d in range(len(dims)):
+            x = (dims[d] // downscale_ratio) * downscale_ratio
+            x_offset = (dims[d] % downscale_ratio) // 2
+            if x != dims[d]:
+                pixels = pixels.narrow(d + 1, x_offset, x)
+        return pixels
+    
+    def encode(self, pixel_samples):
+        """Encode input to latent space with proper downscaling logic"""
+        self.throw_exception_if_invalid()
         
-        # Encode
-        if hasattr(self.first_stage_model, 'encode'):
-            z, mean, logvar = self.first_stage_model.encode(x)
-        else:
-            # Fallback for models without encode method
-            z = self.first_stage_model.encoder(x)
-            mean = logvar = None
+        # Crop pixels to be divisible by downscale ratio
+        pixel_samples = self.vae_encode_crop_pixels(pixel_samples)
         
-        return z, mean, logvar
+        # Move channel dimension to correct position
+        pixel_samples = pixel_samples.movedim(-1, 1)
+        
+        # Handle 3D latent (video) case
+        if self.latent_dim == 3 and pixel_samples.ndim < 5:
+            pixel_samples = pixel_samples.movedim(1, 0).unsqueeze(0)
+        
+        try:
+            # Calculate memory usage
+            memory_used = self.memory_used_encode(pixel_samples.shape, self.vae_dtype)
+            
+            # Simple batch processing (simplified from original)
+            batch_number = max(1, min(4, pixel_samples.shape[0]))  # Process in small batches
+            
+            samples = None
+            for x in range(0, pixel_samples.shape[0], batch_number):
+                # Process input and move to device
+                pixels_in = self.process_input(pixel_samples[x:x + batch_number]).to(self.vae_dtype).to(self.device)
+                
+                # Encode
+                if hasattr(self.first_stage_model, 'encode'):
+                    out = self.first_stage_model.encode(pixels_in, dtype=self.vae_dtype)
+                    if isinstance(out, tuple):
+                        out = out[0]  # Take the latent tensor
+                else:
+                    # Fallback for models without encode method
+                    out = self.first_stage_model.encoder(pixels_in)
+                
+                # Move to output device and convert to float
+                out = out.to(self.output_device).float()
+                
+                # Initialize output tensor if needed
+                if samples is None:
+                    samples = torch.empty((pixel_samples.shape[0],) + tuple(out.shape[1:]), device=self.output_device)
+                
+                samples[x:x + batch_number] = out
+                
+        except Exception as e:
+            logging.warning(f"Warning: VAE encoding failed: {e}")
+            raise e
+        
+        return samples
     
     def decode(self, z):
         """Decode latent to output space"""
@@ -840,7 +896,7 @@ class VAE:
         
         # Decode
         if hasattr(self.first_stage_model, 'decode'):
-            x = self.first_stage_model.decode(z)
+            x = self.first_stage_model.decode(z, dtype=self.vae_dtype)
         else:
             # Fallback for models without decode method
             x = self.first_stage_model.decoder(z)
