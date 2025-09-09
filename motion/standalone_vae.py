@@ -310,6 +310,114 @@ class AutoencodingEngine(nn.Module):
 
 
 # ============================================================================
+# WAN VAE IMPLEMENTATION
+# ============================================================================
+
+class WanVAE(nn.Module):
+    """WAN VAE implementation"""
+    def __init__(self, dim=96, z_dim=16, dim_mult=[1, 2, 4, 4], num_res_blocks=2, 
+                 attn_scales=[], temperal_downsample=[False, True, True], dropout=0.0):
+        super().__init__()
+        self.dim = dim
+        self.z_dim = z_dim
+        self.dim_mult = dim_mult
+        self.num_res_blocks = num_res_blocks
+        self.attn_scales = attn_scales
+        self.temperal_downsample = temperal_downsample
+        self.dropout = dropout
+        
+        # Build encoder
+        self.encoder = self._build_encoder()
+        
+        # Build decoder
+        self.decoder = self._build_decoder()
+        
+        # Regularizer
+        self.regularizer = DiagonalGaussianRegularizer()
+    
+    def _build_encoder(self):
+        """Build encoder network"""
+        layers = []
+        
+        # Input convolution
+        layers.append(nn.Conv2d(3, self.dim, 3, padding=1))
+        
+        # Downsampling blocks
+        ch = self.dim
+        for i, mult in enumerate(self.dim_mult):
+            for j in range(self.num_res_blocks):
+                layers.append(ResnetBlock(ch, mult * self.dim, dropout=self.dropout))
+                ch = mult * self.dim
+                
+                # Add attention if specified
+                if i in self.attn_scales:
+                    layers.append(AttnBlock(ch))
+            
+            # Downsample (except last level)
+            if i < len(self.dim_mult) - 1:
+                layers.append(nn.Conv2d(ch, ch, 3, stride=2, padding=1))
+        
+        # Middle blocks
+        layers.append(ResnetBlock(ch, ch, dropout=self.dropout))
+        layers.append(AttnBlock(ch))
+        layers.append(ResnetBlock(ch, ch, dropout=self.dropout))
+        
+        # Output
+        layers.append(nn.GroupNorm(32, ch))
+        layers.append(nn.ReLU())
+        layers.append(nn.Conv2d(ch, self.z_dim * 2, 3, padding=1))
+        
+        return nn.Sequential(*layers)
+    
+    def _build_decoder(self):
+        """Build decoder network"""
+        layers = []
+        
+        # Input convolution
+        layers.append(nn.Conv2d(self.z_dim, self.dim * self.dim_mult[-1], 3, padding=1))
+        
+        # Middle blocks
+        ch = self.dim * self.dim_mult[-1]
+        layers.append(ResnetBlock(ch, ch, dropout=self.dropout))
+        layers.append(AttnBlock(ch))
+        layers.append(ResnetBlock(ch, ch, dropout=self.dropout))
+        
+        # Upsampling blocks
+        for i, mult in enumerate(reversed(self.dim_mult)):
+            for j in range(self.num_res_blocks):
+                layers.append(ResnetBlock(ch, mult * self.dim, dropout=self.dropout))
+                ch = mult * self.dim
+                
+                # Add attention if specified
+                if (len(self.dim_mult) - 1 - i) in self.attn_scales:
+                    layers.append(AttnBlock(ch))
+            
+            # Upsample (except last level)
+            if i < len(self.dim_mult) - 1:
+                layers.append(nn.ConvTranspose2d(ch, ch, 4, stride=2, padding=1))
+        
+        # Output
+        layers.append(nn.GroupNorm(32, ch))
+        layers.append(nn.ReLU())
+        layers.append(nn.Conv2d(ch, 3, 3, padding=1))
+        
+        return nn.Sequential(*layers)
+    
+    def encode(self, x):
+        h = self.encoder(x)
+        z, mean, logvar = self.regularizer(h)
+        return z, mean, logvar
+    
+    def decode(self, z):
+        return self.decoder(z)
+    
+    def forward(self, x):
+        z, mean, logvar = self.encode(x)
+        dec = self.decode(z)
+        return dec, mean, logvar
+
+
+# ============================================================================
 # SPECIALIZED VAE MODELS
 # ============================================================================
 
@@ -605,6 +713,33 @@ class VAE:
             self.downscale_ratio = 32
             self.latent_channels = 16
             
+        elif "decoder.middle.0.residual.0.gamma" in sd:
+            # WAN VAE detection
+            if "decoder.upsamples.0.upsamples.0.residual.2.weight" in sd:  # Wan 2.2 VAE
+                self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 16, 16)
+                self.upscale_index_formula = (4, 16, 16)
+                self.downscale_ratio = (lambda a: max(0, math.floor((a + 3) / 4)), 16, 16)
+                self.downscale_index_formula = (4, 16, 16)
+                self.latent_dim = 3
+                self.latent_channels = 48
+                ddconfig = {"dim": 160, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
+                self.first_stage_model = WanVAE(**ddconfig)
+                self.working_dtypes = [torch.bfloat16, torch.float16, torch.float32]
+                self.memory_used_encode = lambda shape, dtype: 3300 * shape[3] * shape[4] * dtype_size(dtype)
+                self.memory_used_decode = lambda shape, dtype: 8000 * shape[3] * shape[4] * (16 * 16) * dtype_size(dtype)
+            else:  # Wan 2.1 VAE
+                self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 8, 8)
+                self.upscale_index_formula = (4, 8, 8)
+                self.downscale_ratio = (lambda a: max(0, math.floor((a + 3) / 4)), 8, 8)
+                self.downscale_index_formula = (4, 8, 8)
+                self.latent_dim = 3
+                self.latent_channels = 16
+                ddconfig = {"dim": 96, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
+                self.first_stage_model = WanVAE(**ddconfig)
+                self.working_dtypes = [torch.bfloat16, torch.float16, torch.float32]
+                self.memory_used_encode = lambda shape, dtype: 6000 * shape[3] * shape[4] * dtype_size(dtype)
+                self.memory_used_decode = lambda shape, dtype: 7000 * shape[3] * shape[4] * (8 * 8) * dtype_size(dtype)
+                
         elif "decoder.conv_in.weight" in sd:
             # Standard SD VAE
             ddconfig = {
