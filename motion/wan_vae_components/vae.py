@@ -471,6 +471,16 @@ class WanVAE(nn.Module):
     def encode(self, x, dtype=None):
         if dtype is not None:
             x = x.to(dtype)
+        # Ensure model and input are on same device and dtype
+        device = x.device
+        model_dtype = next(self.parameters()).dtype
+        if dtype is None:
+            dtype = model_dtype
+        x = x.to(device=device, dtype=dtype)
+        # Convert model to target dtype if needed
+        if dtype != model_dtype:
+            self.to(dtype=dtype)
+        self.to(device)
         self.clear_cache()
         ## cache
         t = x.shape[2]
@@ -496,6 +506,16 @@ class WanVAE(nn.Module):
     def decode(self, z, dtype=None):
         if dtype is not None:
             z = z.to(dtype)
+        # Ensure model and input are on same device and dtype
+        device = z.device
+        model_dtype = next(self.parameters()).dtype
+        if dtype is None:
+            dtype = model_dtype
+        z = z.to(device=device, dtype=dtype)
+        # Convert model to target dtype if needed
+        if dtype != model_dtype:
+            self.to(dtype=dtype)
+        self.to(device)
         self.clear_cache()
         # z: [b,c,t,h,w]
 
