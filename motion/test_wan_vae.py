@@ -92,7 +92,7 @@ def test_video_tensor_encoding(vae_path):
         return
     
     # Test with video tensor (37, 768, 576, 3)
-    video_shape = (37, 768, 576, 3)
+    video_shape = (37, 768, 576, 3)  # (frames, height, width, channels) - ComfyUI format
     print(f"\n--- Testing Video Tensor: {video_shape} ---")
     
     # Create video tensor
@@ -190,7 +190,7 @@ def test_memory_usage(vae_path):
         return
     
     # Test video tensor shape
-    video_shape = (37, 768, 576, 3)
+    video_shape = (37, 768, 576, 3)  # (frames, height, width, channels) - ComfyUI format
     print(f"\n--- Video Shape: {video_shape} ---")
     
     # Calculate theoretical memory usage
@@ -272,7 +272,7 @@ def main():
     vae_path = "./models/vaes/wan_vae.safetensors"
     
     print(f"Testing VAE model at: {vae_path}")
-    print(f"Target video tensor: (37, 768, 576, 3)")
+    print(f"Target video tensor: (37, 768, 576, 3) - ComfyUI format (frames, height, width, channels)")
     
     # Run tests
     test_video_tensor_encoding(vae_path)
