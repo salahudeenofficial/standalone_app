@@ -229,7 +229,7 @@ def main():
     print("=" * 50)
     
     # Path to the downloaded VAE model
-    vae_path = "./motion/models/vaes/wan_vae.safetensors"
+    vae_path = "./models/vaes/wan_vae.safetensors"
     
     print(f"Testing VAE model at: {vae_path}")
     
