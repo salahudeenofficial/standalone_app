@@ -12,6 +12,7 @@ import math
 import json
 from typing import Dict, Any, Optional, Tuple, Callable
 from standalone_model_patcher import ModelPatcher, create_model_patcher
+from wan_vae_components import WanVAE
 
 
 # ============================================================================
@@ -313,7 +314,7 @@ class AutoencodingEngine(nn.Module):
 # WAN VAE IMPLEMENTATION
 # ============================================================================
 
-class WanVAE(nn.Module):
+class WanVAE_Simplified(nn.Module):  # Our simplified version
     """WAN VAE implementation"""
     def __init__(self, dim=96, z_dim=16, dim_mult=[1, 2, 4, 4], num_res_blocks=2, 
                  attn_scales=[], temperal_downsample=[False, True, True], dropout=0.0):
@@ -722,7 +723,7 @@ class VAE:
                 self.upscale_index_formula = (4, 16, 16)
                 self.downscale_ratio = (lambda a: max(0, math.floor((a + 3) / 4)), 16, 16)
                 self.downscale_index_formula = (4, 16, 16)
-                self.latent_dim = 3
+                self.latent_dim = 3  # Real WAN VAE uses 3D encoder
                 self.latent_channels = 48
                 ddconfig = {"dim": 160, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
                 self.first_stage_model = WanVAE(**ddconfig)
@@ -734,7 +735,7 @@ class VAE:
                 self.upscale_index_formula = (4, 8, 8)
                 self.downscale_ratio = (lambda a: max(0, math.floor((a + 3) / 4)), 8, 8)
                 self.downscale_index_formula = (4, 8, 8)
-                self.latent_dim = 3
+                self.latent_dim = 3  # Real WAN VAE uses 3D encoder
                 self.latent_channels = 16
                 ddconfig = {"dim": 96, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
                 self.first_stage_model = WanVAE(**ddconfig)
