@@ -887,6 +887,15 @@ class VAE:
             logging.warning(f"Warning: VAE encoding failed: {e}")
             raise e
         
+        # If it was video, reshape back to video format
+        if is_video:
+            batch_size, channels, frames, height, width = original_shape
+            latent_channels = samples.shape[1]
+            latent_height = samples.shape[2]
+            latent_width = samples.shape[3]
+            # Reshape back to (batch, latent_channels, frames, latent_height, latent_width)
+            samples = samples.view(batch_size, latent_channels, frames, latent_height, latent_width)
+        
         return samples
     
     def decode(self, z):
