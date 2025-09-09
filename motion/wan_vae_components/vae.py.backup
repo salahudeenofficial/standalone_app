@@ -4,7 +4,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .einops_replacement import rearrange
+# from .einops_replacement import rearrange  # Implemented manually below
 import math
 from .modules.diffusionmodules.model import vae_attention
 
@@ -471,6 +471,10 @@ class WanVAE(nn.Module):
     def encode(self, x, dtype=None):
         if dtype is not None:
             x = x.to(dtype)
+        if dtype is not None:
+        if dtype is not None:
+            x = x.to(dtype)
+            x = x.to(dtype)
         self.clear_cache()
         ## cache
         t = x.shape[2]
@@ -495,6 +499,10 @@ class WanVAE(nn.Module):
 
     def decode(self, z, dtype=None):
         if dtype is not None:
+            z = z.to(dtype)
+        if dtype is not None:
+        if dtype is not None:
+            z = z.to(dtype)
             z = z.to(dtype)
         self.clear_cache()
         # z: [b,c,t,h,w]

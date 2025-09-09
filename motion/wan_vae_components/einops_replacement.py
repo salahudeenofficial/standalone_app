@@ -2,15 +2,20 @@
 Manual einops rearrange implementation
 """
 
-def rearrange(tensor, pattern):
+def rearrange(tensor, pattern, **kwargs):
     """Simple rearrange implementation for basic patterns"""
-    if pattern == "(b t) c h w-> b c t h w":
-        b_t, c, h, w = tensor.shape
-        b = b_t // 4  # Assuming t=4 for WAN VAE
-        t = 4
-        return tensor.view(b, t, c, h, w).transpose(1, 2)
-    elif pattern == "b c t h w-> (b t) c h w":
+    if pattern == 'b c t h w -> (b t) c h w':
         b, c, t, h, w = tensor.shape
-        return tensor.transpose(1, 2).contiguous().view(b*t, c, h, w)
+        return tensor.view(b*t, c, h, w)
+    elif pattern == '(b t) c h w -> b c t h w':
+        b_t, c, h, w = tensor.shape
+        t = kwargs.get('t', 4)  # Default to 4 if not provided
+        b = b_t // t
+        return tensor.view(b, t, c, h, w).transpose(1, 2)
+    elif pattern == '(b t) c h w-> b c t h w':  # Note: no space before ->
+        b_t, c, h, w = tensor.shape
+        t = kwargs.get('t', 4)  # Default to 4 if not provided
+        b = b_t // t
+        return tensor.view(b, t, c, h, w).transpose(1, 2)
     else:
-        raise NotImplementedError(f"Pattern {pattern} not implemented")
+        raise NotImplementedError(f'Pattern {pattern} not implemented')
