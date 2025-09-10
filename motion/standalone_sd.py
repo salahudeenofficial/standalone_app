@@ -247,6 +247,7 @@ class StandaloneCLIP:
         self.model = model
         self.patches = {}
         self.uuid = f"clip-{id(self)}"
+        self.cond_stage_model = self  # Required for LoRA compatibility
     
     def clone(self):
         """Clone CLIP instance"""
