@@ -320,3 +320,13 @@ if __name__ == "__main__":
     print("✅ Enhanced model detection")
     print("✅ T5-XXL CLIP support")
     print("✅ Proper model classes for ModelPatcher")
+    def state_dict(self):
+        """Return the state dict of the underlying model"""
+        if hasattr(self.model, "state_dict"):
+            return self.model.state_dict()
+        elif hasattr(self.model, "model") and hasattr(self.model.model, "state_dict"):
+            return self.model.model.state_dict()
+        else:
+            # Return empty dict if no state_dict available
+            return {}
+    
