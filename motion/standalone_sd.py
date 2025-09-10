@@ -241,11 +241,10 @@ class T5CLIPModel(nn.Module):
         return torch.randn(1, 77, 4096)
 
 class StandaloneCLIP:
-    """Standalone CLIP wrapper with cond_stage_model attribute"""
+    """Standalone CLIP wrapper"""
     
     def __init__(self, model):
         self.model = model
-        self.cond_stage_model = model  # Add this attribute for LoRA compatibility
         self.patches = {}
         self.uuid = f"clip-{id(self)}"
     
@@ -315,9 +314,8 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
     return (model_patcher, clip, vae, clipvision)
 
 if __name__ == "__main__":
-    print("Fixed standalone_sd.py with CLIP cond_stage_model support")
+    print("Enhanced standalone_sd.py with CLIP support")
     print("✅ Supports I2V, VACE, and Cross-Attention variants")
     print("✅ Enhanced model detection")
     print("✅ T5-XXL CLIP support")
     print("✅ Proper model classes for ModelPatcher")
-    print("✅ CLIP cond_stage_model attribute for LoRA compatibility")
