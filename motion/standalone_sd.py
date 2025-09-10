@@ -149,7 +149,7 @@ class WANModel(nn.Module):
             'state_dict_keys': len(self.state_dict_data)
         }
     
-
+    def state_dict(self):
         """Return the actual state dict"""
         return self.state_dict_data
     
@@ -204,7 +204,7 @@ class T5CLIPModel(nn.Module):
             'state_dict_keys': len(self.state_dict_data)
         }
     
-
+    def state_dict(self):
         """Return the actual state dict"""
         return self.state_dict_data
     
@@ -261,7 +261,7 @@ class StandaloneCLIP:
         for key, patch in patches.items():
             if key in self.patches:
                 self.patches[key].append((strength, patch))
-    
+            else:
                 self.patches[key] = [(strength, patch)]
             applied_keys.add(key)
         return applied_keys
@@ -269,6 +269,16 @@ class StandaloneCLIP:
     def encode(self, text):
         """Encode text"""
         return self.model.encode(text)
+    
+    def state_dict(self):
+        """Return the state dict of the underlying model"""
+        if hasattr(self.model, "state_dict"):
+            return self.model.state_dict()
+        elif hasattr(self.model, "model") and hasattr(self.model.model, "state_dict"):
+            return self.model.model.state_dict()
+        else:
+            # Return empty dict if no state_dict available
+            return {}
 
 def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_clipvision=False, 
                                 embedding_directory=None, output_model=True, model_options={}, 
@@ -313,36 +323,6 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
         model_patcher = create_model_patcher(model, load_device=load_device, offload_device=unet_offload_device())
 
     return (model_patcher, clip, vae, clipvision)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    def state_dict(self):
-        """Return the state dict of the underlying model"""
-        if hasattr(self.model, "state_dict"):
-            return self.model.state_dict()
-        elif hasattr(self.model, "model") and hasattr(self.model.model, "state_dict"):
-            return self.model.model.state_dict()
-        else:
-            # Return empty dict if no state_dict available
-            return {}
 
 if __name__ == "__main__":
     print("Enhanced standalone_sd.py with CLIP support")
