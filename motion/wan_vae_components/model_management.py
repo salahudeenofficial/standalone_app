@@ -1,3 +1,4 @@
+import logging
 """
 Standalone Model Management Module
 Replaces comfy.model_management functionality
@@ -161,3 +162,69 @@ def soft_empty_cache(force: bool = False) -> None:
     """Soft empty cache."""
     if force:
         empty_cache(torch.device('cuda'))
+
+
+# Additional functions needed for standalone_sd.py
+def get_torch_device():
+    """Get the best available torch device"""
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        return torch.device("mps")
+    else:
+        return torch.device("cpu")
+
+
+def unet_offload_device():
+    """Get UNet offload device"""
+    return torch.device("cpu")
+
+
+def unet_dtype(model_params, supported_dtypes, weight_dtype):
+    """Determine UNet dtype"""
+    device = get_torch_device()
+    if device.type == "cuda" and torch.float16 in supported_dtypes:
+        return torch.float16
+    elif torch.float32 in supported_dtypes:
+        return torch.float32
+    else:
+        return supported_dtypes[0]
+
+
+def unet_manual_cast(unet_dtype, load_device, supported_dtypes):
+    """Determine manual cast dtype"""
+    return unet_dtype
+
+
+def unet_inital_load_device(parameters, unet_dtype):
+    """Determine initial load device"""
+    device = get_torch_device()
+    # Simple logic: use CPU for very large models, GPU for smaller ones
+    if parameters > 1e9:  # 1B parameters
+        return torch.device("cpu")
+    else:
+        return device
+
+
+def load_models_gpu(model_patchers, force_full_load=False):
+    """Load models to GPU"""
+    for patcher in model_patchers:
+        if hasattr(patcher, 'load_device') and patcher.load_device.type == "cuda":
+            logging.info("Model loaded to GPU")
+
+
+def cast_to_device(tensor: torch.Tensor, device: torch.device, dtype: torch.dtype, 
+                   copy: bool = False) -> torch.Tensor:
+    """
+    Cast tensor to specified device and dtype.
+    
+    Args:
+        tensor: Input tensor
+        device: Target device
+        dtype: Target dtype
+        copy: Whether to copy the tensor
+    
+    Returns:
+        Casted tensor
+    """
+    return tensor.to(device=device, dtype=dtype, copy=copy)
