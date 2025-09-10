@@ -149,7 +149,7 @@ class WANModel(nn.Module):
             'state_dict_keys': len(self.state_dict_data)
         }
     
-    def state_dict(self):
+
         """Return the actual state dict"""
         return self.state_dict_data
     
@@ -204,7 +204,7 @@ class T5CLIPModel(nn.Module):
             'state_dict_keys': len(self.state_dict_data)
         }
     
-    def state_dict(self):
+
         """Return the actual state dict"""
         return self.state_dict_data
     
@@ -261,7 +261,7 @@ class StandaloneCLIP:
         for key, patch in patches.items():
             if key in self.patches:
                 self.patches[key].append((strength, patch))
-            else:
+    
                 self.patches[key] = [(strength, patch)]
             applied_keys.add(key)
         return applied_keys
@@ -314,12 +314,26 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
 
     return (model_patcher, clip, vae, clipvision)
 
-if __name__ == "__main__":
-    print("Enhanced standalone_sd.py with CLIP support")
-    print("✅ Supports I2V, VACE, and Cross-Attention variants")
-    print("✅ Enhanced model detection")
-    print("✅ T5-XXL CLIP support")
-    print("✅ Proper model classes for ModelPatcher")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     def state_dict(self):
         """Return the state dict of the underlying model"""
         if hasattr(self.model, "state_dict"):
@@ -329,4 +343,10 @@ if __name__ == "__main__":
         else:
             # Return empty dict if no state_dict available
             return {}
-    
+
+if __name__ == "__main__":
+    print("Enhanced standalone_sd.py with CLIP support")
+    print("✅ Supports I2V, VACE, and Cross-Attention variants")
+    print("✅ Enhanced model detection")
+    print("✅ T5-XXL CLIP support")
+    print("✅ Proper model classes for ModelPatcher")
