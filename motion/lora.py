@@ -426,7 +426,15 @@ def model_lora_keys_unet(model, key_map: Dict[str, str] = None) -> Dict[str, str
     if key_map is None:
         key_map = {}
     
-    sd = model.state_dict()
+    # Handle ModelPatcher objects
+    if hasattr(model, 'model'):
+        # ModelPatcher object - get the underlying model
+        actual_model = model.model
+    else:
+        # Direct model object
+        actual_model = model
+    
+    sd = actual_model.state_dict()
     sdk = sd.keys()
 
     # Generic mapping for all weight parameters

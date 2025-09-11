@@ -286,6 +286,10 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
     """
     Load state dict and guess configuration - Enhanced for WAN variants
     """
+    # Handle file paths by loading them first
+    if isinstance(sd, str):
+        sd = load_torch_file(sd)
+    
     clip = None
     clipvision = None
     vae = None
