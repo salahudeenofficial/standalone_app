@@ -597,7 +597,7 @@ def load_lora_for_models(model, clip, lora: Dict[str, torch.Tensor],
         key_map = model_lora_keys_unet(model, key_map)  # model is already ModelPatcher
     if clip is not None:
         # Create separate key map for CLIP to avoid conflicts
-        clip_key_map = model_lora_keys_clip(clip.cond_stage_model, {})
+        clip_key_map = model_lora_keys_clip(clip, {})
         # Only add CLIP-specific mappings to avoid conflicts with UNet
         for k, v in clip_key_map.items():
             if k.startswith(('text_encoders.', 'lora_te')):
