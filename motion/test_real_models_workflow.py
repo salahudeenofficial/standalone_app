@@ -260,7 +260,7 @@ def test_step_3_apply_lora(unet_model, clip_model):
         new_unet, new_clip = load_lora_for_models(
             unet_model, clip_model, lora_sd,
             strength_model=1.0,
-            strength_clip=1.0
+            strength_clip=0.0
         )
         
         apply_time = time.time() - start_time
@@ -277,7 +277,7 @@ def test_step_3_apply_lora(unet_model, clip_model):
             if new_unet is not None:
                 print(f"\n   🔧 UNET MODEL CHANGES:")
                 print(f"      Model Cloned: ✅ YES")
-                print(f"      Class Changed: ✅ YES")
+                print(f"      Class Changed: {'✅ YES' if len(new_unet.patches) > 0 else '❌ NO'}")
                 
                 # Count patches
                 unet_patches = len(new_unet.patches) if hasattr(new_unet, 'patches') and new_unet.patches else 0
@@ -290,7 +290,7 @@ def test_step_3_apply_lora(unet_model, clip_model):
             if new_clip is not None:
                 print(f"\n   🔧 CLIP MODEL CHANGES:")
                 print(f"      Model Cloned: ✅ YES")
-                print(f"      Class Changed: ✅ YES")
+                print(f"      Class Changed: {'✅ YES' if len(new_clip.patches) > 0 else '❌ NO'}")
                 
                 # Count patches
                 clip_patches = len(new_clip.patches) if hasattr(new_clip, 'patches') and new_clip.patches else 0
