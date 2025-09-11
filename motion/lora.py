@@ -312,10 +312,13 @@ def convert_lora_wan(sd: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     if has_double_underscore:
         # First remove double underscore
         sd = state_dict_prefix_replace(sd, {"lora_unet__": "lora_unet_"})
-        
-        # Then remove diffusion_model prefix from the actual LoRA keys
-        # This handles cases where LoRA has diffusion_model prefix but model doesn't
-        sd = state_dict_prefix_replace(sd, {"diffusion_model.": ""})
+    
+    # Also handle keys that might have been partially converted
+    # Check for keys that still have diffusion_model prefix
+    has_diffusion_prefix = any("lora_unet_diffusion_model_" in key for key in sd.keys())
+    if has_diffusion_prefix:
+        # Remove diffusion_model prefix from the middle of the key
+        sd = state_dict_prefix_replace(sd, {"lora_unet_diffusion_model_": "lora_unet_"})
     
     return sd
 

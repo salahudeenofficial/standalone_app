@@ -46,7 +46,7 @@ def test_complete_conversion():
     print(f"Double underscore removed: {not has_double_underscore}")
     
     # Check for diffusion_model prefix removal
-    has_diffusion_prefix = any("diffusion_model." in key for key in converted.keys())
+    has_diffusion_prefix = any("diffusion_model" in key for key in converted.keys())
     print(f"Diffusion_model prefix removed: {not has_diffusion_prefix}")
     
     # Check if keys match expected model format
