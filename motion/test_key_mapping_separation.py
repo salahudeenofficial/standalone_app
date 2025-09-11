@@ -5,7 +5,7 @@ Test the fix for proper key mapping separation
 
 import torch
 from lora import load_lora_for_models, convert_lora, load_lora
-from standalone_sd import WANModel, T5CLIPModel
+from standalone_sd import WANModel, T5CLIPModel, StandaloneCLIP
 from standalone_model_patcher import create_model_patcher
 
 def test_key_mapping_separation():
