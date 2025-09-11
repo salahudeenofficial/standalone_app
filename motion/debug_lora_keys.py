@@ -14,26 +14,26 @@ from standalone_sd import WANModel, T5CLIPModel
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 def create_dummy_unet_state_dict():
-    """Create a dummy UNet state dict with typical WAN structure"""
+    """Create a dummy UNet state dict with typical WAN structure (empty prefix)"""
     sd = {}
     
-    # Add typical WAN UNet keys
-    sd["diffusion_model.head.modulation"] = torch.randn(1, 2, 1024)
-    sd["diffusion_model.head.head.weight"] = torch.randn(4096, 1024)
-    sd["diffusion_model.blocks.0.ffn.0.weight"] = torch.randn(4096, 1024)
-    sd["diffusion_model.patch_embedding.weight"] = torch.randn(1024, 3, 1, 2, 2)
+    # Add typical WAN UNet keys WITHOUT diffusion_model prefix
+    sd["head.modulation"] = torch.randn(1, 2, 1024)
+    sd["head.head.weight"] = torch.randn(4096, 1024)
+    sd["blocks.0.ffn.0.weight"] = torch.randn(4096, 1024)
+    sd["patch_embedding.weight"] = torch.randn(1024, 3, 1, 2, 2)
     
     # Add some typical layer weights that would have LoRA
-    sd["diffusion_model.blocks.0.self_attn.q.weight"] = torch.randn(1024, 1024)
-    sd["diffusion_model.blocks.0.self_attn.k.weight"] = torch.randn(1024, 1024)
-    sd["diffusion_model.blocks.0.self_attn.v.weight"] = torch.randn(1024, 1024)
-    sd["diffusion_model.blocks.0.self_attn.out.weight"] = torch.randn(1024, 1024)
+    sd["blocks.0.self_attn.q.weight"] = torch.randn(1024, 1024)
+    sd["blocks.0.self_attn.k.weight"] = torch.randn(1024, 1024)
+    sd["blocks.0.self_attn.v.weight"] = torch.randn(1024, 1024)
+    sd["blocks.0.self_attn.out.weight"] = torch.randn(1024, 1024)
     
     # Add cross-attention weights if present
-    sd["diffusion_model.blocks.0.cross_attn.q.weight"] = torch.randn(1024, 1024)
-    sd["diffusion_model.blocks.0.cross_attn.k.weight"] = torch.randn(1024, 1024)
-    sd["diffusion_model.blocks.0.cross_attn.v.weight"] = torch.randn(1024, 1024)
-    sd["diffusion_model.blocks.0.cross_attn.out.weight"] = torch.randn(1024, 1024)
+    sd["blocks.0.cross_attn.q.weight"] = torch.randn(1024, 1024)
+    sd["blocks.0.cross_attn.k.weight"] = torch.randn(1024, 1024)
+    sd["blocks.0.cross_attn.v.weight"] = torch.randn(1024, 1024)
+    sd["blocks.0.cross_attn.out.weight"] = torch.randn(1024, 1024)
     
     return sd
 
@@ -174,13 +174,13 @@ def test_key_mapping():
     return matching_keys, missing_keys, unused_model_keys
 
 def analyze_specific_issue():
-    """Analyze the specific WAN LoRA key issue"""
-    print("\n🔍 ANALYZING SPECIFIC WAN LORA ISSUE:")
+    """Analyze the specific WAN LoRA key issue with empty prefix"""
+    print("\n🔍 ANALYZING SPECIFIC WAN LORA ISSUE (EMPTY PREFIX):")
     print("="*60)
     
-    # The issue: WAN LoRA uses double underscores in keys
+    # The issue: WAN LoRA uses double underscores in keys, but model has empty prefix
     wan_lora_key = "lora_unet__blocks_0_self_attn_q.lora_down.weight"
-    expected_model_key = "diffusion_model.blocks.0.self_attn.q.weight"
+    expected_model_key = "blocks.0.self_attn.q.weight"  # No diffusion_model prefix!
     
     print(f"WAN LoRA Key: {wan_lora_key}")
     print(f"Expected Model Key: {expected_model_key}")
@@ -193,8 +193,8 @@ def analyze_specific_issue():
     for key in converted.keys():
         print(f"  {key}")
     
-    # Test key mapping
-    unet_sd = {"diffusion_model.blocks.0.self_attn.q.weight": torch.randn(1024, 1024)}
+    # Test key mapping with empty prefix model
+    unet_sd = {"blocks.0.self_attn.q.weight": torch.randn(1024, 1024)}  # No prefix!
     unet_model = WANModel(unet_sd)
     unet_patcher = create_model_patcher(unet_model, load_device="cpu")
     
@@ -204,6 +204,13 @@ def analyze_specific_issue():
     for lora_key, model_key in key_map.items():
         if "blocks_0_self_attn_q" in lora_key:
             print(f"  {lora_key} -> {model_key}")
+    
+    # Check if the mapping works
+    converted_lora_key = "lora_unet_blocks_0_self_attn_q.lora_down.weight"
+    if converted_lora_key in key_map:
+        print(f"\n✅ SUCCESS: {converted_lora_key} -> {key_map[converted_lora_key]}")
+    else:
+        print(f"\n❌ FAILED: {converted_lora_key} not found in key mappings")
 
 if __name__ == "__main__":
     matching_keys, missing_keys, unused_model_keys = test_key_mapping()
