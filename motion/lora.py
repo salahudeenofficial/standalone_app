@@ -564,7 +564,7 @@ def load_lora_for_models(model, clip, lora: Dict[str, torch.Tensor],
     # Generate key mappings
     key_map = {}
     if model is not None:
-        key_map = model_lora_keys_unet(model.model, key_map)
+        key_map = model_lora_keys_unet(model, key_map)  # model is already ModelPatcher
     if clip is not None:
         key_map = model_lora_keys_clip(clip.cond_stage_model, key_map)
     
