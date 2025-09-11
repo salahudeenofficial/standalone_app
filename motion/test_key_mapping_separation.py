@@ -28,7 +28,7 @@ def test_key_mapping_separation():
         "t5xxl.transformer.encoder.block.0.layer.0.SelfAttention.q.weight": torch.randn(4096, 4096),
     }
     
-    clip_model = T5CLIPModel(clip_sd)
+    clip_model = StandaloneCLIP(T5CLIPModel(clip_sd))
     
     # Create LoRA with both UNet and CLIP keys
     lora_sd = {
