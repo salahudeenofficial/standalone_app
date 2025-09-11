@@ -461,24 +461,27 @@ def model_lora_keys_unet(model, key_map: Dict[str, str] = None) -> Dict[str, str
     sd = actual_model.state_dict()
     sdk = sd.keys()
 
-    # Generic mapping for all parameters (weight and bias)
+    # First pass: Create direct LoRA component mappings
     for k in sdk:
         if k.endswith(".weight"):
             base_key = k[:-len(".weight")]
             
-            # Create mappings for LoRA components
-            # Each weight parameter can have lora_down, lora_up, alpha, diff, etc.
-            lora_components = [
-                f"{base_key}.lora_down.weight",
-                f"{base_key}.lora_up.weight", 
-                f"{base_key}.alpha",
-                f"{base_key}.diff"
-            ]
+            # Create direct mappings for LoRA components
+            key_map[f"{base_key}.lora_down.weight"] = k
+            key_map[f"{base_key}.lora_up.weight"] = k
+            key_map[f"{base_key}.alpha"] = k
+            key_map[f"{base_key}.diff"] = k
             
-            for lora_key in lora_components:
-                key_map[lora_key] = k
+        elif k.endswith(".bias"):
+            base_key = k[:-len(".bias")]
             
-            # Legacy mappings for backwards compatibility
+            # Create direct mapping for diff_b keys
+            key_map[f"{base_key}.diff_b"] = k
+
+    # Second pass: Create legacy mappings for backwards compatibility
+    for k in sdk:
+        if k.endswith(".weight"):
+            base_key = k[:-len(".weight")]
             key_lora = base_key.replace(".", "_")
             key_map[f"lora_unet_{key_lora}"] = k
             key_map[base_key] = k
@@ -498,12 +501,6 @@ def model_lora_keys_unet(model, key_map: Dict[str, str] = None) -> Dict[str, str
                 
         elif k.endswith(".bias"):
             base_key = k[:-len(".bias")]
-            
-            # Create mapping for diff_b keys
-            diff_b_key = f"{base_key}.diff_b"
-            key_map[diff_b_key] = k
-            
-            # Legacy mappings for backwards compatibility
             key_lora = base_key.replace(".", "_")
             key_map[f"lora_unet_{key_lora}"] = k
             key_map[base_key] = k
