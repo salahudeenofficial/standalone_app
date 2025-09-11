@@ -417,7 +417,12 @@ def load_lora(lora: Dict[str, torch.Tensor], to_load: Dict[str, str],
         diff_bias_name = f"{x}.diff_b"
         diff_bias = lora.get(diff_bias_name, None)
         if diff_bias is not None:
-            bias_key = to_load[x][:-len(".weight")] + ".bias"
+            # Handle bias key creation more robustly
+            base_key = to_load[x]
+            if base_key.endswith(".weight"):
+                bias_key = base_key[:-len(".weight")] + ".bias"
+            else:
+                bias_key = base_key + ".bias"
             patch_dict[bias_key] = ("diff", (diff_bias,))
             loaded_keys.add(diff_bias_name)
 
