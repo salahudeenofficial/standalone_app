@@ -320,6 +320,13 @@ def convert_lora_wan(sd: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         # Remove diffusion_model prefix from the middle of the key
         sd = state_dict_prefix_replace(sd, {"lora_unet_diffusion_model_": "lora_unet_"})
     
+    # Handle LoRA files that have diffusion_model prefix but no lora_unet pattern
+    # This is for LoRA files like: diffusion_model.blocks.0.self_attn.k.lora_down.weight
+    has_direct_diffusion = any("diffusion_model." in key for key in sd.keys())
+    if has_direct_diffusion:
+        # Remove diffusion_model prefix directly
+        sd = state_dict_prefix_replace(sd, {"diffusion_model.": ""})
+    
     return sd
 
 
@@ -344,6 +351,9 @@ def convert_lora(sd: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     if "img_in.lora_A.weight" in sd and "single_blocks.0.norm.key_norm.scale" in sd:
         return convert_lora_bfl_control(sd)
     if any("lora_unet__" in key for key in sd.keys()):
+        return convert_lora_wan(sd)
+    # Also handle LoRA files that have diffusion_model prefix but no lora_unet pattern
+    if any("diffusion_model." in key for key in sd.keys()):
         return convert_lora_wan(sd)
     return sd
 
