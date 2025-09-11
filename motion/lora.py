@@ -464,13 +464,24 @@ def model_lora_keys_unet(model, key_map: Dict[str, str] = None) -> Dict[str, str
     # Generic mapping for all parameters (weight and bias)
     for k in sdk:
         if k.endswith(".weight"):
-            # Standard LoRA format - UNet specific only
-            key_lora = k[:-len(".weight")].replace(".", "_")
-            key_map[f"lora_unet_{key_lora}"] = k
+            base_key = k[:-len(".weight")]
             
-            # Also create direct mapping for converted LoRA keys (without lora_unet prefix)
-            # This handles keys like: blocks.0.self_attn.q.lora_down.weight
-            key_map[k[:-len(".weight")]] = k
+            # Create mappings for LoRA components
+            # Each weight parameter can have lora_down, lora_up, alpha, diff, etc.
+            lora_components = [
+                f"{base_key}.lora_down.weight",
+                f"{base_key}.lora_up.weight", 
+                f"{base_key}.alpha",
+                f"{base_key}.diff"
+            ]
+            
+            for lora_key in lora_components:
+                key_map[lora_key] = k
+            
+            # Legacy mappings for backwards compatibility
+            key_lora = base_key.replace(".", "_")
+            key_map[f"lora_unet_{key_lora}"] = k
+            key_map[base_key] = k
 
             # WAN-specific mappings
             if k.startswith("diffusion_model."):
@@ -478,21 +489,24 @@ def model_lora_keys_unet(model, key_map: Dict[str, str] = None) -> Dict[str, str
                 key_map[f"lora_unet_{wan_key}"] = k
             else:
                 # Model without prefix (like WAN with empty prefix)
-                wan_key = k[:-len(".weight")].replace(".", "_")
+                wan_key = base_key.replace(".", "_")
                 key_map[f"lora_unet_{wan_key}"] = k
                 
                 # Also create mappings for LoRA keys that might have diffusion_model prefix
-                # This handles cases where LoRA has prefix but model doesn't
                 key_map[f"diffusion_model.{k}"] = k
                 key_map[f"lora_unet_diffusion_model_{wan_key}"] = k
                 
         elif k.endswith(".bias"):
-            # Handle bias parameters for diff_b keys
-            key_lora = k[:-len(".bias")].replace(".", "_")
-            key_map[f"lora_unet_{key_lora}"] = k
+            base_key = k[:-len(".bias")]
             
-            # Direct mapping for converted LoRA keys
-            key_map[k[:-len(".bias")]] = k
+            # Create mapping for diff_b keys
+            diff_b_key = f"{base_key}.diff_b"
+            key_map[diff_b_key] = k
+            
+            # Legacy mappings for backwards compatibility
+            key_lora = base_key.replace(".", "_")
+            key_map[f"lora_unet_{key_lora}"] = k
+            key_map[base_key] = k
             
             # WAN-specific mappings for bias
             if k.startswith("diffusion_model."):
@@ -500,7 +514,7 @@ def model_lora_keys_unet(model, key_map: Dict[str, str] = None) -> Dict[str, str
                 key_map[f"lora_unet_{wan_key}"] = k
             else:
                 # Model without prefix
-                wan_key = k[:-len(".bias")].replace(".", "_")
+                wan_key = base_key.replace(".", "_")
                 key_map[f"lora_unet_{wan_key}"] = k
                 
                 # Also create mappings for LoRA keys that might have diffusion_model prefix
