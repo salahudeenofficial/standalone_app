@@ -462,6 +462,10 @@ def model_lora_keys_unet(model, key_map: Dict[str, str] = None) -> Dict[str, str
             # Standard LoRA format - UNet specific only
             key_lora = k[:-len(".weight")].replace(".", "_")
             key_map[f"lora_unet_{key_lora}"] = k
+            
+            # Also create direct mapping for converted LoRA keys (without lora_unet prefix)
+            # This handles keys like: blocks.0.self_attn.q.lora_down.weight
+            key_map[k[:-len(".weight")]] = k
 
             # WAN-specific mappings
             if k.startswith("diffusion_model."):
@@ -592,7 +596,12 @@ def load_lora_for_models(model, clip, lora: Dict[str, torch.Tensor],
     if model is not None:
         key_map = model_lora_keys_unet(model, key_map)  # model is already ModelPatcher
     if clip is not None:
-        key_map = model_lora_keys_clip(clip.cond_stage_model, key_map)
+        # Create separate key map for CLIP to avoid conflicts
+        clip_key_map = model_lora_keys_clip(clip.cond_stage_model, {})
+        # Only add CLIP-specific mappings to avoid conflicts with UNet
+        for k, v in clip_key_map.items():
+            if k.startswith(('text_encoders.', 'lora_te')):
+                key_map[k] = v
     
     # Load LoRA patches
     loaded = load_lora(lora, key_map)
