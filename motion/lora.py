@@ -406,8 +406,11 @@ def load_lora(lora: Dict[str, torch.Tensor], to_load: Dict[str, str],
         for adapter_cls in adapters:
             adapter = adapter_cls.load(base_key, lora, alpha, dora_scale, loaded_keys)
             if adapter is not None:
-                patch_dict[to_load[x]] = adapter
-                loaded_keys.update(adapter.loaded_keys)
+                # For LoRA components, we need to use the base key to find the model key
+                model_key = to_load.get(f"{base_key}.lora_down.weight") or to_load.get(f"{base_key}.lora_up.weight") or to_load.get(base_key)
+                if model_key:
+                    patch_dict[model_key] = adapter
+                    loaded_keys.update(adapter.loaded_keys)
                 break
 
         if adapter is not None:
