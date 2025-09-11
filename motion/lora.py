@@ -456,7 +456,7 @@ def model_lora_keys_unet(model, key_map: Dict[str, str] = None) -> Dict[str, str
     sd = actual_model.state_dict()
     sdk = sd.keys()
 
-    # Generic mapping for all weight parameters
+    # Generic mapping for all parameters (weight and bias)
     for k in sdk:
         if k.endswith(".weight"):
             # Standard LoRA format - UNet specific only
@@ -480,8 +480,29 @@ def model_lora_keys_unet(model, key_map: Dict[str, str] = None) -> Dict[str, str
                 # This handles cases where LoRA has prefix but model doesn't
                 key_map[f"diffusion_model.{k}"] = k
                 key_map[f"lora_unet_diffusion_model_{wan_key}"] = k
+                
+        elif k.endswith(".bias"):
+            # Handle bias parameters for diff_b keys
+            key_lora = k[:-len(".bias")].replace(".", "_")
+            key_map[f"lora_unet_{key_lora}"] = k
+            
+            # Direct mapping for converted LoRA keys
+            key_map[k[:-len(".bias")]] = k
+            
+            # WAN-specific mappings for bias
+            if k.startswith("diffusion_model."):
+                wan_key = k[len("diffusion_model."):-len(".bias")].replace(".", "_")
+                key_map[f"lora_unet_{wan_key}"] = k
+            else:
+                # Model without prefix
+                wan_key = k[:-len(".bias")].replace(".", "_")
+                key_map[f"lora_unet_{wan_key}"] = k
+                
+                # Also create mappings for LoRA keys that might have diffusion_model prefix
+                key_map[f"diffusion_model.{k}"] = k
+                key_map[f"lora_unet_diffusion_model_{wan_key}"] = k
         else:
-            key_map[k] = k  # Generic format for non-weight parameters
+            key_map[k] = k  # Generic format for other parameters
 
     return key_map
 
