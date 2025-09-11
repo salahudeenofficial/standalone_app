@@ -459,10 +459,9 @@ def model_lora_keys_unet(model, key_map: Dict[str, str] = None) -> Dict[str, str
     # Generic mapping for all weight parameters
     for k in sdk:
         if k.endswith(".weight"):
-            # Standard LoRA format
+            # Standard LoRA format - UNet specific only
             key_lora = k[:-len(".weight")].replace(".", "_")
             key_map[f"lora_unet_{key_lora}"] = k
-            key_map[k[:-len(".weight")]] = k  # Generic format
 
             # WAN-specific mappings
             if k.startswith("diffusion_model."):
@@ -582,7 +581,7 @@ def calculate_weight(patches, weight, key, intermediate_dtype=torch.float32, ori
 # ============================================================================
 
 def load_lora_for_models(model, clip, lora: Dict[str, torch.Tensor], 
-                        strength_model: float = 1.0, strength_clip: float = 1.0):
+                        strength_model: float = 1.0, strength_clip: float = 0.0):
     """Load LoRA for UNet and CLIP models - WAN focused"""
     
     # Convert LoRA format
