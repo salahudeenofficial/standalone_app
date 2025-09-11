@@ -450,6 +450,15 @@ def model_lora_keys_unet(model, key_map: Dict[str, str] = None) -> Dict[str, str
             if k.startswith("diffusion_model."):
                 wan_key = k[len("diffusion_model."):-len(".weight")].replace(".", "_")
                 key_map[f"lora_unet_{wan_key}"] = k
+            else:
+                # Model without prefix (like WAN with empty prefix)
+                wan_key = k[:-len(".weight")].replace(".", "_")
+                key_map[f"lora_unet_{wan_key}"] = k
+                
+                # Also create mappings for LoRA keys that might have diffusion_model prefix
+                # This handles cases where LoRA has prefix but model doesn't
+                key_map[f"diffusion_model.{k}"] = k
+                key_map[f"lora_unet_diffusion_model_{wan_key}"] = k
         else:
             key_map[k] = k  # Generic format for non-weight parameters
 
