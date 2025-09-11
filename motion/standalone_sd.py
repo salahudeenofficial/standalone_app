@@ -258,6 +258,11 @@ class StandaloneCLIP:
     def add_patches(self, patches, strength):
         """Add patches to CLIP"""
         applied_keys = set()
+        
+        # Skip adding patches if strength is 0
+        if strength == 0.0:
+            return applied_keys
+            
         for key, patch in patches.items():
             if key in self.patches:
                 self.patches[key].append((strength, patch))
