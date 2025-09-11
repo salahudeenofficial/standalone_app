@@ -307,8 +307,9 @@ class LoRAAdapter(WeightAdapterBase):
 
 def convert_lora_wan(sd: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     """Convert WAN-specific LoRA format"""
-    # Handle WAN Fun LoRA format
-    if "lora_unet__blocks_0_cross_attn_k.lora_down.weight" in sd:
+    # Handle WAN Fun LoRA format - check for any double underscore pattern
+    has_double_underscore = any("lora_unet__" in key for key in sd.keys())
+    if has_double_underscore:
         return state_dict_prefix_replace(sd, {"lora_unet__": "lora_unet_"})
     
     return sd
@@ -334,7 +335,7 @@ def convert_lora(sd: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     """Convert various LoRA formats"""
     if "img_in.lora_A.weight" in sd and "single_blocks.0.norm.key_norm.scale" in sd:
         return convert_lora_bfl_control(sd)
-    if "lora_unet__blocks_0_cross_attn_k.lora_down.weight" in sd:
+    if any("lora_unet__" in key for key in sd.keys()):
         return convert_lora_wan(sd)
     return sd
 
