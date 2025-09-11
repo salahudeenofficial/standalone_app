@@ -367,16 +367,35 @@ def load_lora(lora: Dict[str, torch.Tensor], to_load: Dict[str, str],
     # Adapter registry - only LoRA for now, can be extended
     adapters = [LoRAAdapter]
     
+    # Group LoRA keys by their base key to avoid processing the same adapter multiple times
+    processed_base_keys = set()
+    
     for x in to_load:
+        # Extract base key for LoRA components
+        base_key = x
+        if x.endswith('.lora_down.weight') or x.endswith('.lora_up.weight') or x.endswith('.alpha'):
+            # For LoRA components, extract the base key
+            if x.endswith('.lora_down.weight'):
+                base_key = x[:-len('.lora_down.weight')]
+            elif x.endswith('.lora_up.weight'):
+                base_key = x[:-len('.lora_up.weight')]
+            elif x.endswith('.alpha'):
+                base_key = x[:-len('.alpha')]
+            
+            # Skip if we already processed this base key
+            if base_key in processed_base_keys:
+                continue
+            processed_base_keys.add(base_key)
+        
         # Get alpha value
-        alpha_name = f"{x}.alpha"
+        alpha_name = f"{base_key}.alpha"
         alpha = None
         if alpha_name in lora.keys():
             alpha = lora[alpha_name].item()
             loaded_keys.add(alpha_name)
 
         # Get DoRA scale if available
-        dora_scale_name = f"{x}.dora_scale"
+        dora_scale_name = f"{base_key}.dora_scale"
         dora_scale = None
         if dora_scale_name in lora.keys():
             dora_scale = lora[dora_scale_name]
@@ -385,7 +404,7 @@ def load_lora(lora: Dict[str, torch.Tensor], to_load: Dict[str, str],
         # Try to load adapter
         adapter = None
         for adapter_cls in adapters:
-            adapter = adapter_cls.load(x, lora, alpha, dora_scale, loaded_keys)
+            adapter = adapter_cls.load(base_key, lora, alpha, dora_scale, loaded_keys)
             if adapter is not None:
                 patch_dict[to_load[x]] = adapter
                 loaded_keys.update(adapter.loaded_keys)
