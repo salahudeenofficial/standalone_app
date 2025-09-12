@@ -1214,8 +1214,8 @@ class WanVideoPipeline:
 # ============================================================================
 
 def main():
-    """Example usage of Steps 1, 2, and 3 pipeline"""
-    print("🚀 WAN Video Pipeline - Steps 1, 2 & 3 Test")
+    """Example usage of Steps 1, 2, 3, and 4 pipeline"""
+    print("🚀 WAN Video Pipeline - Steps 1, 2, 3 & 4 Test")
     print("="*60)
     
     # Initialize pipeline
@@ -1253,6 +1253,16 @@ def main():
         'multiplier': 1000
     }
     
+    # Step 4 parameters  
+    step_4_params = {
+        'steps': 20,
+        'cfg_scale': 7.5,
+        'sampler_name': "euler",
+        'scheduler_name': "simple",
+        'denoise': 1.0,
+        'seed': 42
+    }
+    
     # Check if model files exist
     required_files = [
         step_1_params['vae_model_path'],
@@ -1278,10 +1288,23 @@ def main():
         return
     
     try:
-        # Run all three steps
+        # Run Steps 1-3 first to get conditioning and latents
         step_1_results, step_2_results, step_3_results = pipeline.run_steps_1_2_and_3(step_1_params, step_2_params, step_3_params)
         
-        print("\n🎉 STEPS 1, 2 & 3 TEST COMPLETED SUCCESSFULLY!")
+        print("\n🎉 STEPS 1, 2 & 3 COMPLETED! Now running Step 4...")
+        
+        # Prepare Step 4 parameters using results from previous steps
+        step_4_params_complete = {
+            **step_4_params,
+            'initial_latent': step_1_results['out_latent'],
+            'positive_conditioning': step_3_results['positive_conditioning'],
+            'negative_conditioning': step_3_results['negative_conditioning']
+        }
+        
+        # Run Step 4 with the conditioning
+        step_4_results = pipeline.run_step_4_only(**step_4_params_complete)
+        
+        print("\n🎉 STEPS 1, 2, 3 & 4 TEST COMPLETED SUCCESSFULLY!")
         print(f"Pipeline Status: {pipeline.get_step_status()}")
         
         # Display Step 1 results summary
@@ -1316,13 +1339,31 @@ def main():
                 print(f"   Conditioning Shape: {step_3_results['conditioning_info']['positive_shape']}")
                 print(f"   Conditioning Device: {step_3_results['conditioning_info']['positive_device']}")
             print(f"   Processing Time: {step_3_results['timing']['total_step_time']:.2f}s")
+        
+        # Display Step 4 results summary
+        if step_4_results:
+            print(f"\n📋 STEP 4 RESULTS (KSampler Denoising):")
+            print(f"   Denoised Latents: {step_4_results['denoised_latents'].shape}")
+            print(f"   Validation: {'✅ PASSED' if step_4_results['validation']['is_valid'] else '❌ FAILED'}")
+            if step_4_results['validation']['notes']:
+                for note in step_4_results['validation']['notes']:
+                    print(f"      ⚠️ {note}")
+            print(f"   Sampler: {step_4_results['sampling_info']['sampler']}")
+            print(f"   Scheduler: {step_4_results['sampling_info']['scheduler']}")
+            print(f"   Steps: {step_4_results['sampling_info']['steps']}")
+            print(f"   CFG Scale: {step_4_results['sampling_info']['cfg_scale']}")
+            print(f"   Seed: {step_4_results['sampling_info']['seed']}")
+            print(f"   Sampling Time: {step_4_results['timing']['sampling_time']:.2f}s")
+            print(f"   Total Processing Time: {step_4_results['timing']['total_step_time']:.2f}s")
             
             # Memory usage
             if torch.cuda.is_available():
+                print(f"   Memory Delta: {step_4_results['memory_stats']['memory_delta_mb']:+.1f} MB")
+                print(f"   Peak Memory: {step_4_results['memory_stats']['peak_allocated_mb']:.1f} MB")
                 print(f"   GPU Memory: {torch.cuda.memory_allocated() / 1024**2:.1f} MB allocated")
         
-        print("\n✅ Steps 1, 2 & 3 completed - Full pipeline ready!")
-        print("✅ Ready for Step 4: Noise Generation + Conditioning")
+        print("\n✅ Steps 1, 2, 3 & 4 completed - Core pipeline ready!")
+        print("✅ Ready for Step 5: VAE Decoding + Video Export")
         
     except Exception as e:
         print(f"\n❌ PIPELINE TEST FAILED: {str(e)}")
