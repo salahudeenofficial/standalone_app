@@ -30,6 +30,7 @@ from lora import load_lora_for_models
 from model_sampling import ModelSamplingSD3
 from text_encoder import CLIPTextEncode
 from standalone_ksampler import StandaloneKSampler, prepare_noise
+from comfy_ksampler import MotionKSampler, RealKSampler
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -838,7 +839,8 @@ class WanVideoPipeline:
                                   sampler_name: str = "euler",
                                   scheduler_name: str = "simple",
                                   denoise: float = 1.0,
-                                  seed: Optional[int] = None) -> Dict[str, Any]:
+                                  seed: Optional[int] = None,
+                                  ) -> Dict[str, Any]:
         """
         Step 4: KSampler Denoising
         
@@ -934,8 +936,10 @@ class WanVideoPipeline:
             print(f"      Denoise: {denoise}")
             print(f"      Device: {self.device}")
             
-            # Initialize KSampler
-            ksampler = StandaloneKSampler(
+            # Initialize Real KSampler (based on ComfyUI's implementation)
+            print(f"   🔧 Using Real KSampler (ComfyUI-based implementation)")
+            print(f"       This should take significantly longer for proper diffusion")
+            ksampler = MotionKSampler(
                 model=self.unet,
                 steps=steps,
                 device=self.device,

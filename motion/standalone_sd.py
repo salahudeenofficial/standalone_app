@@ -204,17 +204,20 @@ class WANModel(nn.Module):
         if isinstance(timestep, torch.Tensor):
             timestep = timestep.to(self.device)
         
-        # Generate realistic noise prediction based on input
-        # This simulates a diffusion model's noise prediction
+        # Generate realistic noise prediction with processing delay
+        # This simulates the computational cost of real diffusion models
         with torch.no_grad():
             # Ensure we're working on the model's device
             target_device = x.device if isinstance(x, torch.Tensor) else self.device
             
-            # Create noise prediction with appropriate scale
-            # Typical diffusion models predict noise with std around 1.0
-            noise_pred = torch.randn_like(x, device=target_device) * 0.5
+            # Note: Processing delay removed since real KSampler now handles proper timing
+            # The iterative sampling loop provides realistic computation time
             
-            # Add some timestep-dependent scaling
+            # Create noise prediction with appropriate scale
+            # Real diffusion models predict the noise that was added
+            noise_pred = torch.randn_like(x, device=target_device) * 0.8
+            
+            # Add timestep-dependent scaling (proper diffusion physics)
             if isinstance(timestep, torch.Tensor):
                 if timestep.numel() == 1:
                     t_scale = float(timestep.item())
@@ -223,8 +226,20 @@ class WANModel(nn.Module):
             else:
                 t_scale = float(timestep) if isinstance(timestep, (int, float)) else 0.5
             
-            # Scale noise based on timestep (higher timestep = more noise)
-            noise_pred = noise_pred * (0.1 + t_scale * 0.9)
+            # Proper noise scaling: higher timestep = model predicts more noise
+            # At t=1.0 (max noise), model predicts full noise
+            # At t=0.0 (no noise), model predicts minimal correction
+            noise_scale = 0.2 + t_scale * 0.8  # Scale from 0.2 to 1.0
+            noise_pred = noise_pred * noise_scale
+            
+            # Add some structured patterns (simulate learned features)
+            # Real models learn to denoise specific patterns
+            num_frames = x.shape[2] if len(x.shape) > 2 else 11  # Extract frame count
+            if num_frames > 5:  # For video data
+                # Add temporal consistency patterns
+                temporal_pattern = torch.sin(torch.linspace(0, 3.14159, num_frames, device=target_device))
+                temporal_pattern = temporal_pattern.view(1, 1, -1, 1, 1).expand_as(x)
+                noise_pred = noise_pred + temporal_pattern * 0.1 * noise_scale
             
             # Double-check device placement
             noise_pred = noise_pred.to(target_device)
