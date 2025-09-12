@@ -224,7 +224,8 @@ class SD3ModelSamplingTester:
                 print(f"   Original Model Type: {original_model_type}")
                 print(f"   Patched Model Type: {type(patched_model).__name__}")
                 print(f"   Model Cloned: {'✅ YES' if patched_model != original_model else '❌ NO'}")
-                print(f"   UUID Changed: {'✅ YES' if str(patched_model.patches_uuid) != original_uuid else '❌ NO'}")
+                print(f"   Patches UUID: {str(patched_model.patches_uuid)}")
+                print(f"   UUID Preserved: {'✅ YES' if str(patched_model.patches_uuid) == original_uuid else '❌ NO'}")
                 
                 # Check for model_sampling patch
                 has_sampling_patch = False
