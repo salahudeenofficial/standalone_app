@@ -26,6 +26,7 @@ from standalone_sd import load_state_dict_guess_config
 from lora import load_lora_for_models
 from model_sampling import ModelSamplingSD3
 from text_encoder import CLIPTextEncode
+from standalone_ksampler import StandaloneKSampler, prepare_noise
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -68,7 +69,7 @@ class WanVideoPipeline:
             1: False,  # VAE + Latent Creation
             2: False,  # UNet + CLIP + LoRA  
             3: False,  # Model Sampling + Text Encoding
-            4: False,  # Model Sampling
+            4: False,  # KSampler Denoising
             5: False,  # Noise + Conditioning
             6: False,  # UNet Inference
             7: False   # VAE Decode + Export
@@ -825,6 +826,291 @@ class WanVideoPipeline:
             traceback.print_exc()
             raise
 
+    def step_4_ksampler_denoising(self,
+                                  initial_latent: torch.Tensor,
+                                  positive_conditioning: Any,
+                                  negative_conditioning: Any,
+                                  steps: int = 20,
+                                  cfg_scale: float = 7.5,
+                                  sampler_name: str = "euler",
+                                  scheduler_name: str = "simple",
+                                  denoise: float = 1.0,
+                                  seed: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Step 4: KSampler Denoising
+        
+        This is the core sampling step where the magic happens:
+        1. Prepares noise tensor from initial latent
+        2. Initializes KSampler with optimized memory management
+        3. Performs denoising using CFG and selected sampling algorithm
+        4. Returns denoised latents ready for VAE decoding
+        
+        Args:
+            initial_latent: Initial latent tensor from Step 1
+            positive_conditioning: Positive text conditioning from Step 3
+            negative_conditioning: Negative text conditioning from Step 3
+            steps: Number of denoising steps (default 20)
+            cfg_scale: Classifier-free guidance scale (default 7.5)
+            sampler_name: Sampling algorithm ("euler", "dpmpp_2m")
+            scheduler_name: Noise scheduler ("simple", "karras", "exponential", "ddim_uniform")
+            denoise: Denoising strength 0.0-1.0 (default 1.0)
+            seed: Random seed for reproducible generation
+            
+        Returns:
+            Dictionary containing denoised latents and sampling information
+        """
+        
+        print("\n" + "="*80)
+        print("🚀 STEP 4: KSAMPLER DENOISING")
+        print("="*80)
+        
+        try:
+            step_4_start = time.time()
+            
+            # Verify prerequisites from previous steps
+            if not self.step_completed[3]:
+                raise RuntimeError("Step 3 (Model Sampling + Text Encoding) must be completed before Step 4")
+            
+            if self.unet is None:
+                raise RuntimeError("UNet model not loaded - Steps 2 and 3 must be completed first")
+            
+            # ========================================================================
+            # 4.1: Memory Management Setup
+            # ========================================================================
+            print("4.1 Setting up memory management...")
+            
+            # Clear cache before starting
+            if torch.cuda.is_available():
+                mem_before = torch.cuda.memory_allocated() / 1024**2
+                torch.cuda.empty_cache()
+                print(f"   💾 Initial GPU memory: {mem_before:.1f} MB")
+                print(f"   🧹 Cache cleared")
+            
+            # Move initial latent to correct device
+            if isinstance(initial_latent, dict) and 'samples' in initial_latent:
+                latent_tensor = initial_latent['samples']
+            else:
+                latent_tensor = initial_latent
+                
+            latent_tensor = latent_tensor.to(self.device)
+            
+            print(f"   📊 Latent tensor: {latent_tensor.shape} on {latent_tensor.device}")
+            
+            # ========================================================================
+            # 4.2: Noise Preparation
+            # ========================================================================
+            print("\n4.2 Preparing noise tensor...")
+            noise_start = time.time()
+            
+            # Generate noise with proper seed handling
+            if seed is None:
+                seed = int(time.time() * 1000) % 2**32
+                print(f"   🎲 Auto-generated seed: {seed}")
+            else:
+                print(f"   🎲 Using seed: {seed}")
+            
+            noise = prepare_noise(latent_tensor, seed=seed, device=self.device)
+            noise_time = time.time() - noise_start
+            
+            print(f"   ✅ Noise generated in {noise_time:.3f}s")
+            print(f"      Shape: {noise.shape}")
+            print(f"      Stats: mean={noise.mean().item():.3f}, std={noise.std().item():.3f}")
+            print(f"      Device: {noise.device}")
+            
+            # ========================================================================
+            # 4.3: KSampler Initialization
+            # ========================================================================
+            print("\n4.3 Initializing KSampler...")
+            sampler_init_start = time.time()
+            
+            print(f"   🔧 Configuration:")
+            print(f"      Steps: {steps}")
+            print(f"      CFG Scale: {cfg_scale}")
+            print(f"      Sampler: {sampler_name}")
+            print(f"      Scheduler: {scheduler_name}")
+            print(f"      Denoise: {denoise}")
+            print(f"      Device: {self.device}")
+            
+            # Initialize KSampler
+            ksampler = StandaloneKSampler(
+                model=self.unet,
+                steps=steps,
+                device=self.device,
+                sampler=sampler_name,
+                scheduler=scheduler_name,
+                denoise=denoise,
+                model_options={}
+            )
+            
+            sampler_init_time = time.time() - sampler_init_start
+            print(f"   ✅ KSampler initialized in {sampler_init_time:.3f}s")
+            
+            # ========================================================================
+            # 4.4: Memory Status Before Sampling
+            # ========================================================================
+            if torch.cuda.is_available():
+                mem_before_sampling = torch.cuda.memory_allocated() / 1024**2
+                mem_reserved = torch.cuda.memory_reserved() / 1024**2
+                print(f"\n   💾 Memory before sampling:")
+                print(f"      Allocated: {mem_before_sampling:.1f} MB")
+                print(f"      Reserved: {mem_reserved:.1f} MB")
+            
+            # ========================================================================
+            # 4.5: Main Sampling Process
+            # ========================================================================
+            print("\n4.5 Starting denoising process...")
+            sampling_start = time.time()
+            
+            # Progress callback for monitoring
+            progress_data = {'current_step': 0, 'total_steps': steps}
+            
+            def progress_callback(progress, total_steps, current_step):
+                progress_data['current_step'] = current_step
+                if current_step % max(1, total_steps // 10) == 0:  # Log every 10%
+                    if torch.cuda.is_available():
+                        current_mem = torch.cuda.memory_allocated() / 1024**2
+                        print(f"      Step {current_step}/{total_steps} ({progress*100:.1f}%) - Memory: {current_mem:.1f} MB")
+                    else:
+                        print(f"      Step {current_step}/{total_steps} ({progress*100:.1f}%)")
+            
+            # Perform sampling
+            try:
+                denoised_latents = ksampler.sample(
+                    noise=noise,
+                    positive=positive_conditioning,
+                    negative=negative_conditioning,
+                    cfg=cfg_scale,
+                    latent_image=latent_tensor,
+                    seed=seed,
+                    callback=progress_callback,
+                    disable_pbar=False
+                )
+                
+                sampling_time = time.time() - sampling_start
+                print(f"   ✅ Denoising completed in {sampling_time:.2f}s")
+                
+            except Exception as e:
+                print(f"   ❌ Sampling failed: {e}")
+                raise
+            
+            # ========================================================================
+            # 4.6: Post-Sampling Analysis
+            # ========================================================================
+            print("\n4.6 Analyzing denoised results...")
+            
+            print(f"   📊 Denoised latents:")
+            print(f"      Shape: {denoised_latents.shape}")
+            print(f"      Data Type: {denoised_latents.dtype}")
+            print(f"      Device: {denoised_latents.device}")
+            print(f"      Value Range: [{denoised_latents.min().item():.3f}, {denoised_latents.max().item():.3f}]")
+            print(f"      Mean: {denoised_latents.mean().item():.3f}")
+            print(f"      Std: {denoised_latents.std().item():.3f}")
+            
+            # Validate results
+            is_valid = True
+            validation_notes = []
+            
+            # Check for NaN or Inf values
+            if torch.isnan(denoised_latents).any():
+                is_valid = False
+                validation_notes.append("Contains NaN values")
+            
+            if torch.isinf(denoised_latents).any():
+                is_valid = False
+                validation_notes.append("Contains Inf values")
+            
+            # Check value range
+            if denoised_latents.abs().max() > 100:
+                validation_notes.append("Large values detected")
+            
+            # Check if all zeros
+            if torch.allclose(denoised_latents, torch.zeros_like(denoised_latents)):
+                validation_notes.append("All values are zero")
+            
+            print(f"   🔍 Validation: {'✅ PASSED' if is_valid else '❌ FAILED'}")
+            if validation_notes:
+                for note in validation_notes:
+                    print(f"      ⚠️ {note}")
+            
+            # ========================================================================
+            # 4.7: Memory Management and Cleanup
+            # ========================================================================
+            print("\n4.7 Memory cleanup...")
+            
+            # Get KSampler memory stats
+            ksampler_stats = ksampler.get_memory_stats()
+            
+            # Final memory state
+            if torch.cuda.is_available():
+                mem_after = torch.cuda.memory_allocated() / 1024**2
+                mem_delta = mem_after - mem_before_sampling
+                
+                print(f"   💾 Final memory state:")
+                print(f"      Before: {mem_before_sampling:.1f} MB")
+                print(f"      After: {mem_after:.1f} MB")
+                print(f"      Delta: {mem_delta:+.1f} MB")
+                print(f"      KSampler Peak: {ksampler_stats.get('peak_allocated', 0):.1f} MB")
+                print(f"      Cache Clears: {ksampler_stats.get('cache_clears', 0)}")
+            
+            # Move result to CPU if offloading is enabled
+            final_device = denoised_latents.device
+            if self.offload_device != self.device:
+                denoised_latents = denoised_latents.to(self.offload_device)
+                final_device = self.offload_device
+                print(f"   📦 Moved results to: {final_device}")
+            
+            # Final cache clear
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                print(f"   🧹 Final cache clear completed")
+            
+            # Mark step complete
+            self.step_completed[4] = True
+            
+            # ========================================================================
+            # 4.8: Results Summary
+            # ========================================================================
+            step_4_results = {
+                'denoised_latents': denoised_latents,
+                'original_latent': latent_tensor,
+                'noise_tensor': noise,
+                'sampling_info': {
+                    'steps': steps,
+                    'cfg_scale': cfg_scale,
+                    'sampler': sampler_name,
+                    'scheduler': scheduler_name,
+                    'denoise': denoise,
+                    'seed': seed,
+                    'final_device': str(final_device)
+                },
+                'validation': {
+                    'is_valid': is_valid,
+                    'notes': validation_notes
+                },
+                'memory_stats': {
+                    'ksampler_stats': ksampler_stats,
+                    'memory_delta_mb': mem_delta if torch.cuda.is_available() else 0,
+                    'peak_allocated_mb': ksampler_stats.get('peak_allocated', 0)
+                },
+                'timing': {
+                    'noise_generation': noise_time,
+                    'sampler_init': sampler_init_time,
+                    'sampling_time': sampling_time,
+                    'total_step_time': time.time() - step_4_start
+                }
+            }
+            
+            print(f"\n✅ STEP 4 COMPLETED SUCCESSFULLY in {time.time() - step_4_start:.2f}s")
+            print("="*80)
+            
+            return step_4_results
+            
+        except Exception as e:
+            print(f"❌ STEP 4 FAILED: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
+
     def load_video(self, video_path: str) -> Optional[torch.Tensor]:
         """Load control video from path as float tensor (T, H, W, 3) in [0,1]"""
         if not video_path or not os.path.exists(video_path):
@@ -895,6 +1181,10 @@ class WanVideoPipeline:
         """Convenience method to run only Step 3"""
         return self.step_3_model_sampling_and_text_encoding(**kwargs)
     
+    def run_step_4_only(self, **kwargs) -> Dict[str, Any]:
+        """Convenience method to run only Step 4"""
+        return self.step_4_ksampler_denoising(**kwargs)
+    
     def run_steps_1_and_2(self, step_1_params: Dict[str, Any], step_2_params: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Run both Step 1 and Step 2 in sequence"""
         print("🚀 Running Steps 1 and 2 in sequence...")
@@ -909,6 +1199,15 @@ class WanVideoPipeline:
         step_2_results = self.step_2_unet_clip_lora_loading(**step_2_params)
         step_3_results = self.step_3_model_sampling_and_text_encoding(**step_3_params)
         return step_1_results, step_2_results, step_3_results
+    
+    def run_steps_1_2_3_and_4(self, step_1_params: Dict[str, Any], step_2_params: Dict[str, Any], step_3_params: Dict[str, Any], step_4_params: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+        """Run Steps 1, 2, 3, and 4 in sequence"""
+        print("🚀 Running Steps 1, 2, 3, and 4 in sequence...")
+        step_1_results = self.step_1_vae_and_latent_creation(**step_1_params)
+        step_2_results = self.step_2_unet_clip_lora_loading(**step_2_params)
+        step_3_results = self.step_3_model_sampling_and_text_encoding(**step_3_params)
+        step_4_results = self.step_4_ksampler_denoising(**step_4_params)
+        return step_1_results, step_2_results, step_3_results, step_4_results
 
 # ============================================================================
 # EXAMPLE USAGE AND TESTING
