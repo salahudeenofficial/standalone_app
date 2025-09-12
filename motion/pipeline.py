@@ -22,6 +22,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from standalone_vae import VAE, create_vae
 from wan_vae_components.model_management import get_torch_device, unet_offload_device
 from utils import load_torch_file, calculate_parameters
+from standalone_sd import load_state_dict_guess_config
+from lora import load_lora_for_models
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -57,6 +59,7 @@ class WanVideoPipeline:
         self.vae = None
         self.unet = None
         self.clip = None
+        self.lora_applied = False
         
         # Step completion tracking
         self.step_completed = {
@@ -431,6 +434,199 @@ class WanVideoPipeline:
         
         return step_1_results
 
+    def step_2_unet_clip_lora_loading(self,
+                                    unet_model_path: str,
+                                    clip_model_path: str, 
+                                    lora_model_path: Optional[str] = None,
+                                    strength_model: float = 1.0,
+                                    strength_clip: float = 0.0) -> Dict[str, Any]:
+        """
+        Step 2: UNet + CLIP Load + LoRA Application
+        
+        This step loads the UNet and CLIP models and optionally applies LoRA:
+        1. Loads UNet diffusion model from safetensors
+        2. Loads CLIP text encoder from safetensors
+        3. Optionally applies LoRA patches to both models
+        4. Returns loaded models ready for inference
+        
+        Args:
+            unet_model_path: Path to UNet diffusion model safetensors file
+            clip_model_path: Path to CLIP text encoder safetensors file
+            lora_model_path: Path to LoRA patches file (optional)
+            strength_model: LoRA strength for UNet model (0.0-2.0)
+            strength_clip: LoRA strength for CLIP model (0.0-2.0)
+            
+        Returns:
+            Dictionary containing loaded models and information
+        """
+        
+        print("\n" + "="*80)
+        print("🚀 STEP 2: UNET + CLIP LOAD + LORA APPLICATION")
+        print("="*80)
+        
+        try:
+            step_2_start = time.time()
+            lora_time = 0.0  # Initialize lora_time
+            
+            # ========================================================================
+            # 2.1: Load UNet Diffusion Model
+            # ========================================================================
+            print("2.1 Loading UNet diffusion model...")
+            unet_start = time.time()
+            
+            # Load UNet state dict
+            unet_state_dict = load_torch_file(unet_model_path)
+            print(f"   📊 Loaded UNet state dict with {len(unet_state_dict)} keys")
+            
+            # Load UNet model using standalone_sd
+            result = load_state_dict_guess_config(
+                unet_state_dict,
+                output_vae=False,
+                output_clip=False,
+                output_clipvision=False,
+                output_model=True
+            )
+            
+            if result is None:
+                raise RuntimeError("Failed to load UNet model - load_state_dict_guess_config returned None")
+            
+            model, _, _, _ = result
+            self.unet = model
+            
+            if self.unet is None:
+                raise RuntimeError("UNet model is None after loading")
+            
+            unet_time = time.time() - unet_start
+            print(f"✅ UNet loaded successfully in {unet_time:.2f}s")
+            print(f"   Type: {type(self.unet).__name__}")
+            print(f"   Device: {self.unet.load_device}")
+            
+            # Calculate UNet model size
+            if hasattr(self.unet, 'model') and hasattr(self.unet.model, 'state_dict'):
+                unet_state_dict_params = self.unet.model.state_dict()
+                unet_params = calculate_parameters(unet_state_dict_params)
+                print(f"   Parameters: {unet_params:,}")
+                print(f"   Size: {unet_params * 4 / (1024*1024):.1f} MB")
+            
+            # ========================================================================
+            # 2.2: Load CLIP Text Encoder
+            # ========================================================================
+            print("\n2.2 Loading CLIP text encoder...")
+            clip_start = time.time()
+            
+            # Load CLIP state dict
+            clip_state_dict = load_torch_file(clip_model_path)
+            print(f"   📊 Loaded CLIP state dict with {len(clip_state_dict)} keys")
+            
+            # Load CLIP model using standalone_sd
+            result = load_state_dict_guess_config(
+                clip_state_dict,
+                output_vae=False,
+                output_clip=True,
+                output_clipvision=False,
+                output_model=False
+            )
+            
+            if result is None:
+                raise RuntimeError("Failed to load CLIP model - load_state_dict_guess_config returned None")
+            
+            _, clip, _, _ = result
+            self.clip = clip
+            
+            if self.clip is None:
+                raise RuntimeError("CLIP model is None after loading")
+            
+            clip_time = time.time() - clip_start
+            print(f"✅ CLIP loaded successfully in {clip_time:.2f}s")
+            print(f"   Type: {type(self.clip).__name__}")
+            print(f"   Device: {self.clip.load_device}")
+            
+            # Calculate CLIP model size
+            if hasattr(self.clip, 'cond_stage_model') and hasattr(self.clip.cond_stage_model, 'state_dict'):
+                clip_state_dict_params = self.clip.cond_stage_model.state_dict()
+                clip_params = calculate_parameters(clip_state_dict_params)
+                print(f"   Parameters: {clip_params:,}")
+                print(f"   Size: {clip_params * 4 / (1024*1024):.1f} MB")
+            
+            # ========================================================================
+            # 2.3: Apply LoRA (Optional)
+            # ========================================================================
+            if lora_model_path and os.path.exists(lora_model_path):
+                print("\n2.3 Applying LoRA patches...")
+                lora_start = time.time()
+                
+                # Load LoRA state dict
+                lora_state_dict = load_torch_file(lora_model_path)
+                print(f"   📊 Loaded LoRA with {len(lora_state_dict)} keys")
+                
+                # Apply LoRA to models
+                original_unet_patches = len(self.unet.patches) if hasattr(self.unet, 'patches') and self.unet.patches else 0
+                original_clip_patches = len(self.clip.patches) if hasattr(self.clip, 'patches') and self.clip.patches else 0
+                
+                new_unet, new_clip = load_lora_for_models(
+                    self.unet, self.clip, lora_state_dict,
+                    strength_model=strength_model,
+                    strength_clip=strength_clip
+                )
+                
+                if new_unet is not None and new_clip is not None:
+                    self.unet = new_unet
+                    self.clip = new_clip
+                    self.lora_applied = True
+                    
+                    lora_time = time.time() - lora_start
+                    print(f"✅ LoRA applied successfully in {lora_time:.2f}s")
+                    
+                    # Report LoRA patch counts
+                    new_unet_patches = len(self.unet.patches) if hasattr(self.unet, 'patches') and self.unet.patches else 0
+                    new_clip_patches = len(self.clip.patches) if hasattr(self.clip, 'patches') and self.clip.patches else 0
+                    
+                    print(f"   🔧 UNet Patches: {original_unet_patches} → {new_unet_patches} (+{new_unet_patches - original_unet_patches})")
+                    print(f"   🔧 CLIP Patches: {original_clip_patches} → {new_clip_patches} (+{new_clip_patches - original_clip_patches})")
+                    print(f"   🔧 Model Strength: {strength_model}")
+                    print(f"   🔧 CLIP Strength: {strength_clip}")
+                else:
+                    print("❌ LoRA application failed - models are None")
+                    self.lora_applied = False
+            else:
+                print("\n2.3 ⚠️  No LoRA file specified or file not found - skipping LoRA application")
+                self.lora_applied = False
+            
+            # Mark step complete
+            self.step_completed[2] = True
+            
+            # Create results
+            step_2_results = {
+                'unet': self.unet,
+                'clip': self.clip,
+                'lora_applied': self.lora_applied,
+                'models_info': {
+                    'unet_type': type(self.unet).__name__,
+                    'clip_type': type(self.clip).__name__,
+                    'unet_device': str(self.unet.load_device),
+                    'clip_device': str(self.clip.load_device),
+                    'lora_strength_model': strength_model if self.lora_applied else 0.0,
+                    'lora_strength_clip': strength_clip if self.lora_applied else 0.0
+                },
+                'processing_info': {
+                    'unet_loading_time': unet_time,
+                    'clip_loading_time': clip_time,
+                    'lora_time': lora_time if self.lora_applied else 0.0,
+                    'total_step_time': time.time() - step_2_start
+                }
+            }
+            
+            print(f"\n✅ STEP 2 COMPLETED SUCCESSFULLY in {time.time() - step_2_start:.2f}s")
+            print("="*80)
+            
+            return step_2_results
+            
+        except Exception as e:
+            print(f"❌ STEP 2 FAILED: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
+
     def load_video(self, video_path: str) -> Optional[torch.Tensor]:
         """Load control video from path as float tensor (T, H, W, 3) in [0,1]"""
         if not video_path or not os.path.exists(video_path):
@@ -492,14 +688,25 @@ class WanVideoPipeline:
     def run_step_1_only(self, **kwargs) -> Dict[str, Any]:
         """Convenience method to run only Step 1"""
         return self.step_1_vae_and_latent_creation(**kwargs)
+    
+    def run_step_2_only(self, **kwargs) -> Dict[str, Any]:
+        """Convenience method to run only Step 2"""
+        return self.step_2_unet_clip_lora_loading(**kwargs)
+    
+    def run_steps_1_and_2(self, step_1_params: Dict[str, Any], step_2_params: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Run both Step 1 and Step 2 in sequence"""
+        print("🚀 Running Steps 1 and 2 in sequence...")
+        step_1_results = self.step_1_vae_and_latent_creation(**step_1_params)
+        step_2_results = self.step_2_unet_clip_lora_loading(**step_2_params)
+        return step_1_results, step_2_results
 
 # ============================================================================
 # EXAMPLE USAGE AND TESTING
 # ============================================================================
 
 def main():
-    """Example usage of Step 1 pipeline"""
-    print("🚀 WAN Video Pipeline - Step 1 Test")
+    """Example usage of Steps 1 and 2 pipeline"""
+    print("🚀 WAN Video Pipeline - Steps 1 & 2 Test")
     print("="*60)
     
     # Initialize pipeline
@@ -511,8 +718,8 @@ def main():
         'vae_model_path': str("models/vaes/wan_vae.safetensors"),
         'positive_prompt': "very cinematic video",
         'negative_prompt': "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量",
-        'control_video_path': str(script_dir / "safu.mp4"),
-        'reference_image_path': str(script_dir / "safu.jpg"),  
+        'control_video_path': str("safu.mp4"),
+        'reference_image_path': str("safu.jpg"),  
         'width': 480,
         'height': 832,
         'length': 37,
@@ -520,40 +727,75 @@ def main():
         'strength': 1.0
     }
     
+    # Step 2 parameters
+    step_2_params = {
+        'unet_model_path': str("models/diffusion_models/wan_2.1_diffusion_model.safetensors"),
+        'clip_model_path': str("models/text_encoders/wan_clip_model.safetensors"),
+        'lora_model_path': str("models/loras/Wan21_CausVid_14B_T2V_lora_rank32.safetensors"),
+        'strength_model': 1.0,
+        'strength_clip': 0.0
+    }
+    
     # Check if model files exist
-    if not os.path.exists(step_1_params['vae_model_path']):
-        print("❌ VAE model not found. Please ensure models are downloaded.")
-        print(f"   Expected: {step_1_params['vae_model_path']}")
+    required_files = [
+        step_1_params['vae_model_path'],
+        step_2_params['unet_model_path'], 
+        step_2_params['clip_model_path']
+    ]
+    
+    missing_files = [f for f in required_files if not os.path.exists(f)]
+    if missing_files:
+        print("❌ Required model files not found:")
+        for missing in missing_files:
+            print(f"   {missing}")
+        print("\n💡 Run './download_models.sh' to download the required models")
+        print("🧪 Testing Step 1 only with available models...")
+        
+        # Test Step 1 only if VAE is available
+        if os.path.exists(step_1_params['vae_model_path']):
+            try:
+                results = pipeline.run_step_1_only(**step_1_params)
+                print("\n✅ Step 1 test completed - ready for Step 2 when models are available")
+            except Exception as e:
+                print(f"\n❌ STEP 1 TEST FAILED: {str(e)}")
         return
     
     try:
-        # Run Step 1
-        results = pipeline.run_step_1_only(**step_1_params)
+        # Run both steps
+        step_1_results, step_2_results = pipeline.run_steps_1_and_2(step_1_params, step_2_params)
         
-        print("\n🎉 STEP 1 TEST COMPLETED SUCCESSFULLY!")
+        print("\n🎉 STEPS 1 & 2 TEST COMPLETED SUCCESSFULLY!")
         print(f"Pipeline Status: {pipeline.get_step_status()}")
         
-        # Display results summary
-        if results:
-            print(f"\n📋 RESULTS SUMMARY (WanVaceToVideo-like outputs):")
-            print(f"   VAE: {type(results['vae']).__name__}")
-            print(f"   Positive Conditioning: {len(results['positive'])} entries")
-            print(f"   Negative Conditioning: {len(results['negative'])} entries")
-            print(f"   Output Latent: {results['out_latent']['samples'].shape}")
-            print(f"   Trim Latent: {results['trim_latent']}")
-            print(f"   VACE Strength: {results['strength']}")
-            print(f"   Has Reference: {'✅' if results['reference_image_latent'] is not None else '❌'}")
-            print(f"   Processing Time: {results['processing_info']['total_step_time']:.2f}s")
+        # Display Step 1 results summary
+        if step_1_results:
+            print(f"\n📋 STEP 1 RESULTS (VAE + Conditioning):")
+            print(f"   VAE: {type(step_1_results['vae']).__name__}")
+            print(f"   Positive Conditioning: {len(step_1_results['positive'])} entries")
+            print(f"   Negative Conditioning: {len(step_1_results['negative'])} entries")
+            print(f"   Output Latent: {step_1_results['out_latent']['samples'].shape}")
+            print(f"   Processing Time: {step_1_results['processing_info']['total_step_time']:.2f}s")
+        
+        # Display Step 2 results summary
+        if step_2_results:
+            print(f"\n📋 STEP 2 RESULTS (UNet + CLIP + LoRA):")
+            print(f"   UNet: {step_2_results['models_info']['unet_type']}")
+            print(f"   CLIP: {step_2_results['models_info']['clip_type']}")
+            print(f"   LoRA Applied: {'✅' if step_2_results['lora_applied'] else '❌'}")
+            if step_2_results['lora_applied']:
+                print(f"   LoRA Model Strength: {step_2_results['models_info']['lora_strength_model']}")
+                print(f"   LoRA CLIP Strength: {step_2_results['models_info']['lora_strength_clip']}")
+            print(f"   Processing Time: {step_2_results['processing_info']['total_step_time']:.2f}s")
             
             # Memory usage
             if torch.cuda.is_available():
                 print(f"   GPU Memory: {torch.cuda.memory_allocated() / 1024**2:.1f} MB allocated")
         
-        print("\n✅ Step 1 now includes full WanVaceToVideo conditioning!")
-        print("✅ Ready for Step 2: UNet Load + LoRA (conditioning is already done)")
+        print("\n✅ Steps 1 & 2 completed - VAE, UNet, CLIP, and LoRA ready!")
+        print("✅ Ready for Step 3: Model Sampling Configuration")
         
     except Exception as e:
-        print(f"\n❌ STEP 1 TEST FAILED: {str(e)}")
+        print(f"\n❌ PIPELINE TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
 
