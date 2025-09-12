@@ -181,21 +181,13 @@ class StandaloneCFGGuider:
         else:
             model = self.model_patcher
             
-        # Prepare model arguments
-        model_kwargs = {}
-        if conditioning is not None:
-            # Handle different conditioning formats
-            if hasattr(conditioning, 'shape') and len(conditioning.shape) >= 2:
-                model_kwargs['encoder_hidden_states'] = conditioning
-            elif isinstance(conditioning, dict):
-                model_kwargs.update(conditioning)
-        
-        # Call model
+        # Call model with different strategies
         try:
+            # Strategy 1: Try basic call with just x and timestep
             if hasattr(model, '__call__'):
-                result = model(x, timestep, **model_kwargs)
+                result = model(x, timestep)
             elif hasattr(model, 'apply_model'):
-                result = model.apply_model(x, timestep, **model_kwargs)
+                result = model.apply_model(x, timestep)
             else:
                 raise RuntimeError(f"Model {type(model)} doesn't have a callable interface")
                 
@@ -209,7 +201,29 @@ class StandaloneCFGGuider:
                 
         except Exception as e:
             logger.error(f"Model call failed: {e}")
-            # Return zero tensor as fallback
+            
+            # Strategy 2: Try with conditioning as positional argument
+            try:
+                if conditioning is not None:
+                    if hasattr(model, '__call__'):
+                        result = model(x, timestep, conditioning)
+                    elif hasattr(model, 'apply_model'):
+                        result = model.apply_model(x, timestep, conditioning)
+                    else:
+                        result = model(x, timestep)
+                        
+                    # Handle return formats
+                    if isinstance(result, dict) and 'sample' in result:
+                        return result['sample']
+                    elif isinstance(result, (tuple, list)) and len(result) > 0:
+                        return result[0]
+                    else:
+                        return result
+                        
+            except Exception as e2:
+                logger.error(f"Model call with conditioning failed: {e2}")
+                
+            # Fallback: Return zero tensor
             return torch.zeros_like(x)
     
     def sample(self, noise, latent_image, sampler, sigmas, denoise_mask=None, callback=None, disable_pbar=False, seed=None):
@@ -402,7 +416,8 @@ class EulerSampler:
                 
             # Memory management
             if i % 5 == 0:  # Every 5 steps
-                empty_cache()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
         
         return x
 
@@ -455,7 +470,8 @@ class DPMSolverSampler:
                 
             # Memory management
             if i % 5 == 0:
-                empty_cache()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
         
         return x
 
@@ -663,7 +679,8 @@ class StandaloneKSampler:
                 print(f"      Samples moved to: {offload_device}")
             
             # Final memory cleanup
-            empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             self.memory_stats['cache_clears'] += 1
             
             # Final memory report
