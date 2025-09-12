@@ -208,7 +208,7 @@ class SD3ModelSamplingTester:
             # Store original model for comparison
             original_model = unet_model
             original_model_type = type(unet_model).__name__
-            original_uuid = str(unet_model.uuid) if hasattr(unet_model, 'uuid') else None
+            original_uuid = str(unet_model.patches_uuid) if hasattr(unet_model, 'patches_uuid') else None
             
             # Apply ModelSamplingSD3
             model_sampling = ModelSamplingSD3()
@@ -224,7 +224,7 @@ class SD3ModelSamplingTester:
                 print(f"   Original Model Type: {original_model_type}")
                 print(f"   Patched Model Type: {type(patched_model).__name__}")
                 print(f"   Model Cloned: {'✅ YES' if patched_model != original_model else '❌ NO'}")
-                print(f"   UUID Changed: {'✅ YES' if str(patched_model.uuid) != original_uuid else '❌ NO'}")
+                print(f"   UUID Changed: {'✅ YES' if str(patched_model.patches_uuid) != original_uuid else '❌ NO'}")
                 
                 # Check for model_sampling patch
                 has_sampling_patch = False
