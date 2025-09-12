@@ -188,37 +188,58 @@ class StandaloneCFGGuider:
                 result = model.forward(x, timestep)
                 logger.debug(f"Model forward call successful")
                 
-                # Handle different return formats
+                # Handle different return formats and ensure correct device
+                final_result = None
                 if isinstance(result, dict) and 'sample' in result:
-                    return result['sample']
+                    final_result = result['sample']
                 elif isinstance(result, (tuple, list)) and len(result) > 0:
-                    return result[0]
+                    final_result = result[0]
                 else:
-                    return result
+                    final_result = result
+                
+                # Ensure result is on the same device as input
+                if isinstance(final_result, torch.Tensor) and isinstance(x, torch.Tensor):
+                    final_result = final_result.to(x.device)
+                
+                return final_result
             
             # Strategy 2: Try __call__ method
             elif hasattr(model, '__call__'):
                 result = model(x, timestep)
                 logger.debug(f"Model __call__ successful")
                 
+                final_result = None
                 if isinstance(result, dict) and 'sample' in result:
-                    return result['sample']
+                    final_result = result['sample']
                 elif isinstance(result, (tuple, list)) and len(result) > 0:
-                    return result[0]
+                    final_result = result[0]
                 else:
-                    return result
+                    final_result = result
+                
+                # Ensure result is on the same device as input
+                if isinstance(final_result, torch.Tensor) and isinstance(x, torch.Tensor):
+                    final_result = final_result.to(x.device)
+                
+                return final_result
                     
             # Strategy 3: Try apply_model method (ComfyUI style)
             elif hasattr(model, 'apply_model'):
                 result = model.apply_model(x, timestep)
                 logger.debug(f"Model apply_model successful")
                 
+                final_result = None
                 if isinstance(result, dict) and 'sample' in result:
-                    return result['sample']
+                    final_result = result['sample']
                 elif isinstance(result, (tuple, list)) and len(result) > 0:
-                    return result[0]
+                    final_result = result[0]
                 else:
-                    return result
+                    final_result = result
+                
+                # Ensure result is on the same device as input
+                if isinstance(final_result, torch.Tensor) and isinstance(x, torch.Tensor):
+                    final_result = final_result.to(x.device)
+                
+                return final_result
             else:
                 logger.error(f"Model {type(model)} has no callable methods")
                 raise RuntimeError(f"Model {type(model)} doesn't have forward, __call__, or apply_model")
@@ -447,6 +468,16 @@ class EulerSampler:
             with torch.no_grad():
                 denoised = model_wrapper(x, sigma)
                 
+                # Ensure denoised is on the same device as x
+                if isinstance(denoised, torch.Tensor) and isinstance(x, torch.Tensor):
+                    denoised = denoised.to(x.device)
+                
+            # Ensure sigma values are on the same device as x
+            if isinstance(sigma, torch.Tensor):
+                sigma = sigma.to(x.device)
+            if isinstance(sigma_next, torch.Tensor):
+                sigma_next = sigma_next.to(x.device)
+                
             # Euler step
             d = (x - denoised) / sigma
             dt = sigma_next - sigma
@@ -487,6 +518,16 @@ class DPMSolverSampler:
             # Get noise prediction  
             with torch.no_grad():
                 denoised = model_wrapper(x, sigma)
+                
+                # Ensure denoised is on the same device as x
+                if isinstance(denoised, torch.Tensor) and isinstance(x, torch.Tensor):
+                    denoised = denoised.to(x.device)
+            
+            # Ensure sigma values are on the same device as x
+            if isinstance(sigma, torch.Tensor):
+                sigma = sigma.to(x.device)
+            if isinstance(sigma_next, torch.Tensor):
+                sigma_next = sigma_next.to(x.device)
             
             if old_denoised is None or sigma_next == 0:
                 # First order (Euler step)

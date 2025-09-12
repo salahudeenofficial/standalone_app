@@ -169,7 +169,8 @@ class WANModel(nn.Module):
     def to(self, device):
         """Move model to device"""
         self.device = device
-        self.dummy_param = self.dummy_param.to(device)
+        # Properly move parameter to device
+        self.dummy_param.data = self.dummy_param.data.to(device)
         return self
     
     def eval(self):
@@ -206,9 +207,12 @@ class WANModel(nn.Module):
         # Generate realistic noise prediction based on input
         # This simulates a diffusion model's noise prediction
         with torch.no_grad():
+            # Ensure we're working on the model's device
+            target_device = x.device if isinstance(x, torch.Tensor) else self.device
+            
             # Create noise prediction with appropriate scale
             # Typical diffusion models predict noise with std around 1.0
-            noise_pred = torch.randn_like(x) * 0.5
+            noise_pred = torch.randn_like(x, device=target_device) * 0.5
             
             # Add some timestep-dependent scaling
             if isinstance(timestep, torch.Tensor):
@@ -222,8 +226,8 @@ class WANModel(nn.Module):
             # Scale noise based on timestep (higher timestep = more noise)
             noise_pred = noise_pred * (0.1 + t_scale * 0.9)
             
-            # Ensure output is on correct device
-            noise_pred = noise_pred.to(x.device)
+            # Double-check device placement
+            noise_pred = noise_pred.to(target_device)
             
         return noise_pred
 
@@ -271,7 +275,8 @@ class T5CLIPModel(nn.Module):
     def to(self, device):
         """Move model to device"""
         self.device = device
-        self.dummy_param = self.dummy_param.to(device)
+        # Properly move parameter to device
+        self.dummy_param.data = self.dummy_param.data.to(device)
         return self
     
     def eval(self):
