@@ -110,9 +110,13 @@ class StandaloneCFGGuider:
         if model_options:
             merged_options.update(model_options)
             
-        # Prepare inputs
+        # Prepare inputs - ensure timestep is a proper tensor with batch dimension
         if not isinstance(timestep, torch.Tensor):
             timestep = torch.tensor([timestep], device=x.device, dtype=torch.float32)
+        elif timestep.dim() == 0:  # scalar tensor
+            timestep = timestep.unsqueeze(0)  # add batch dimension
+        elif len(timestep.shape) == 0:  # another way to check scalar
+            timestep = timestep.view(1)
         
         # Handle conditioning
         if self.cfg_scale <= 1.0 or self.negative_cond is None:
@@ -131,7 +135,12 @@ class StandaloneCFGGuider:
             
             # Duplicate inputs for both conditionings
             x_combined = torch.cat([x, x], dim=0)
-            timestep_combined = torch.cat([timestep, timestep], dim=0) if timestep.shape[0] == 1 else timestep.repeat(2)
+            
+            # Handle timestep duplication safely
+            if timestep.numel() == 1:  # single timestep
+                timestep_combined = timestep.repeat(2)
+            else:
+                timestep_combined = torch.cat([timestep, timestep], dim=0)
             
             # Prepare conditioning
             pos_cond = self.positive_cond if self.positive_cond is not None else torch.zeros_like(x[:1, :4])
