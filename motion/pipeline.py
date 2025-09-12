@@ -223,7 +223,8 @@ class WanVideoPipeline:
             
             # Continue in next part...
             return self._step_1_continue_encoding(control_video, reference_image, 
-                                                width, height, length, batch_size, start_time)
+                                                width, height, length, batch_size, start_time,
+                                                positive_prompt, negative_prompt, strength)
             
         except Exception as e:
             print(f"❌ STEP 1 FAILED: {str(e)}")
@@ -231,7 +232,7 @@ class WanVideoPipeline:
             traceback.print_exc()
             raise
 
-    def _step_1_continue_encoding(self, control_video, reference_image, width, height, length, batch_size, start_time):
+    def _step_1_continue_encoding(self, control_video, reference_image, width, height, length, batch_size, start_time, positive_prompt, negative_prompt, strength):
         """Continue Step 1 VAE encoding process"""
         
         # ========================================================================
