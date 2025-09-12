@@ -248,11 +248,18 @@ class StandaloneCLIP:
         self.patches = {}
         self.uuid = f"clip-{id(self)}"
         self.cond_stage_model = self  # Required for LoRA compatibility
+        
+        # Add device attributes to match ModelPatcher interface
+        self.load_device = get_torch_device()
+        self.offload_device = unet_offload_device()
     
     def clone(self):
         """Clone CLIP instance"""
         new_clip = StandaloneCLIP(self.model)
         new_clip.patches = self.patches.copy()
+        # Preserve device attributes
+        new_clip.load_device = self.load_device
+        new_clip.offload_device = self.offload_device
         return new_clip
     
     def add_patches(self, patches, strength):
@@ -270,6 +277,17 @@ class StandaloneCLIP:
                 self.patches[key] = [(strength, patch)]
             applied_keys.add(key)
         return applied_keys
+    
+    def tokenize(self, text):
+        """Tokenize text - placeholder implementation"""
+        # Return dummy tokens for compatibility
+        return {"input_ids": torch.zeros(1, 77, dtype=torch.long)}
+    
+    def encode_from_tokens_scheduled(self, tokens):
+        """Encode from tokens - uses underlying model's encode method"""
+        # For now, just call the model's encode method with dummy text
+        # In a full implementation, this would use the tokens
+        return self.model.encode("dummy_text")
     
     def encode(self, text):
         """Encode text"""
