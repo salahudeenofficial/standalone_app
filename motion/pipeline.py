@@ -18,6 +18,9 @@ from typing import Dict, Any, Tuple, Optional, Union
 # Add motion directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Set memory optimization
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
 # Import motion modules
 from standalone_vae import VAE, create_vae
 from wan_vae_components.model_management import get_torch_device, unet_offload_device

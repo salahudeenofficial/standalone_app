@@ -181,37 +181,66 @@ class StandaloneCFGGuider:
         else:
             model = self.model_patcher
             
-        # Call model with different strategies
+        # Try different model call strategies
         try:
-            # Strategy 1: Try basic call with just x and timestep
-            if hasattr(model, '__call__'):
+            # Strategy 1: Try model.forward() method directly
+            if hasattr(model, 'forward'):
+                result = model.forward(x, timestep)
+                logger.debug(f"Model forward call successful")
+                
+                # Handle different return formats
+                if isinstance(result, dict) and 'sample' in result:
+                    return result['sample']
+                elif isinstance(result, (tuple, list)) and len(result) > 0:
+                    return result[0]
+                else:
+                    return result
+            
+            # Strategy 2: Try __call__ method
+            elif hasattr(model, '__call__'):
                 result = model(x, timestep)
+                logger.debug(f"Model __call__ successful")
+                
+                if isinstance(result, dict) and 'sample' in result:
+                    return result['sample']
+                elif isinstance(result, (tuple, list)) and len(result) > 0:
+                    return result[0]
+                else:
+                    return result
+                    
+            # Strategy 3: Try apply_model method (ComfyUI style)
             elif hasattr(model, 'apply_model'):
                 result = model.apply_model(x, timestep)
-            else:
-                raise RuntimeError(f"Model {type(model)} doesn't have a callable interface")
+                logger.debug(f"Model apply_model successful")
                 
-            # Handle different return formats
-            if isinstance(result, dict) and 'sample' in result:
-                return result['sample']
-            elif isinstance(result, (tuple, list)) and len(result) > 0:
-                return result[0]
+                if isinstance(result, dict) and 'sample' in result:
+                    return result['sample']
+                elif isinstance(result, (tuple, list)) and len(result) > 0:
+                    return result[0]
+                else:
+                    return result
             else:
-                return result
+                logger.error(f"Model {type(model)} has no callable methods")
+                raise RuntimeError(f"Model {type(model)} doesn't have forward, __call__, or apply_model")
                 
         except Exception as e:
             logger.error(f"Model call failed: {e}")
             
-            # Strategy 2: Try with conditioning as positional argument
+            # Strategy 4: Try with conditioning as additional argument
             try:
                 if conditioning is not None:
-                    if hasattr(model, '__call__'):
+                    if hasattr(model, 'forward'):
+                        result = model.forward(x, timestep, conditioning)
+                    elif hasattr(model, '__call__'):
                         result = model(x, timestep, conditioning)
                     elif hasattr(model, 'apply_model'):
                         result = model.apply_model(x, timestep, conditioning)
                     else:
-                        result = model(x, timestep)
+                        logger.error(f"No valid model interface found")
+                        return torch.zeros_like(x)
                         
+                    logger.debug(f"Model call with conditioning successful")
+                    
                     # Handle return formats
                     if isinstance(result, dict) and 'sample' in result:
                         return result['sample']
@@ -219,11 +248,24 @@ class StandaloneCFGGuider:
                         return result[0]
                     else:
                         return result
+                else:
+                    logger.error(f"No conditioning provided for fallback strategy")
+                    return torch.zeros_like(x)
                         
             except Exception as e2:
                 logger.error(f"Model call with conditioning failed: {e2}")
                 
-            # Fallback: Return zero tensor
+            # Strategy 5: Last resort - try ModelPatcher if model is actually the ModelPatcher
+            try:
+                if hasattr(self.model_patcher, 'model') and hasattr(self.model_patcher.model, 'forward'):
+                    result = self.model_patcher.model.forward(x, timestep)
+                    logger.debug(f"ModelPatcher.model.forward successful")
+                    return result
+            except Exception as e3:
+                logger.error(f"ModelPatcher fallback failed: {e3}")
+                
+            # Final fallback: Return zero tensor (this will show in results as all zeros)
+            logger.warning(f"All model call strategies failed, returning zeros")
             return torch.zeros_like(x)
     
     def sample(self, noise, latent_image, sampler, sigmas, denoise_mask=None, callback=None, disable_pbar=False, seed=None):
