@@ -10,6 +10,7 @@ from typing import Optional, Callable, Dict, Any, Union
 
 # Configure logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 def prepare_noise(latent_image, seed, noise_inds=None):
     """
@@ -131,8 +132,60 @@ class RealKSampler:
         else:
             timestep_combined = torch.tensor([timestep, timestep], device=x.device)
         
-        # Combine conditioning
-        cond_combined = torch.cat([uncond, cond], dim=0)
+        # Handle conditioning - extract tensors from motion pipeline format
+        def extract_conditioning_tensor(conditioning):
+            """Extract tensor from motion pipeline conditioning format"""
+            logger.debug(f"Conditioning type: {type(conditioning)}")
+            if hasattr(conditioning, '__len__'):
+                logger.debug(f"Conditioning length: {len(conditioning)}")
+                if len(conditioning) > 0:
+                    logger.debug(f"First element type: {type(conditioning[0])}")
+            
+            if isinstance(conditioning, torch.Tensor):
+                # Direct tensor
+                logger.debug(f"Direct tensor: {conditioning.shape}")
+                return conditioning
+            elif isinstance(conditioning, (list, tuple)) and len(conditioning) > 0:
+                # Motion pipeline format: (tensor, ) from CLIPTextEncode.encode()
+                first_element = conditioning[0]
+                if isinstance(first_element, torch.Tensor):
+                    logger.debug(f"Tensor from tuple: {first_element.shape}")
+                    return first_element
+                elif isinstance(first_element, (list, tuple)) and len(first_element) >= 2:
+                    # ComfyUI conditioning format: [(tensor, {conditioning_dict}), ...]
+                    if isinstance(first_element[0], torch.Tensor):
+                        logger.debug(f"Tensor from ComfyUI format: {first_element[0].shape}")
+                        return first_element[0]
+                    else:
+                        logger.warning(f"Unknown ComfyUI conditioning tensor type: {type(first_element[0])}")
+                        return torch.zeros(1, 77, 4096, device=x.device)
+                else:
+                    # Unknown format in tuple
+                    logger.warning(f"Unknown conditioning element type: {type(first_element)}, using dummy")
+                    return torch.zeros(1, 77, 4096, device=x.device)
+            else:
+                # Fallback: create dummy conditioning
+                logger.warning(f"Unknown conditioning format: {type(conditioning)}, using dummy")
+                return torch.zeros(1, 77, 4096, device=x.device)
+        
+        # Extract tensors from conditioning
+        cond_tensor = extract_conditioning_tensor(cond)
+        uncond_tensor = extract_conditioning_tensor(uncond)
+        
+        # Ensure conditioning tensors are on correct device
+        cond_tensor = cond_tensor.to(x.device)
+        uncond_tensor = uncond_tensor.to(x.device)
+        
+        # Combine conditioning (uncond first, then cond - ComfyUI convention)
+        try:
+            cond_combined = torch.cat([uncond_tensor, cond_tensor], dim=0)
+        except Exception as e:
+            logger.warning(f"Conditioning concatenation failed: {e}, using separate calls")
+            # Fallback: make separate model calls
+            noise_pred_uncond = self._call_model(x, timestep, uncond_tensor)
+            noise_pred_cond = self._call_model(x, timestep, cond_tensor)
+            noise_pred = noise_pred_uncond + cfg_scale * (noise_pred_cond - noise_pred_uncond)
+            return noise_pred
         
         # Get model predictions
         noise_pred_combined = self._call_model(x_combined, timestep_combined, cond_combined)
