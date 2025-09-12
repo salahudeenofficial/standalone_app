@@ -24,6 +24,8 @@ from wan_vae_components.model_management import get_torch_device, unet_offload_d
 from utils import load_torch_file, calculate_parameters
 from standalone_sd import load_state_dict_guess_config
 from lora import load_lora_for_models
+from model_sampling import ModelSamplingSD3
+from text_encoder import CLIPTextEncode
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -64,8 +66,8 @@ class WanVideoPipeline:
         # Step completion tracking
         self.step_completed = {
             1: False,  # VAE + Latent Creation
-            2: False,  # CLIP + Text Encoding  
-            3: False,  # UNet + LoRA
+            2: False,  # UNet + CLIP + LoRA  
+            3: False,  # Model Sampling + Text Encoding
             4: False,  # Model Sampling
             5: False,  # Noise + Conditioning
             6: False,  # UNet Inference
@@ -627,6 +629,202 @@ class WanVideoPipeline:
             traceback.print_exc()
             raise
 
+    def step_3_model_sampling_and_text_encoding(self,
+                                               positive_prompt: str,
+                                               negative_prompt: str,
+                                               shift: float = 8.0,
+                                               multiplier: int = 1000) -> Dict[str, Any]:
+        """
+        Step 3: Model Sampling + Text Encoding
+        
+        This step applies SD3 model sampling and encodes text prompts:
+        1. Applies ModelSamplingSD3 to the UNet model with shift parameter
+        2. Initializes CLIP text encoder
+        3. Encodes positive and negative text prompts  
+        4. Returns conditioning tensors ready for sampling
+        
+        Args:
+            positive_prompt: Positive text prompt for conditioning
+            negative_prompt: Negative text prompt for conditioning
+            shift: SD3 shift parameter (default 8.0)
+            multiplier: SD3 multiplier parameter (default 1000)
+            
+        Returns:
+            Dictionary containing encoded conditioning and model information
+        """
+        
+        print("\n" + "="*80)
+        print("🚀 STEP 3: MODEL SAMPLING + TEXT ENCODING")
+        print("="*80)
+        
+        try:
+            step_3_start = time.time()
+            
+            # Verify prerequisites from previous steps
+            if not self.step_completed[2]:
+                raise RuntimeError("Step 2 (UNet + CLIP + LoRA) must be completed before Step 3")
+            
+            if self.unet is None:
+                raise RuntimeError("UNet model not loaded - Step 2 must be completed first")
+            
+            if self.clip is None:
+                raise RuntimeError("CLIP model not loaded - Step 2 must be completed first")
+            
+            # ========================================================================
+            # 3.1: Apply SD3 Model Sampling
+            # ========================================================================
+            print("3.1 Applying SD3 Model Sampling...")
+            sampling_start = time.time()
+            
+            # Store original model info for analysis
+            original_model_type = type(self.unet).__name__
+            original_uuid = str(self.unet.patches_uuid) if hasattr(self.unet, 'patches_uuid') else None
+            
+            # Apply ModelSamplingSD3
+            model_sampling = ModelSamplingSD3()
+            patched_unet = model_sampling.patch(self.unet, shift=shift, multiplier=multiplier)
+            
+            if patched_unet is None:
+                raise RuntimeError("ModelSamplingSD3 returned None - patching failed")
+            
+            # Update the UNet model
+            self.unet = patched_unet
+            
+            sampling_time = time.time() - sampling_start
+            print(f"✅ SD3 Model Sampling applied successfully in {sampling_time:.2f}s")
+            
+            # Analyze the patched model
+            print(f"   🔧 SAMPLING ANALYSIS:")
+            print(f"      Original Type: {original_model_type}")
+            print(f"      Patched Type: {type(self.unet).__name__}")
+            print(f"      Model Cloned: {'✅ YES' if self.unet != None else '❌ NO'}")
+            print(f"      Patches UUID: {self.unet.patches_uuid}")
+            print(f"      UUID Preserved: {'✅ YES' if str(self.unet.patches_uuid) == original_uuid else '❌ NO'}")
+            
+            # Verify model_sampling patch
+            has_sampling_patch = False
+            if hasattr(self.unet, 'object_patches') and 'model_sampling' in self.unet.object_patches:
+                has_sampling_patch = True
+                sampling_obj = self.unet.object_patches['model_sampling']
+                print(f"      Sampling Patch: ✅ Applied ({type(sampling_obj).__name__})")
+                print(f"      Shift Parameter: {shift}")
+                print(f"      Multiplier Parameter: {multiplier}")
+            else:
+                print(f"      Sampling Patch: ❌ Not found")
+            
+            # ========================================================================
+            # 3.2: CLIP Text Encoding
+            # ========================================================================
+            print("\n3.2 Encoding text prompts...")
+            encoding_start = time.time()
+            
+            print(f"   📝 Positive prompt: '{positive_prompt}'")
+            print(f"   📝 Negative prompt: '{negative_prompt}'")
+            
+            # Memory before encoding
+            if torch.cuda.is_available():
+                mem_before = torch.cuda.memory_allocated() / 1024**2
+                print(f"   💾 GPU memory before encoding: {mem_before:.1f} MB")
+            
+            # Initialize text encoder
+            text_encoder = CLIPTextEncode()
+            
+            # Encode positive prompt
+            positive_encoding_start = time.time()
+            positive_cond = text_encoder.encode(self.clip, positive_prompt)
+            positive_encoding_time = time.time() - positive_encoding_start
+            
+            print(f"   ✅ Positive prompt encoded in {positive_encoding_time:.3f}s")
+            
+            # Encode negative prompt
+            negative_encoding_start = time.time()
+            negative_cond = text_encoder.encode(self.clip, negative_prompt)
+            negative_encoding_time = time.time() - negative_encoding_start
+            
+            print(f"   ✅ Negative prompt encoded in {negative_encoding_time:.3f}s")
+            
+            total_encoding_time = time.time() - encoding_start
+            
+            # Memory after encoding
+            if torch.cuda.is_available():
+                mem_after = torch.cuda.memory_allocated() / 1024**2
+                mem_delta = mem_after - mem_before
+                print(f"   💾 GPU memory after encoding: {mem_after:.1f} MB (+{mem_delta:.1f} MB)")
+            
+            # ========================================================================
+            # 3.3: Analyze Encoding Results
+            # ========================================================================
+            print("\n3.3 Analyzing conditioning results...")
+            
+            # Analyze positive conditioning
+            if isinstance(positive_cond, (tuple, list)) and len(positive_cond) > 0:
+                pos_tensor = positive_cond[0]
+                if hasattr(pos_tensor, 'shape'):
+                    print(f"   🔧 Positive Conditioning:")
+                    print(f"      Shape: {pos_tensor.shape}")
+                    print(f"      Data Type: {pos_tensor.dtype}")
+                    print(f"      Device: {pos_tensor.device}")
+                    print(f"      Value Range: [{pos_tensor.min().item():.3f}, {pos_tensor.max().item():.3f}]")
+                    
+                    # Check for valid embeddings
+                    non_zero_ratio = torch.count_nonzero(pos_tensor).item() / pos_tensor.numel()
+                    print(f"      Non-zero ratio: {non_zero_ratio:.3f}")
+                    print(f"      Status: {'✅ Valid' if non_zero_ratio > 0.1 else '⚠️ Mostly zeros'}")
+            
+            # Analyze negative conditioning
+            if isinstance(negative_cond, (tuple, list)) and len(negative_cond) > 0:
+                neg_tensor = negative_cond[0]
+                if hasattr(neg_tensor, 'shape'):
+                    print(f"   🔧 Negative Conditioning:")
+                    print(f"      Shape: {neg_tensor.shape}")
+                    print(f"      Status: {'✅ Valid' if neg_tensor.shape == pos_tensor.shape else '❌ Shape mismatch'}")
+            
+            # Mark step complete
+            self.step_completed[3] = True
+            
+            # Create results
+            step_3_results = {
+                'positive_conditioning': positive_cond,
+                'negative_conditioning': negative_cond,
+                'unet_patched': self.unet,
+                'clip_model': self.clip,
+                'sampling_applied': has_sampling_patch,
+                'model_info': {
+                    'original_type': original_model_type,
+                    'patched_type': type(self.unet).__name__,
+                    'sampling_patch_applied': has_sampling_patch,
+                    'shift': shift,
+                    'multiplier': multiplier,
+                    'unet_uuid': str(self.unet.patches_uuid) if hasattr(self.unet, 'patches_uuid') else None
+                },
+                'conditioning_info': {
+                    'positive_prompt': positive_prompt,
+                    'negative_prompt': negative_prompt,
+                    'positive_shape': pos_tensor.shape if hasattr(pos_tensor, 'shape') else None,
+                    'negative_shape': neg_tensor.shape if hasattr(neg_tensor, 'shape') else None,
+                    'positive_dtype': str(pos_tensor.dtype) if hasattr(pos_tensor, 'dtype') else None,
+                    'positive_device': str(pos_tensor.device) if hasattr(pos_tensor, 'device') else None
+                },
+                'timing': {
+                    'sampling_time': sampling_time,
+                    'positive_encoding': positive_encoding_time,
+                    'negative_encoding': negative_encoding_time,
+                    'total_encoding': total_encoding_time,
+                    'total_step_time': time.time() - step_3_start
+                }
+            }
+            
+            print(f"\n✅ STEP 3 COMPLETED SUCCESSFULLY in {time.time() - step_3_start:.2f}s")
+            print("="*80)
+            
+            return step_3_results
+            
+        except Exception as e:
+            print(f"❌ STEP 3 FAILED: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
+
     def load_video(self, video_path: str) -> Optional[torch.Tensor]:
         """Load control video from path as float tensor (T, H, W, 3) in [0,1]"""
         if not video_path or not os.path.exists(video_path):
@@ -693,20 +891,32 @@ class WanVideoPipeline:
         """Convenience method to run only Step 2"""
         return self.step_2_unet_clip_lora_loading(**kwargs)
     
+    def run_step_3_only(self, **kwargs) -> Dict[str, Any]:
+        """Convenience method to run only Step 3"""
+        return self.step_3_model_sampling_and_text_encoding(**kwargs)
+    
     def run_steps_1_and_2(self, step_1_params: Dict[str, Any], step_2_params: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Run both Step 1 and Step 2 in sequence"""
         print("🚀 Running Steps 1 and 2 in sequence...")
         step_1_results = self.step_1_vae_and_latent_creation(**step_1_params)
         step_2_results = self.step_2_unet_clip_lora_loading(**step_2_params)
         return step_1_results, step_2_results
+    
+    def run_steps_1_2_and_3(self, step_1_params: Dict[str, Any], step_2_params: Dict[str, Any], step_3_params: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+        """Run Steps 1, 2, and 3 in sequence"""
+        print("🚀 Running Steps 1, 2, and 3 in sequence...")
+        step_1_results = self.step_1_vae_and_latent_creation(**step_1_params)
+        step_2_results = self.step_2_unet_clip_lora_loading(**step_2_params)
+        step_3_results = self.step_3_model_sampling_and_text_encoding(**step_3_params)
+        return step_1_results, step_2_results, step_3_results
 
 # ============================================================================
 # EXAMPLE USAGE AND TESTING
 # ============================================================================
 
 def main():
-    """Example usage of Steps 1 and 2 pipeline"""
-    print("🚀 WAN Video Pipeline - Steps 1 & 2 Test")
+    """Example usage of Steps 1, 2, and 3 pipeline"""
+    print("🚀 WAN Video Pipeline - Steps 1, 2 & 3 Test")
     print("="*60)
     
     # Initialize pipeline
@@ -736,6 +946,14 @@ def main():
         'strength_clip': 0.0
     }
     
+    # Step 3 parameters
+    step_3_params = {
+        'positive_prompt': "very cinematic video",
+        'negative_prompt': "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量",
+        'shift': 8.0,
+        'multiplier': 1000
+    }
+    
     # Check if model files exist
     required_files = [
         step_1_params['vae_model_path'],
@@ -761,10 +979,10 @@ def main():
         return
     
     try:
-        # Run both steps
-        step_1_results, step_2_results = pipeline.run_steps_1_and_2(step_1_params, step_2_params)
+        # Run all three steps
+        step_1_results, step_2_results, step_3_results = pipeline.run_steps_1_2_and_3(step_1_params, step_2_params, step_3_params)
         
-        print("\n🎉 STEPS 1 & 2 TEST COMPLETED SUCCESSFULLY!")
+        print("\n🎉 STEPS 1, 2 & 3 TEST COMPLETED SUCCESSFULLY!")
         print(f"Pipeline Status: {pipeline.get_step_status()}")
         
         # Display Step 1 results summary
@@ -786,13 +1004,26 @@ def main():
                 print(f"   LoRA Model Strength: {step_2_results['models_info']['lora_strength_model']}")
                 print(f"   LoRA CLIP Strength: {step_2_results['models_info']['lora_strength_clip']}")
             print(f"   Processing Time: {step_2_results['processing_info']['total_step_time']:.2f}s")
+        
+        # Display Step 3 results summary
+        if step_3_results:
+            print(f"\n📋 STEP 3 RESULTS (Model Sampling + Text Encoding):")
+            print(f"   Sampling Applied: {'✅' if step_3_results['sampling_applied'] else '❌'}")
+            print(f"   Shift Parameter: {step_3_results['model_info']['shift']}")
+            print(f"   Multiplier Parameter: {step_3_results['model_info']['multiplier']}")
+            print(f"   Positive Prompt: '{step_3_results['conditioning_info']['positive_prompt'][:50]}...'")
+            print(f"   Negative Prompt: '{step_3_results['conditioning_info']['negative_prompt'][:50]}...'")
+            if step_3_results['conditioning_info']['positive_shape']:
+                print(f"   Conditioning Shape: {step_3_results['conditioning_info']['positive_shape']}")
+                print(f"   Conditioning Device: {step_3_results['conditioning_info']['positive_device']}")
+            print(f"   Processing Time: {step_3_results['timing']['total_step_time']:.2f}s")
             
             # Memory usage
             if torch.cuda.is_available():
                 print(f"   GPU Memory: {torch.cuda.memory_allocated() / 1024**2:.1f} MB allocated")
         
-        print("\n✅ Steps 1 & 2 completed - VAE, UNet, CLIP, and LoRA ready!")
-        print("✅ Ready for Step 3: Model Sampling Configuration")
+        print("\n✅ Steps 1, 2 & 3 completed - Full pipeline ready!")
+        print("✅ Ready for Step 4: Noise Generation + Conditioning")
         
     except Exception as e:
         print(f"\n❌ PIPELINE TEST FAILED: {str(e)}")
