@@ -3,6 +3,7 @@ import logging
 from wan_vae_components.model_management import get_torch_device, unet_offload_device, unet_dtype, unet_manual_cast, unet_inital_load_device, load_models_gpu
 from standalone_model_patcher import create_model_patcher
 from utils import calculate_parameters, weight_dtype, state_dict_prefix_replace, load_torch_file
+from memory_utils import safe_model_to_device, log_memory_usage, clear_cuda_memory
 import torch.nn as nn
 
 def detect_clip_config(state_dict, key_prefix="", metadata=None):
@@ -352,12 +353,11 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
         logging.info(f"Creating model with config: {model_config}")
         
         # Create the appropriate WAN model instance
-        model = create_model_from_config(model_config, device=load_device, dtype=weight_dtype_val)
+        model = create_model_from_config(model_config, device=None, dtype=weight_dtype_val)
         
-        # Move model to the correct device
-        if load_device is not None:
-            model = model.to(load_device)
-            logging.info(f"Model moved to device: {load_device}")
+        # Memory-aware device management
+        log_memory_usage("Before model loading")
+        model, load_device = safe_model_to_device(model, load_device, min_free_gb=2.0)
         
         # Load the state dict into the model
         try:
@@ -381,7 +381,10 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
             logging.error(f"Failed to load model state dict: {e}")
             raise
         
-        # Create model patcher
+        # Log memory usage after model loading
+        log_memory_usage("After model loading")
+        
+        # Create model patcher with updated device
         model_patcher = create_model_patcher(model, load_device=load_device, offload_device=unet_offload_device())
 
     return (model_patcher, clip, vae, clipvision)
