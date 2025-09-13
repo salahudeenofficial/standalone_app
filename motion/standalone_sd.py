@@ -5,79 +5,6 @@ from standalone_model_patcher import create_model_patcher
 from utils import calculate_parameters, weight_dtype, state_dict_prefix_replace, load_torch_file
 import torch.nn as nn
 
-def detect_unet_config(state_dict, key_prefix, metadata=None):
-    """
-    Enhanced UNet config detector for Wan2.1 models.
-    Handles both I2V/VACE variants and cross-attention variants.
-    """
-    state_dict_keys = list(state_dict.keys())
-
-    # --- Basic Wan2.1 check ---
-    if f'{key_prefix}head.modulation' not in state_dict_keys:
-        return None
-
-    # Get dimensions from actual model
-    head_modulation = state_dict[f'{key_prefix}head.modulation']
-    head_weight = state_dict[f'{key_prefix}head.head.weight']
-    
-    # Handle different modulation shapes
-    if len(head_modulation.shape) == 3:  # [1, 2, dim] format
-        dim = head_modulation.shape[-1]
-    else:  # [dim] format
-        dim = head_modulation.shape[-1]
-    
-    out_dim = head_weight.shape[0] // 4
-    ffn_dim = state_dict[f'{key_prefix}blocks.0.ffn.0.weight'].shape[0]
-    num_layers = sum(
-        1 for k in state_dict_keys
-        if k.startswith(f'{key_prefix}blocks.') and k.endswith('.ffn.0.weight')
-    )
-    
-    # Get patch embedding info
-    patch_embedding = state_dict[f'{key_prefix}patch_embedding.weight']
-    in_dim = patch_embedding.shape[1]
-    patch_size = patch_embedding.shape[2:]  # [1, 2, 2] or [1, 1, 1]
-
-    # --- Build base config ---
-    dit_config = {
-        "image_model": "wan2.1",
-        "dim": dim,
-        "out_dim": out_dim,
-        "num_heads": dim // 128,
-        "ffn_dim": ffn_dim,
-        "num_layers": num_layers,
-        "patch_size": patch_size,
-        "in_dim": in_dim,
-    }
-
-    # --- Detect I2V ---
-    if f'{key_prefix}img_emb.proj.0.bias' in state_dict_keys:
-        dit_config["model_type"] = "i2v"
-        if f'{key_prefix}img_emb.emb_pos' in state_dict_keys:
-            dit_config["flf_pos_embed_token_number"] = state_dict[f'{key_prefix}img_emb.emb_pos'].shape[1]
-        if f'{key_prefix}ref_conv.weight' in state_dict_keys:
-            dit_config["in_dim_ref_conv"] = state_dict[f'{key_prefix}ref_conv.weight'].shape[1]
-        return dit_config
-
-    # --- Detect VACE (original) ---
-    if f'{key_prefix}camera_cond_emb.proj.0.bias' in state_dict_keys:
-        dit_config["model_type"] = "vace"
-        dit_config["patch_size"] = (1, 1, 1)  # VACE default
-        if f'{key_prefix}img_emb.emb_pos' in state_dict_keys:
-            dit_config["flf_pos_embed_token_number"] = state_dict[f'{key_prefix}img_emb.emb_pos'].shape[1]
-        return dit_config
-
-    # --- Detect Cross-Attention Variant (new) ---
-    if f'{key_prefix}blocks.0.cross_attn.q.weight' in state_dict_keys:
-        dit_config["model_type"] = "cross_attn"  # New variant with cross-attention
-        dit_config["has_cross_attention"] = True
-        dit_config["has_self_attention"] = f'{key_prefix}blocks.0.self_attn.q.weight' in state_dict_keys
-        return dit_config
-
-    # --- Fallback: Generic WAN2.1 ---
-    dit_config["model_type"] = "generic"
-    return dit_config
-
 def detect_clip_config(state_dict, key_prefix="", metadata=None):
     """
     Detect CLIP/T5-XXL text encoder configuration
@@ -374,8 +301,11 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
                                 embedding_directory=None, output_model=True, model_options={}, 
                                 te_model_options={}, metadata=None):
     """
-    Load state dict and guess configuration - Enhanced for WAN variants
+    Load state dict and guess configuration - Enhanced for WAN variants with real model detection
     """
+    # Import our standalone model detection
+    from model_detection import detect_unet_config, model_config_from_unet_config, create_model_from_config
+    
     # Handle file paths by loading them first
     if isinstance(sd, str):
         sd = load_torch_file(sd)
@@ -398,22 +328,55 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
         
         return (None, clip, vae, clipvision)
 
-    # Model detection for UNet
+    # Model detection for UNet using our standalone detection
     diffusion_model_prefix = unet_prefix_from_state_dict(sd)
     parameters = calculate_parameters(sd, diffusion_model_prefix)
     weight_dtype_val = weight_dtype(sd, diffusion_model_prefix)
     load_device = get_torch_device()
 
+    # Use our standalone model detection
     unet_config = detect_unet_config(sd, diffusion_model_prefix, metadata=metadata)
     if unet_config is None:
         logging.warning("Warning, This is not a checkpoint file, trying to load it as a diffusion model only.")
         raise ValueError("Unsupported model type. Only WAN2.1 variants are supported.")
 
-    logging.info(f"Detected WAN model type: {unet_config['model_type']}")
+    logging.info(f"Detected WAN model type: {unet_config.get('model_type', 'unknown')}")
+    logging.info(f"Model config: {unet_config}")
     
     if output_model:
-        # Create proper WAN model with working forward method
-        model = WANModel(sd)
+        # Convert UNet config to model config
+        model_config = model_config_from_unet_config(unet_config)
+        if model_config is None:
+            raise ValueError("Failed to convert UNet config to model config")
+        
+        logging.info(f"Creating model with config: {model_config}")
+        
+        # Create the appropriate WAN model instance
+        model = create_model_from_config(model_config, device=load_device, dtype=weight_dtype_val)
+        
+        # Load the state dict into the model
+        try:
+            # Filter state dict to only include model weights
+            model_sd = {}
+            for k, v in sd.items():
+                if k.startswith(diffusion_model_prefix):
+                    model_key = k[len(diffusion_model_prefix):]
+                    model_sd[model_key] = v
+            
+            # Load state dict
+            missing_keys, unexpected_keys = model.load_state_dict(model_sd, strict=False)
+            if missing_keys:
+                logging.warning(f"Missing keys in model: {missing_keys}")
+            if unexpected_keys:
+                logging.warning(f"Unexpected keys in model: {unexpected_keys}")
+            
+            logging.info(f"Successfully loaded model state dict")
+            
+        except Exception as e:
+            logging.error(f"Failed to load model state dict: {e}")
+            raise
+        
+        # Create model patcher
         model_patcher = create_model_patcher(model, load_device=load_device, offload_device=unet_offload_device())
 
     return (model_patcher, clip, vae, clipvision)
