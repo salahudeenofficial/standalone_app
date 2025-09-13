@@ -185,7 +185,13 @@ class StandaloneCFGGuider:
         try:
             # Strategy 1: Try model.forward() method directly
             if hasattr(model, 'forward'):
-                result = model.forward(x, timestep)
+                # Check if this is a VaceWanModel that needs context parameter
+                if hasattr(model, '__class__') and 'Vace' in model.__class__.__name__:
+                    # For VaceWanModel, we need to pass context parameter
+                    result = model.forward(x, timestep, conditioning)
+                else:
+                    # For other models, try the original call
+                    result = model.forward(x, timestep)
                 logger.debug(f"Model forward call successful")
                 
                 # Handle different return formats and ensure correct device
@@ -205,7 +211,13 @@ class StandaloneCFGGuider:
             
             # Strategy 2: Try __call__ method
             elif hasattr(model, '__call__'):
-                result = model(x, timestep)
+                # Check if this is a VaceWanModel that needs context parameter
+                if hasattr(model, '__class__') and 'Vace' in model.__class__.__name__:
+                    # For VaceWanModel, we need to pass context parameter
+                    result = model(x, timestep, conditioning)
+                else:
+                    # For other models, try the original call
+                    result = model(x, timestep)
                 logger.debug(f"Model __call__ successful")
                 
                 final_result = None

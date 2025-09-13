@@ -354,6 +354,11 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
         # Create the appropriate WAN model instance
         model = create_model_from_config(model_config, device=load_device, dtype=weight_dtype_val)
         
+        # Move model to the correct device
+        if load_device is not None:
+            model = model.to(load_device)
+            logging.info(f"Model moved to device: {load_device}")
+        
         # Load the state dict into the model
         try:
             # Filter state dict to only include model weights
