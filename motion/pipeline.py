@@ -30,6 +30,7 @@ from lora import load_lora_for_models
 from model_sampling import ModelSamplingSD3
 from text_encoder import CLIPTextEncode
 from standalone_ksampler import StandaloneKSampler, prepare_noise
+from memory_utils import safe_model_to_device, log_memory_usage, clear_cuda_memory, get_memory_info, safe_model_to_device_advanced
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -82,6 +83,9 @@ class WanVideoPipeline:
         print(f"   Device: {self.device}")
         print(f"   Offload Device: {self.offload_device}")
         print(f"   Models Directory: {self.models_dir}")
+        
+        # Log initial memory state
+        log_memory_usage("Pipeline Initialization")
         
     def setup_model_paths(self):
         """Setup model paths for the standalone app"""
@@ -484,7 +488,10 @@ class WanVideoPipeline:
             unet_state_dict = load_torch_file(unet_model_path)
             print(f"   📊 Loaded UNet state dict with {len(unet_state_dict)} keys")
             
-            # Load UNet model using standalone_sd
+            # Log memory before UNet loading
+            log_memory_usage("Before UNet Loading")
+            
+            # Load UNet model using standalone_sd with advanced memory management
             result = load_state_dict_guess_config(
                 unet_state_dict,
                 output_vae=False,
@@ -502,10 +509,44 @@ class WanVideoPipeline:
             if self.unet is None:
                 raise RuntimeError("UNet model is None after loading")
             
+            # Apply advanced memory management to the loaded UNet
+            print("🔧 Applying advanced memory management to UNet...")
+            
+            # Get the actual model from the ModelPatcher
+            if hasattr(self.unet, 'model'):
+                actual_model = self.unet.model
+                target_device = self.unet.load_device
+                
+                # Use advanced partial loading
+                actual_model, final_device, loading_info = safe_model_to_device_advanced(
+                    actual_model, 
+                    target_device, 
+                    min_free_gb=2.0, 
+                    state_dict=unet_state_dict,
+                    enable_partial_loading=True
+                )
+                
+                print(f"   📊 UNet loading type: {loading_info['loading_type']}")
+                if loading_info['loading_type'] == 'partial':
+                    print(f"   📊 Modules loaded to GPU: {loading_info['modules_loaded']}")
+                    print(f"   📊 Modules with dynamic loading: {loading_info['modules_dynamic']}")
+                    print(f"   📊 GPU memory used: {loading_info['memory_used_gb']:.3f} GB")
+                    print(f"   📊 Memory budget: {loading_info['memory_budget_gb']:.3f} GB")
+                elif loading_info['loading_type'] == 'full':
+                    print(f"   📊 Full model loaded to GPU")
+                else:
+                    print(f"   📊 Model loaded to: {final_device}")
+                
+                # Update the ModelPatcher's device info
+                self.unet.load_device = final_device
+            
             unet_time = time.time() - unet_start
             print(f"✅ UNet loaded successfully in {unet_time:.2f}s")
             print(f"   Type: {type(self.unet).__name__}")
             print(f"   Device: {self.unet.load_device}")
+            
+            # Log memory after UNet loading
+            log_memory_usage("After UNet Loading")
             
             # Calculate UNet model size
             if hasattr(self.unet, 'model') and hasattr(self.unet.model, 'state_dict'):
@@ -869,6 +910,9 @@ class WanVideoPipeline:
         print("🚀 STEP 4: KSAMPLER DENOISING")
         print("="*80)
         
+        # Log memory before KSampler step
+        log_memory_usage("Before Step 4 KSampler")
+        
         try:
             step_4_start = time.time()
             
@@ -1005,6 +1049,9 @@ class WanVideoPipeline:
             
             # Mark step complete
             self.step_completed[4] = True
+            
+            # Log memory after KSampler step
+            log_memory_usage("After Step 4 KSampler")
             
             # Create results
             step_4_results = {

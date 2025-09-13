@@ -3,7 +3,7 @@ import logging
 from wan_vae_components.model_management import get_torch_device, unet_offload_device, unet_dtype, unet_manual_cast, unet_inital_load_device, load_models_gpu
 from standalone_model_patcher import create_model_patcher
 from utils import calculate_parameters, weight_dtype, state_dict_prefix_replace, load_torch_file
-from memory_utils import safe_model_to_device, log_memory_usage, clear_cuda_memory
+from memory_utils import safe_model_to_device, log_memory_usage, clear_cuda_memory, estimate_state_dict_memory
 import torch.nn as nn
 
 def detect_clip_config(state_dict, key_prefix="", metadata=None):
@@ -357,7 +357,16 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
         
         # Memory-aware device management
         log_memory_usage("Before model loading")
-        model, load_device = safe_model_to_device(model, load_device, min_free_gb=2.0)
+        
+        # Estimate memory requirements from state dict BEFORE loading
+        state_dict_info = estimate_state_dict_memory(state_dict)
+        logging.info(f"State dict analysis:")
+        logging.info(f"  Size: {state_dict_info['size_gb']:.2f} GB")
+        logging.info(f"  Parameters: {state_dict_info['parameters']:,}")
+        logging.info(f"  Keys: {state_dict_info['keys']}")
+        
+        # Use corrected memory management with state dict
+        model, load_device = safe_model_to_device(model, load_device, min_free_gb=2.0, state_dict=state_dict)
         
         # Load the state dict into the model
         try:

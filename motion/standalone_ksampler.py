@@ -180,6 +180,19 @@ class StandaloneCFGGuider:
             model = self.model_patcher.model
         else:
             model = self.model_patcher
+        
+        # Get model device and ensure inputs match
+        model_device = next(model.parameters()).device if hasattr(model, 'parameters') else torch.device('cpu')
+        original_device = x.device  # Store original device to move result back
+        
+        # Move inputs to model device if they don't match
+        if x.device != model_device:
+            logger.debug(f"Moving input from {x.device} to model device {model_device}")
+            x = x.to(model_device)
+        if timestep.device != model_device:
+            timestep = timestep.to(model_device)
+        if conditioning is not None and hasattr(conditioning, 'device') and conditioning.device != model_device:
+            conditioning = conditioning.to(model_device)
             
         # Try different model call strategies
         try:
@@ -203,9 +216,9 @@ class StandaloneCFGGuider:
                 else:
                     final_result = result
                 
-                # Ensure result is on the same device as input
-                if isinstance(final_result, torch.Tensor) and isinstance(x, torch.Tensor):
-                    final_result = final_result.to(x.device)
+                # Ensure result is on the original device
+                if isinstance(final_result, torch.Tensor):
+                    final_result = final_result.to(original_device)
                 
                 return final_result
             
@@ -228,9 +241,9 @@ class StandaloneCFGGuider:
                 else:
                     final_result = result
                 
-                # Ensure result is on the same device as input
-                if isinstance(final_result, torch.Tensor) and isinstance(x, torch.Tensor):
-                    final_result = final_result.to(x.device)
+                # Ensure result is on the original device
+                if isinstance(final_result, torch.Tensor):
+                    final_result = final_result.to(original_device)
                 
                 return final_result
                     
@@ -247,9 +260,9 @@ class StandaloneCFGGuider:
                 else:
                     final_result = result
                 
-                # Ensure result is on the same device as input
-                if isinstance(final_result, torch.Tensor) and isinstance(x, torch.Tensor):
-                    final_result = final_result.to(x.device)
+                # Ensure result is on the original device
+                if isinstance(final_result, torch.Tensor):
+                    final_result = final_result.to(original_device)
                 
                 return final_result
             else:
@@ -274,13 +287,20 @@ class StandaloneCFGGuider:
                         
                     logger.debug(f"Model call with conditioning successful")
                     
-                    # Handle return formats
+                    # Handle return formats and ensure correct device
+                    final_result = None
                     if isinstance(result, dict) and 'sample' in result:
-                        return result['sample']
+                        final_result = result['sample']
                     elif isinstance(result, (tuple, list)) and len(result) > 0:
-                        return result[0]
+                        final_result = result[0]
                     else:
-                        return result
+                        final_result = result
+                    
+                    # Ensure result is on the original device
+                    if isinstance(final_result, torch.Tensor):
+                        final_result = final_result.to(original_device)
+                    
+                    return final_result
                 else:
                     logger.error(f"No conditioning provided for fallback strategy")
                     return torch.zeros_like(x)
@@ -293,6 +313,11 @@ class StandaloneCFGGuider:
                 if hasattr(self.model_patcher, 'model') and hasattr(self.model_patcher.model, 'forward'):
                     result = self.model_patcher.model.forward(x, timestep)
                     logger.debug(f"ModelPatcher.model.forward successful")
+                    
+                    # Ensure result is on the original device
+                    if isinstance(result, torch.Tensor):
+                        result = result.to(original_device)
+                    
                     return result
             except Exception as e3:
                 logger.error(f"ModelPatcher fallback failed: {e3}")
