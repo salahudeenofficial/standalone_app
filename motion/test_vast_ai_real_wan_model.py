@@ -29,18 +29,22 @@ def test_real_wan_model_loading():
         from utils import load_torch_file
         from memory_utils import log_memory_usage, safe_model_to_device_advanced
         
-        print("📊 Testing real WAN2.1 VACE model loading...")
+        print("📊 Testing real WAN 2.1 diffusion model loading...")
         
-        # Step 1: Find the WAN2.1 VACE model file
-        print("\n🔧 Step 1: Locating WAN2.1 VACE model...")
+        # Step 1: Find the WAN 2.1 diffusion model file
+        print("\n🔧 Step 1: Locating WAN 2.1 diffusion model...")
         
         # Common paths where the model might be located
         possible_paths = [
+            "models/diffusion_models/wan_2.1_diffusion_model.safetensors",
+            "models/wan_2.1_diffusion_model.safetensors", 
+            "wan_2.1_diffusion_model.safetensors",
+            "/home/fashionx/v_pipe/standalone_app/motion/models/diffusion_models/wan_2.1_diffusion_model.safetensors",
+            "/home/fashionx/v_pipe/standalone_app/motion/models/wan_2.1_diffusion_model.safetensors",
+            # Also check for alternative naming
             "models/diffusion_models/wan2.1_vace.safetensors",
             "models/wan2.1_vace.safetensors", 
-            "wan2.1_vace.safetensors",
-            "/home/fashionx/v_pipe/standalone_app/motion/models/diffusion_models/wan2.1_vace.safetensors",
-            "/home/fashionx/v_pipe/standalone_app/motion/models/wan2.1_vace.safetensors"
+            "wan2.1_vace.safetensors"
         ]
         
         model_path = None
@@ -50,11 +54,11 @@ def test_real_wan_model_loading():
                 break
         
         if model_path is None:
-            print("❌ WAN2.1 VACE model not found. Please ensure the model is downloaded.")
+            print("❌ WAN 2.1 diffusion model not found. Please ensure the model is downloaded.")
             print("   Expected locations:")
             for path in possible_paths:
                 print(f"   - {path}")
-            return False
+            return None, None
         
         print(f"   ✅ Found model at: {model_path}")
         
@@ -294,7 +298,7 @@ def test_memory_efficiency():
 
 def main():
     """Run all VAST AI instance tests with real WAN model"""
-    print("🚀 VAST AI INSTANCE - REAL WAN2.1 VACE MODEL TESTS")
+    print("🚀 VAST AI INSTANCE - REAL WAN 2.1 DIFFUSION MODEL TESTS")
     print("="*100)
     
     # Print system information
@@ -311,7 +315,7 @@ def main():
     print("\n" + "="*100)
     
     # Test 1: Load real WAN model
-    print("🧪 TEST 1: REAL WAN MODEL LOADING")
+    print("🧪 TEST 1: REAL WAN 2.1 DIFFUSION MODEL LOADING")
     unet_model_patcher, unet_state_dict = test_real_wan_model_loading()
     
     if unet_model_patcher is None:
@@ -319,7 +323,7 @@ def main():
         return False
     
     # Test 2: Perform inference
-    print("\n🧪 TEST 2: WAN MODEL INFERENCE")
+    print("\n🧪 TEST 2: WAN 2.1 DIFFUSION MODEL INFERENCE")
     inference_success = test_wan_model_inference(unet_model_patcher, unet_state_dict)
     
     # Test 3: Memory efficiency
@@ -331,8 +335,8 @@ def main():
     print("="*100)
     
     results = [
-        ("Real WAN Model Loading", unet_model_patcher is not None),
-        ("WAN Model Inference", inference_success),
+        ("Real WAN 2.1 Diffusion Model Loading", unet_model_patcher is not None),
+        ("WAN 2.1 Diffusion Model Inference", inference_success),
         ("Memory Efficiency", memory_success),
     ]
     
@@ -346,7 +350,7 @@ def main():
     print("\n" + "="*100)
     if all_passed:
         print("🎉 ALL VAST AI INSTANCE TESTS PASSED!")
-        print("✅ Real WAN2.1 VACE model loaded successfully")
+        print("✅ Real WAN 2.1 diffusion model loaded successfully")
         print("✅ Partial loading system working correctly")
         print("✅ Inference performed successfully")
         print("✅ Memory efficiency optimized")
