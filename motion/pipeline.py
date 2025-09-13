@@ -72,6 +72,7 @@ class WanVideoPipeline:
             1: False,  # VAE + Latent Creation
             2: False,  # UNet + CLIP + LoRA  
             3: False,  # Model Sampling + Text Encoding
+            4: False,  # KSampler Denoising
             5: False,  # Noise + Conditioning
             6: False,  # UNet Inference
             7: False   # VAE Decode + Export
@@ -828,6 +829,210 @@ class WanVideoPipeline:
             traceback.print_exc()
             raise
 
+    def step_4_ksampler_denoising(self,
+                                initial_latent: torch.Tensor,
+                                positive_conditioning: Any,
+                                negative_conditioning: Any,
+                                seed: int = 42,
+                                steps: int = 20,
+                                cfg: float = 7.0,
+                                sampler_name: str = "euler",
+                                scheduler: str = "normal",
+                                denoise: float = 1.0,
+                                noise_inds: Optional[torch.Tensor] = None) -> Dict[str, Any]:
+        """
+        Step 4: KSampler Denoising
+        
+        This step performs the core denoising process using the KSampler:
+        1. Prepares noise for the initial latent
+        2. Sets up the KSampler with specified parameters
+        3. Performs denoising steps to generate the final latent
+        4. Returns the denoised latent ready for VAE decoding
+        
+        Args:
+            initial_latent: Initial latent tensor from Step 1
+            positive_conditioning: Positive conditioning from Step 3
+            negative_conditioning: Negative conditioning from Step 3
+            seed: Random seed for noise generation
+            steps: Number of denoising steps
+            cfg: Classifier-free guidance scale
+            sampler_name: Sampler algorithm name (euler, ddim, etc.)
+            scheduler: Scheduler type (normal, karras, etc.)
+            denoise: Denoising strength (0.0-1.0)
+            noise_inds: Optional noise indices for specific steps
+            
+        Returns:
+            Dictionary containing denoised latent and sampling information
+        """
+        
+        print("\n" + "="*80)
+        print("🚀 STEP 4: KSAMPLER DENOISING")
+        print("="*80)
+        
+        try:
+            step_4_start = time.time()
+            
+            # Verify prerequisites from previous steps
+            if not self.step_completed[3]:
+                raise RuntimeError("Step 3 (Model Sampling + Text Encoding) must be completed before Step 4")
+            
+            if self.unet is None:
+                raise RuntimeError("UNet model not loaded - Step 2 must be completed first")
+            
+            if self.clip is None:
+                raise RuntimeError("CLIP model not loaded - Step 2 must be completed first")
+            
+            # ========================================================================
+            # 4.1: Prepare Noise for Initial Latent
+            # ========================================================================
+            print("4.1 Preparing noise for initial latent...")
+            noise_start = time.time()
+            
+            print(f"   📊 Initial latent shape: {initial_latent.shape}")
+            print(f"   📊 Initial latent device: {initial_latent.device}")
+            print(f"   📊 Initial latent dtype: {initial_latent.dtype}")
+            
+            # Prepare noise using our standalone sample.py
+            noise = prepare_noise(initial_latent, seed, noise_inds)
+            
+            noise_time = time.time() - noise_start
+            print(f"✅ Noise prepared in {noise_time:.3f}s")
+            print(f"   📊 Noise shape: {noise.shape}")
+            print(f"   📊 Noise device: {noise.device}")
+            print(f"   📊 Noise range: [{noise.min().item():.3f}, {noise.max().item():.3f}]")
+            
+            # ========================================================================
+            # 4.2: Setup KSampler
+            # ========================================================================
+            print("\n4.2 Setting up KSampler...")
+            sampler_start = time.time()
+            
+            # Create KSampler instance
+            ksampler = StandaloneKSampler(
+                model=self.unet,
+                device=self.device,
+                offload_device=self.offload_device
+            )
+            
+            print(f"   🔧 KSampler created successfully")
+            print(f"   🔧 Model: {type(self.unet).__name__}")
+            print(f"   🔧 Device: {self.device}")
+            print(f"   🔧 Offload Device: {self.offload_device}")
+            
+            # ========================================================================
+            # 4.3: Configure Sampling Parameters
+            # ========================================================================
+            print("\n4.3 Configuring sampling parameters...")
+            
+            print(f"   📋 SAMPLING CONFIGURATION:")
+            print(f"      Seed: {seed}")
+            print(f"      Steps: {steps}")
+            print(f"      CFG: {cfg}")
+            print(f"      Sampler: {sampler_name}")
+            print(f"      Scheduler: {scheduler}")
+            print(f"      Denoise: {denoise}")
+            print(f"      Noise Indices: {noise_inds is not None}")
+            
+            # ========================================================================
+            # 4.4: Perform Denoising
+            # ========================================================================
+            print("\n4.4 Performing denoising...")
+            denoising_start = time.time()
+            
+            # Memory before denoising
+            if torch.cuda.is_available():
+                mem_before = torch.cuda.memory_allocated() / 1024**2
+                print(f"   💾 GPU memory before denoising: {mem_before:.1f} MB")
+            
+            # Perform the denoising process
+            denoised_latent = ksampler.sample(
+                noise=noise,
+                positive_conditioning=positive_conditioning,
+                negative_conditioning=negative_conditioning,
+                steps=steps,
+                cfg=cfg,
+                sampler_name=sampler_name,
+                scheduler=scheduler,
+                denoise=denoise
+            )
+            
+            denoising_time = time.time() - denoising_start
+            
+            # Memory after denoising
+            if torch.cuda.is_available():
+                mem_after = torch.cuda.memory_allocated() / 1024**2
+                mem_delta = mem_after - mem_before
+                print(f"   💾 GPU memory after denoising: {mem_after:.1f} MB (+{mem_delta:.1f} MB)")
+            
+            print(f"✅ Denoising completed in {denoising_time:.2f}s")
+            print(f"   📊 Denoised latent shape: {denoised_latent.shape}")
+            print(f"   📊 Denoised latent device: {denoised_latent.device}")
+            print(f"   📊 Denoised latent range: [{denoised_latent.min().item():.3f}, {denoised_latent.max().item():.3f}]")
+            
+            # ========================================================================
+            # 4.5: Analyze Results
+            # ========================================================================
+            print("\n4.5 Analyzing denoising results...")
+            
+            # Compare initial vs denoised
+            initial_range = initial_latent.max().item() - initial_latent.min().item()
+            denoised_range = denoised_latent.max().item() - denoised_latent.min().item()
+            
+            print(f"   🔧 LATENT ANALYSIS:")
+            print(f"      Initial Range: {initial_range:.3f}")
+            print(f"      Denoised Range: {denoised_range:.3f}")
+            print(f"      Range Change: {((denoised_range - initial_range) / initial_range * 100):+.1f}%")
+            
+            # Check for valid denoising
+            if torch.isfinite(denoised_latent).all():
+                print(f"      Status: ✅ Valid (all finite values)")
+            else:
+                print(f"      Status: ❌ Invalid (contains NaN/Inf)")
+            
+            # Mark step complete
+            self.step_completed[4] = True
+            
+            # Create results
+            step_4_results = {
+                'denoised_latent': denoised_latent,
+                'noise': noise,
+                'ksampler': ksampler,
+                'sampling_config': {
+                    'seed': seed,
+                    'steps': steps,
+                    'cfg': cfg,
+                    'sampler_name': sampler_name,
+                    'scheduler': scheduler,
+                    'denoise': denoise,
+                    'noise_inds_provided': noise_inds is not None
+                },
+                'latent_info': {
+                    'initial_shape': initial_latent.shape,
+                    'denoised_shape': denoised_latent.shape,
+                    'initial_device': str(initial_latent.device),
+                    'denoised_device': str(denoised_latent.device),
+                    'initial_range': initial_range,
+                    'denoised_range': denoised_range
+                },
+                'timing': {
+                    'noise_preparation': noise_time,
+                    'sampler_setup': time.time() - sampler_start,
+                    'denoising': denoising_time,
+                    'total_step_time': time.time() - step_4_start
+                }
+            }
+            
+            print(f"\n✅ STEP 4 COMPLETED SUCCESSFULLY in {time.time() - step_4_start:.2f}s")
+            print("="*80)
+            
+            return step_4_results
+            
+        except Exception as e:
+            print(f"❌ STEP 4 FAILED: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
+
     def load_video(self, video_path: str) -> Optional[torch.Tensor]:
         """Load control video from path as float tensor (T, H, W, 3) in [0,1]"""
         if not video_path or not os.path.exists(video_path):
@@ -898,6 +1103,10 @@ class WanVideoPipeline:
         """Convenience method to run only Step 3"""
         return self.step_3_model_sampling_and_text_encoding(**kwargs)
     
+    def run_step_4_only(self, **kwargs) -> Dict[str, Any]:
+        """Convenience method to run only Step 4"""
+        return self.step_4_ksampler_denoising(**kwargs)
+    
     
     def run_steps_1_and_2(self, step_1_params: Dict[str, Any], step_2_params: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Run both Step 1 and Step 2 in sequence"""
@@ -914,14 +1123,23 @@ class WanVideoPipeline:
         step_3_results = self.step_3_model_sampling_and_text_encoding(**step_3_params)
         return step_1_results, step_2_results, step_3_results
     
+    def run_steps_1_2_3_and_4(self, step_1_params: Dict[str, Any], step_2_params: Dict[str, Any], step_3_params: Dict[str, Any], step_4_params: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+        """Run Steps 1, 2, 3, and 4 in sequence"""
+        print("🚀 Running Steps 1, 2, 3, and 4 in sequence...")
+        step_1_results = self.step_1_vae_and_latent_creation(**step_1_params)
+        step_2_results = self.step_2_unet_clip_lora_loading(**step_2_params)
+        step_3_results = self.step_3_model_sampling_and_text_encoding(**step_3_params)
+        step_4_results = self.step_4_ksampler_denoising(**step_4_params)
+        return step_1_results, step_2_results, step_3_results, step_4_results
+    
 
 # ============================================================================
 # EXAMPLE USAGE AND TESTING
 # ============================================================================
 
 def main():
-    """Example usage of Steps 1, 2, 3 pipeline"""
-    print("🚀 WAN Video Pipeline - Steps 1, 2, 3 Test")
+    """Example usage of Steps 1, 2, 3, 4 pipeline"""
+    print("🚀 WAN Video Pipeline - Steps 1, 2, 3, 4 Test")
     print("="*60)
     
     # Initialize pipeline
@@ -959,6 +1177,20 @@ def main():
         'multiplier': 1000
     }
     
+    # Step 4 parameters
+    step_4_params = {
+        'initial_latent': None,  # Will be set from step_1_results
+        'positive_conditioning': None,  # Will be set from step_3_results
+        'negative_conditioning': None,  # Will be set from step_3_results
+        'seed': 42,
+        'steps': 20,
+        'cfg': 7.0,
+        'sampler_name': "euler",
+        'scheduler': "normal",
+        'denoise': 1.0,
+        'noise_inds': None
+    }
+    
     
     # Check if model files exist
     required_files = [
@@ -990,7 +1222,16 @@ def main():
         
         print("\n🎉 STEPS 1, 2 & 3 COMPLETED!")
         
-        print("\n🎉 STEPS 1, 2, 3 TEST COMPLETED SUCCESSFULLY!")
+        # Prepare Step 4 parameters with results from previous steps
+        step_4_params['initial_latent'] = step_1_results['out_latent']['samples']
+        step_4_params['positive_conditioning'] = step_3_results['positive_conditioning']
+        step_4_params['negative_conditioning'] = step_3_results['negative_conditioning']
+        
+        # Run Step 4: KSampler Denoising
+        print("\n🚀 Running Step 4: KSampler Denoising...")
+        step_4_results = pipeline.run_step_4_only(**step_4_params)
+        
+        print("\n🎉 STEPS 1, 2, 3 & 4 COMPLETED!")
         print(f"Pipeline Status: {pipeline.get_step_status()}")
         
         # Display Step 1 results summary
@@ -1026,9 +1267,22 @@ def main():
                 print(f"   Conditioning Device: {step_3_results['conditioning_info']['positive_device']}")
             print(f"   Processing Time: {step_3_results['timing']['total_step_time']:.2f}s")
         
+        # Display Step 4 results summary
+        if step_4_results:
+            print(f"\n📋 STEP 4 RESULTS (KSampler Denoising):")
+            print(f"   Denoised Latent Shape: {step_4_results['denoised_latent'].shape}")
+            print(f"   Denoised Latent Device: {step_4_results['denoised_latent'].device}")
+            print(f"   Sampling Steps: {step_4_results['sampling_config']['steps']}")
+            print(f"   CFG Scale: {step_4_results['sampling_config']['cfg']}")
+            print(f"   Sampler: {step_4_results['sampling_config']['sampler_name']}")
+            print(f"   Scheduler: {step_4_results['sampling_config']['scheduler']}")
+            print(f"   Denoise Strength: {step_4_results['sampling_config']['denoise']}")
+            print(f"   Processing Time: {step_4_results['timing']['total_step_time']:.2f}s")
+            print(f"   Denoising Time: {step_4_results['timing']['denoising']:.2f}s")
         
-        print("\n✅ Steps 1, 2, 3 completed - Core pipeline ready!")
-        print("✅ Ready for Step 4: KSampler Denoising")
+        
+        print("\n✅ Steps 1, 2, 3, 4 completed - Core pipeline ready!")
+        print("✅ Ready for Step 5: VAE Decoding")
         
     except Exception as e:
         print(f"\n❌ PIPELINE TEST FAILED: {str(e)}")
