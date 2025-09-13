@@ -989,7 +989,13 @@ class WanVideoPipeline:
             print(f"   🔧 LATENT ANALYSIS:")
             print(f"      Initial Range: {initial_range:.3f}")
             print(f"      Denoised Range: {denoised_range:.3f}")
-            print(f"      Range Change: {((denoised_range - initial_range) / initial_range * 100):+.1f}%")
+            
+            # Calculate range change safely
+            if initial_range > 0:
+                range_change = ((denoised_range - initial_range) / initial_range * 100)
+                print(f"      Range Change: {range_change:+.1f}%")
+            else:
+                print(f"      Range Change: N/A (initial range was 0)")
             
             # Check for valid denoising
             if torch.isfinite(denoised_latent).all():
