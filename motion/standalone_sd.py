@@ -359,14 +359,14 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
         log_memory_usage("Before model loading")
         
         # Estimate memory requirements from state dict BEFORE loading
-        state_dict_info = estimate_state_dict_memory(state_dict)
+        state_dict_info = estimate_state_dict_memory(sd)
         logging.info(f"State dict analysis:")
         logging.info(f"  Size: {state_dict_info['size_gb']:.2f} GB")
         logging.info(f"  Parameters: {state_dict_info['parameters']:,}")
         logging.info(f"  Keys: {state_dict_info['keys']}")
         
         # Use corrected memory management with state dict
-        model, load_device = safe_model_to_device(model, load_device, min_free_gb=2.0, state_dict=state_dict)
+        model, load_device = safe_model_to_device(model, load_device, min_free_gb=2.0, state_dict=sd)
         
         # Load the state dict into the model
         try:
