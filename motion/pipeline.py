@@ -950,13 +950,18 @@ class WanVideoPipeline:
             # Perform the denoising process
             denoised_latent = ksampler.sample(
                 noise=noise,
-                positive_conditioning=positive_conditioning,
-                negative_conditioning=negative_conditioning,
-                steps=steps,
+                positive=positive_conditioning,
+                negative=negative_conditioning,
                 cfg=cfg,
-                sampler_name=sampler_name,
-                scheduler=scheduler,
-                denoise=denoise
+                latent_image=None,
+                start_step=None,
+                last_step=None,
+                force_full_denoise=False,
+                denoise_mask=None,
+                sigmas=None,
+                callback=None,
+                disable_pbar=False,
+                seed=seed
             )
             
             denoising_time = time.time() - denoising_start
