@@ -910,8 +910,11 @@ class WanVideoPipeline:
             # Create KSampler instance
             ksampler = StandaloneKSampler(
                 model=self.unet,
+                steps=steps,
                 device=self.device,
-                offload_device=self.offload_device
+                sampler=sampler_name,
+                scheduler=scheduler,
+                denoise=denoise
             )
             
             print(f"   🔧 KSampler created successfully")
