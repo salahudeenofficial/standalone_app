@@ -231,10 +231,13 @@ def test_wan_model_inference(unet_model_patcher, unet_state_dict):
                 
                 try:
                     with torch.no_grad():
-                        # Ensure all tensors are on the same device as the model
-                        video_latent = video_latent.to(device)
-                        timestep = timestep.to(device)
-                        conditioning = conditioning.to(device)
+                        # For dynamic loading, we need to move inputs to GPU since modules are on GPU
+                        gpu_device = torch.device('cuda')
+                        video_latent = video_latent.to(gpu_device)
+                        timestep = timestep.to(gpu_device)
+                        conditioning = conditioning.to(gpu_device)
+                        
+                        print(f"   📊 Inputs moved to GPU for dynamic loading")
                         
                         # Try WAN model signature (t, context)
                         output = model(video_latent, timestep, conditioning)
