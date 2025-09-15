@@ -370,7 +370,7 @@ def _analyze_model_modules(model, state_dict=None):
 
 def load_modules_for_inference(model, module_names, device=None):
     """
-    Dynamically load specific modules to GPU for inference
+    Dynamically load specific modules to GPU for inference using ComfyUI-style weight patching
     
     Args:
         model: Model with dynamic loading setup
@@ -399,15 +399,13 @@ def load_modules_for_inference(model, module_names, device=None):
                 modules_to_load.append(module_info)
                 break
     
-    # Load modules to GPU
+    # Load modules to GPU using ComfyUI-style approach
     for module_info in modules_to_load:
         try:
-            # Move module parameters to GPU
             module = module_info['module']
-            for param in module.parameters():
-                param.data = param.data.to(target_device)
-            for buffer in module.buffers():
-                buffer.data = buffer.data.to(target_device)
+            
+            # Move the entire module to GPU (ComfyUI does this for loaded modules)
+            module.to(target_device)
             
             loaded_modules.add(module_info['name'])
             logging.info(f"  ✅ Loaded {module_info['name']}: {module_info['size_gb']:.3f} GB")
@@ -419,7 +417,7 @@ def load_modules_for_inference(model, module_names, device=None):
 
 def unload_modules_after_inference(model, module_names=None):
     """
-    Unload modules from GPU after inference
+    Unload modules from GPU after inference using ComfyUI-style approach
     
     Args:
         model: Model with dynamic loading setup
@@ -447,12 +445,9 @@ def unload_modules_after_inference(model, module_names=None):
         for module_info in modules_info:
             if module_info['name'] == module_name and module_name in loaded_modules:
                 try:
-                    # Move module parameters back to CPU
+                    # Move the entire module back to CPU (ComfyUI style)
                     module = module_info['module']
-                    for param in module.parameters():
-                        param.data = param.data.to(cpu_device)
-                    for buffer in module.buffers():
-                        buffer.data = buffer.data.to(cpu_device)
+                    module.to(cpu_device)
                     
                     loaded_modules.discard(module_name)
                     logging.info(f"  ✅ Unloaded {module_name}")
