@@ -206,71 +206,88 @@ def test_wan_model_inference(unet_model_patcher, unet_state_dict):
         
         # Check if model has dynamic loading setup
         if hasattr(model, '_dynamic_loading_info'):
-            print("   📊 Model has dynamic loading setup - using dynamic loading for inference")
+            print("   📊 Model has dynamic loading setup - using ComfyUI-style loading")
             
-            # Load essential modules for inference (first few blocks)
-            essential_modules = [
-                'time_projection.1',
-                'blocks.0.mlp.fc1',
-                'blocks.0.mlp.fc2', 
-                'blocks.0.self_attn.q',
-                'blocks.0.self_attn.k',
-                'blocks.0.self_attn.v',
-                'blocks.0.self_attn.o',
-                'blocks.0.cross_attn.q',
-                'blocks.0.cross_attn.k',
-                'blocks.0.cross_attn.v',
-                'blocks.0.cross_attn.o'
-            ]
-            
-            # Load modules for inference
-            from memory_utils import load_modules_for_inference, unload_modules_after_inference
-            
-            if load_modules_for_inference(model, essential_modules):
-                print("   ✅ Essential modules loaded to GPU")
+            # Load the entire model to GPU before inference (ComfyUI approach)
+            try:
+                print("   🔄 Loading entire model to GPU for inference...")
+                model.to('cuda')
+                print("   ✅ Model loaded to GPU")
                 
+                with torch.no_grad():
+                    # Move inputs to GPU
+                    gpu_device = torch.device('cuda')
+                    video_latent = video_latent.to(gpu_device)
+                    timestep = timestep.to(gpu_device)
+                    conditioning = conditioning.to(gpu_device)
+                    
+                    print(f"   📊 Inputs moved to GPU")
+                    
+                    # Ensure model is in eval mode
+                    model.eval()
+                    
+                    # Try WAN model signature (t, context)
+                    output = model(video_latent, timestep, conditioning)
+                    
+                    inference_time = time.time() - start_time
+                    
+                    print(f"   ✅ Inference successful!")
+                    print(f"   📊 Output shape: {output.shape}")
+                    print(f"   📊 Inference time: {inference_time:.3f} seconds")
+                    print(f"   📊 Output range: [{output.min():.3f}, {output.max():.3f}]")
+                    print(f"   📊 Output device: {output.device}")
+                    
+                    # Verify output is reasonable
+                    if torch.isfinite(output).all():
+                        print(f"   ✅ Output contains finite values")
+                    else:
+                        print(f"   ⚠️  Output contains NaN/Inf values")
+                    
+                    # Unload model back to CPU after inference (ComfyUI approach)
+                    print("   🔄 Unloading model back to CPU...")
+                    model.to('cpu')
+                    print("   ✅ Model unloaded to CPU")
+                    
+                    return True
+                    
+            except torch.cuda.OutOfMemoryError as e:
+                print(f"   ❌ CUDA OOM during inference: {e}")
+                print("   🔄 Falling back to CPU inference...")
+                
+                # Fallback to CPU inference
                 try:
+                    model.to('cpu')
+                    video_latent = video_latent.to('cpu')
+                    timestep = timestep.to('cpu')
+                    conditioning = conditioning.to('cpu')
+                    
                     with torch.no_grad():
-                        # For dynamic loading, we need to move inputs to GPU since modules are on GPU
-                        gpu_device = torch.device('cuda')
-                        video_latent = video_latent.to(gpu_device)
-                        timestep = timestep.to(gpu_device)
-                        conditioning = conditioning.to(gpu_device)
-                        
-                        print(f"   📊 Inputs moved to GPU for dynamic loading")
-                        
-                        # Try WAN model signature (t, context)
+                        model.eval()
                         output = model(video_latent, timestep, conditioning)
                         
                         inference_time = time.time() - start_time
                         
-                        print(f"   ✅ Inference successful!")
+                        print(f"   ✅ CPU inference successful!")
                         print(f"   📊 Output shape: {output.shape}")
                         print(f"   📊 Inference time: {inference_time:.3f} seconds")
                         print(f"   📊 Output range: [{output.min():.3f}, {output.max():.3f}]")
-                        print(f"   📊 Output device: {output.device}")
-                        
-                        # Verify output is reasonable
-                        if torch.isfinite(output).all():
-                            print(f"   ✅ Output contains finite values")
-                        else:
-                            print(f"   ⚠️  Output contains NaN/Inf values")
-                        
-                        # Unload modules after inference
-                        unload_modules_after_inference(model)
-                        print("   ✅ Modules unloaded from GPU")
                         
                         return True
                         
-                except Exception as e:
-                    print(f"   ❌ Inference failed: {e}")
-                    print(f"   📊 Error type: {type(e).__name__}")
-                    
-                    # Unload modules on error
-                    unload_modules_after_inference(model)
+                except Exception as cpu_e:
+                    print(f"   ❌ CPU inference also failed: {cpu_e}")
                     return False
-            else:
-                print("   ❌ Failed to load essential modules")
+                    
+            except Exception as e:
+                print(f"   ❌ Inference failed: {e}")
+                print(f"   📊 Error type: {type(e).__name__}")
+                
+                # Try to unload model on error
+                try:
+                    model.to('cpu')
+                except:
+                    pass
+                    
                 return False
         else:
             print("   📊 Model doesn't have dynamic loading - trying standard inference")
