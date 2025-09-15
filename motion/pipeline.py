@@ -981,40 +981,85 @@ class WanVideoPipeline:
             print(f"      Noise Indices: {noise_inds is not None}")
             
             # ========================================================================
-            # 4.4: Perform Denoising
+            # 4.4: Perform Denoising with ComfyUI-style Memory Management
             # ========================================================================
-            print("\n4.4 Performing denoising...")
+            print("\n4.4 Performing denoising with advanced memory management...")
             denoising_start = time.time()
             
             # Memory before denoising
-            if torch.cuda.is_available():
-                mem_before = torch.cuda.memory_allocated() / 1024**2
-                print(f"   💾 GPU memory before denoising: {mem_before:.1f} MB")
+            log_memory_usage("Before Denoising")
+            
+            # Check if UNet has dynamic loading setup
+            unet_model = self.unet.model if hasattr(self.unet, 'model') else self.unet
+            model_was_on_cpu = False
+            
+            if hasattr(unet_model, '_dynamic_loading_info'):
+                print("   📊 UNet has dynamic loading setup - using ComfyUI-style loading")
+                
+                # Check if model is currently on CPU
+                if str(unet_model.device) == 'cpu':
+                    model_was_on_cpu = True
+                    print("   🔄 Loading entire UNet to GPU for inference...")
+                    
+                    try:
+                        # Load entire model to GPU before inference (ComfyUI approach)
+                        unet_model.to('cuda')
+                        print("   ✅ UNet loaded to GPU")
+                        
+                        # Update the ModelPatcher's device info
+                        self.unet.load_device = torch.device('cuda')
+                        
+                    except torch.cuda.OutOfMemoryError as e:
+                        print(f"   ❌ CUDA OOM during model loading: {e}")
+                        print("   🔄 Falling back to CPU inference...")
+                        
+                        # Keep model on CPU for inference
+                        unet_model.to('cpu')
+                        self.unet.load_device = torch.device('cpu')
+                        model_was_on_cpu = True
+                        
+            else:
+                print("   📊 UNet doesn't have dynamic loading - using standard approach")
             
             # Perform the denoising process
-            denoised_latent = ksampler.sample(
-                noise=noise,
-                positive=positive_conditioning,
-                negative=negative_conditioning,
-                cfg=cfg,
-                latent_image=None,
-                start_step=None,
-                last_step=None,
-                force_full_denoise=False,
-                denoise_mask=None,
-                sigmas=None,
-                callback=None,
-                disable_pbar=False,
-                seed=seed
-            )
+            try:
+                denoised_latent = ksampler.sample(
+                    noise=noise,
+                    positive=positive_conditioning,
+                    negative=negative_conditioning,
+                    cfg=cfg,
+                    latent_image=None,
+                    start_step=None,
+                    last_step=None,
+                    force_full_denoise=False,
+                    denoise_mask=None,
+                    sigmas=None,
+                    callback=None,
+                    disable_pbar=False,
+                    seed=seed
+                )
+                
+                print("   ✅ Denoising completed successfully")
+                
+            except Exception as e:
+                print(f"   ❌ Denoising failed: {e}")
+                raise
+            
+            finally:
+                # ComfyUI-style cleanup: Unload model back to CPU after inference
+                if hasattr(unet_model, '_dynamic_loading_info') and not model_was_on_cpu:
+                    try:
+                        print("   🔄 Unloading UNet back to CPU after inference...")
+                        unet_model.to('cpu')
+                        self.unet.load_device = torch.device('cpu')
+                        print("   ✅ UNet unloaded to CPU")
+                    except Exception as cleanup_e:
+                        print(f"   ⚠️  Warning: Failed to unload UNet to CPU: {cleanup_e}")
             
             denoising_time = time.time() - denoising_start
             
             # Memory after denoising
-            if torch.cuda.is_available():
-                mem_after = torch.cuda.memory_allocated() / 1024**2
-                mem_delta = mem_after - mem_before
-                print(f"   💾 GPU memory after denoising: {mem_after:.1f} MB (+{mem_delta:.1f} MB)")
+            log_memory_usage("After Denoising")
             
             print(f"✅ Denoising completed in {denoising_time:.2f}s")
             print(f"   📊 Denoised latent shape: {denoised_latent.shape}")
@@ -1148,6 +1193,94 @@ class WanVideoPipeline:
             print(f"Error loading image '{image_path}': {e}")
             return None
 
+    def run_complete_pipeline_with_memory_management(self,
+                                                   step_1_params: Dict[str, Any],
+                                                   step_2_params: Dict[str, Any], 
+                                                   step_3_params: Dict[str, Any],
+                                                   step_4_params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Run the complete pipeline with advanced ComfyUI-style memory management
+        
+        This method demonstrates the complete workflow:
+        1. VAE + Latent Creation
+        2. UNet + CLIP + LoRA Loading (with dynamic loading setup)
+        3. Model Sampling + Text Encoding
+        4. KSampler Denoising (with ComfyUI-style model loading/unloading)
+        
+        Args:
+            step_1_params: Parameters for Step 1 (VAE + Latent Creation)
+            step_2_params: Parameters for Step 2 (UNet + CLIP + LoRA Loading)
+            step_3_params: Parameters for Step 3 (Model Sampling + Text Encoding)
+            step_4_params: Parameters for Step 4 (KSampler Denoising)
+            
+        Returns:
+            Dictionary containing results from all steps
+        """
+        
+        print("\n" + "="*100)
+        print("🚀 COMPLETE PIPELINE WITH ADVANCED MEMORY MANAGEMENT")
+        print("="*100)
+        
+        pipeline_start = time.time()
+        
+        try:
+            # Step 1: VAE + Latent Creation
+            print("\n🎬 STEP 1: VAE + LATENT CREATION")
+            step_1_results = self.step_1_vae_and_latent_creation(**step_1_params)
+            
+            # Step 2: UNet + CLIP + LoRA Loading (with dynamic loading setup)
+            print("\n🧠 STEP 2: UNET + CLIP + LORA LOADING")
+            step_2_results = self.step_2_unet_clip_lora_loading(**step_2_params)
+            
+            # Step 3: Model Sampling + Text Encoding
+            print("\n📝 STEP 3: MODEL SAMPLING + TEXT ENCODING")
+            step_3_results = self.step_3_model_sampling_and_text_encoding(**step_3_params)
+            
+            # Prepare Step 4 parameters
+            step_4_params['initial_latent'] = step_1_results['out_latent']['samples']
+            step_4_params['positive_conditioning'] = step_3_results['positive_conditioning']
+            step_4_params['negative_conditioning'] = step_3_results['negative_conditioning']
+            
+            # Step 4: KSampler Denoising (with ComfyUI-style memory management)
+            print("\n🎯 STEP 4: KSAMPLER DENOISING")
+            step_4_results = self.step_4_ksampler_denoising(**step_4_params)
+            
+            pipeline_time = time.time() - pipeline_start
+            
+            # Final memory status
+            print("\n📊 FINAL MEMORY STATUS:")
+            log_memory_usage("Pipeline Complete")
+            
+            # Pipeline summary
+            print(f"\n🎉 PIPELINE COMPLETED SUCCESSFULLY!")
+            print(f"   Total Time: {pipeline_time:.2f}s")
+            print(f"   Steps Completed: {sum(self.step_completed)}/4")
+            print(f"   Memory Management: ✅ Advanced ComfyUI-style")
+            
+            # Check if UNet has dynamic loading
+            unet_model = self.unet.model if hasattr(self.unet, 'model') else self.unet
+            if hasattr(unet_model, '_dynamic_loading_info'):
+                print(f"   Dynamic Loading: ✅ Enabled ({len(unet_model._dynamic_loading_info['modules'])} modules)")
+            else:
+                print(f"   Dynamic Loading: ❌ Not available")
+            
+            return {
+                'step_1_results': step_1_results,
+                'step_2_results': step_2_results,
+                'step_3_results': step_3_results,
+                'step_4_results': step_4_results,
+                'pipeline_time': pipeline_time,
+                'memory_management': 'advanced_comfyui_style',
+                'dynamic_loading_enabled': hasattr(unet_model, '_dynamic_loading_info')
+            }
+            
+        except Exception as e:
+            print(f"\n❌ PIPELINE FAILED: {str(e)}")
+            print(f"   Error Type: {type(e).__name__}")
+            import traceback
+            traceback.print_exc()
+            raise
+
     def get_step_status(self) -> Dict[int, bool]:
         """Get completion status of all pipeline steps"""
         return self.step_completed.copy()
@@ -1278,22 +1411,20 @@ def main():
         return
     
     try:
-        # Run Steps 1-3 first to get conditioning and latents
-        step_1_results, step_2_results, step_3_results = pipeline.run_steps_1_2_and_3(step_1_params, step_2_params, step_3_params)
+        # Run complete pipeline with advanced ComfyUI-style memory management
+        print("\n🚀 Running Complete Pipeline with Advanced Memory Management...")
+        pipeline_results = pipeline.run_complete_pipeline_with_memory_management(
+            step_1_params, step_2_params, step_3_params, step_4_params
+        )
         
-        print("\n🎉 STEPS 1, 2 & 3 COMPLETED!")
-        
-        # Prepare Step 4 parameters with results from previous steps
-        step_4_params['initial_latent'] = step_1_results['out_latent']['samples']
-        step_4_params['positive_conditioning'] = step_3_results['positive_conditioning']
-        step_4_params['negative_conditioning'] = step_3_results['negative_conditioning']
-        
-        # Run Step 4: KSampler Denoising
-        print("\n🚀 Running Step 4: KSampler Denoising...")
-        step_4_results = pipeline.run_step_4_only(**step_4_params)
-        
-        print("\n🎉 STEPS 1, 2, 3 & 4 COMPLETED!")
+        print("\n🎉 COMPLETE PIPELINE WITH MEMORY MANAGEMENT COMPLETED!")
         print(f"Pipeline Status: {pipeline.get_step_status()}")
+        
+        # Extract results for compatibility
+        step_1_results = pipeline_results['step_1_results']
+        step_2_results = pipeline_results['step_2_results']
+        step_3_results = pipeline_results['step_3_results']
+        step_4_results = pipeline_results['step_4_results']
         
         # Display Step 1 results summary
         if step_1_results:
