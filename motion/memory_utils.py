@@ -215,6 +215,12 @@ def _load_model_partially(model, device, memory_budget_gb, state_dict=None):
     # Analyze model structure
     modules_info = _analyze_model_modules(model, state_dict)
     
+    logging.info(f"📊 Found {len(modules_info)} leaf modules")
+    if modules_info:
+        total_modules_size = sum(m['size_gb'] for m in modules_info)
+        logging.info(f"📊 Total modules size: {total_modules_size:.3f} GB")
+        logging.info(f"📊 Memory budget: {memory_budget_gb:.3f} GB")
+    
     # Sort modules by size (largest first)
     modules_info.sort(key=lambda x: x['size_gb'], reverse=True)
     
@@ -223,7 +229,9 @@ def _load_model_partially(model, device, memory_budget_gb, state_dict=None):
     remaining_memory_gb = memory_budget_gb
     total_loaded_gb = 0
     
-    for module_info in modules_info:
+    logging.info(f"🔄 Starting to load modules (budget: {memory_budget_gb:.3f} GB)...")
+    
+    for i, module_info in enumerate(modules_info):
         module_size_gb = module_info['size_gb']
         module_name = module_info['name']
         module_obj = module_info['module']
@@ -235,12 +243,12 @@ def _load_model_partially(model, device, memory_budget_gb, state_dict=None):
                 loaded_modules.append(module_info)
                 remaining_memory_gb -= module_size_gb
                 total_loaded_gb += module_size_gb
-                logging.info(f"  ✅ Loaded {module_name}: {module_size_gb:.3f} GB")
-            except torch.cuda.OutOfMemoryError:
-                logging.warning(f"  ⚠️  OOM loading {module_name}, skipping")
+                logging.info(f"  ✅ [{i+1}/{len(modules_info)}] Loaded {module_name}: {module_size_gb:.3f} GB (remaining: {remaining_memory_gb:.3f} GB)")
+            except torch.cuda.OutOfMemoryError as e:
+                logging.warning(f"  ⚠️  [{i+1}/{len(modules_info)}] OOM loading {module_name}: {e}")
                 break
         else:
-            logging.info(f"  📊 Skipping {module_name}: {module_size_gb:.3f} GB (too large)")
+            logging.info(f"  📊 [{i+1}/{len(modules_info)}] Skipping {module_name}: {module_size_gb:.3f} GB (too large, remaining: {remaining_memory_gb:.3f} GB)")
     
     # Set up dynamic loading for remaining modules
     dynamic_modules = []
