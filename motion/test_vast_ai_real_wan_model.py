@@ -280,6 +280,7 @@ def test_wan_model_inference(unet_model_patcher, unet_state_dict):
                     conditioning = conditioning.to(device)
                     
                     # Try different forward pass signatures that WAN models might use
+                    output = None
                     try:
                         # Try standard diffusion model signature
                         output = model(video_latent, timestep, conditioning)
@@ -301,22 +302,26 @@ def test_wan_model_inference(unet_model_patcher, unet_state_dict):
                                     # Create minimal input for testing
                                     minimal_input = torch.randn(1, 16, 1, 4, 4).to(device)
                                     output = model(minimal_input)
-                
-                    inference_time = time.time() - start_time
                     
-                    print(f"   ✅ Inference successful!")
-                    print(f"   📊 Output shape: {output.shape}")
-                    print(f"   📊 Inference time: {inference_time:.3f} seconds")
-                    print(f"   📊 Output range: [{output.min():.3f}, {output.max():.3f}]")
-                    print(f"   📊 Output device: {output.device}")
-                    
-                    # Verify output is reasonable
-                    if torch.isfinite(output).all():
-                        print(f"   ✅ Output contains finite values")
+                    if output is not None:
+                        inference_time = time.time() - start_time
+                        
+                        print(f"   ✅ Inference successful!")
+                        print(f"   📊 Output shape: {output.shape}")
+                        print(f"   📊 Inference time: {inference_time:.3f} seconds")
+                        print(f"   📊 Output range: [{output.min():.3f}, {output.max():.3f}]")
+                        print(f"   📊 Output device: {output.device}")
+                        
+                        # Verify output is reasonable
+                        if torch.isfinite(output).all():
+                            print(f"   ✅ Output contains finite values")
+                        else:
+                            print(f"   ⚠️  Output contains NaN/Inf values")
+                        
+                        return True
                     else:
-                        print(f"   ⚠️  Output contains NaN/Inf values")
-                    
-                    return True
+                        print(f"   ❌ All inference attempts failed")
+                        return False
                 
             except Exception as e:
                 print(f"   ❌ Inference failed: {e}")
