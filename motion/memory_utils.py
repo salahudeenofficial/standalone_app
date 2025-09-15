@@ -169,33 +169,64 @@ def safe_model_to_device_advanced(model, device, min_free_gb=2.0, state_dict=Non
                 }
             except torch.cuda.OutOfMemoryError as e:
                 logging.warning(f"❌ CUDA OOM during full loading: {e}")
-                if enable_partial_loading:
-                    logging.info("🔄 Attempting partial loading...")
-                    return _load_model_partially(model, device, memory_budget_gb, state_dict)
-                else:
-                    logging.info("🔄 Falling back to CPU")
-                    return model, torch.device('cpu'), {
-                        'loading_type': 'cpu_fallback',
-                        'reason': 'oom_during_full_loading'
-                    }
+                logging.info("🔄 Falling back to CPU with dynamic loading setup...")
+                return _setup_dynamic_model_loading(model, device, state_dict)
         else:
-            # Model is too large for full loading
-            if enable_partial_loading:
-                logging.info(f"📊 Model too large for full loading ({total_model_size_gb:.2f} GB > {memory_budget_gb:.2f} GB)")
-                logging.info("🔄 Attempting partial loading...")
-                return _load_model_partially(model, device, memory_budget_gb, state_dict)
-            else:
-                logging.info("🔄 Partial loading disabled, using CPU")
-                return model, torch.device('cpu'), {
-                    'loading_type': 'cpu_fallback',
-                    'reason': 'model_too_large'
-                }
+            # Model too large for GPU, use CPU with dynamic loading
+            logging.info(f"📊 Model too large for GPU ({total_model_size_gb:.2f} GB > {memory_budget_gb:.2f} GB)")
+            logging.info("🔄 Loading to CPU with dynamic loading setup...")
+            return _setup_dynamic_model_loading(model, device, state_dict)
     else:
         logging.info(f"Using CPU device: {device}")
         return model, torch.device('cpu'), {
             'loading_type': 'cpu_only',
             'reason': 'cuda_not_available'
         }
+
+def _setup_dynamic_model_loading(model, device, state_dict=None):
+    """
+    Set up dynamic loading for large models - load entire model to CPU and prepare for dynamic GPU loading
+    
+    Args:
+        model: PyTorch model
+        device: Target GPU device for dynamic loading
+        state_dict: Optional state dict for module analysis
+    
+    Returns:
+        tuple: (model, cpu_device, loading_info)
+    """
+    logging.info("🔧 Setting up dynamic model loading...")
+    
+    # Load entire model to CPU
+    cpu_device = torch.device('cpu')
+    model = model.to(cpu_device)
+    
+    # Analyze model structure for dynamic loading
+    modules_info = _analyze_model_modules(model, state_dict)
+    
+    logging.info(f"📊 Found {len(modules_info)} leaf modules for dynamic loading")
+    if modules_info:
+        total_modules_size = sum(m['size_gb'] for m in modules_info)
+        logging.info(f"📊 Total modules size: {total_modules_size:.3f} GB")
+    
+    # Store module info for dynamic loading
+    model._dynamic_loading_info = {
+        'modules_info': modules_info,
+        'target_device': device,
+        'loaded_modules': set(),
+        'memory_budget_gb': 10.0  # Reserve 10GB for dynamic loading
+    }
+    
+    logging.info(f"✅ Model loaded to CPU with dynamic loading setup")
+    logging.info(f"   Target GPU device: {device}")
+    logging.info(f"   Modules available for dynamic loading: {len(modules_info)}")
+    
+    return model, cpu_device, {
+        'loading_type': 'dynamic_cpu',
+        'modules_available': len(modules_info),
+        'target_gpu_device': str(device),
+        'total_size_gb': total_modules_size if modules_info else 0
+    }
 
 def _load_model_partially(model, device, memory_budget_gb, state_dict=None):
     """
@@ -323,6 +354,91 @@ def _analyze_model_modules(model, state_dict=None):
                 })
     
     return modules_info
+
+def load_modules_for_inference(model, module_names, device=None):
+    """
+    Dynamically load specific modules to GPU for inference
+    
+    Args:
+        model: Model with dynamic loading setup
+        module_names: List of module names to load
+        device: Target device (uses model's target device if None)
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    if not hasattr(model, '_dynamic_loading_info'):
+        logging.warning("Model doesn't have dynamic loading setup")
+        return False
+    
+    info = model._dynamic_loading_info
+    target_device = device or info['target_device']
+    modules_info = info['modules_info']
+    loaded_modules = info['loaded_modules']
+    
+    logging.info(f"🔄 Loading {len(module_names)} modules for inference...")
+    
+    # Find modules to load
+    modules_to_load = []
+    for module_name in module_names:
+        for module_info in modules_info:
+            if module_info['name'] == module_name:
+                modules_to_load.append(module_info)
+                break
+    
+    # Load modules to GPU
+    for module_info in modules_to_load:
+        try:
+            module_info['module'].to(target_device)
+            loaded_modules.add(module_info['name'])
+            logging.info(f"  ✅ Loaded {module_info['name']}: {module_info['size_gb']:.3f} GB")
+        except torch.cuda.OutOfMemoryError as e:
+            logging.warning(f"  ⚠️  OOM loading {module_info['name']}: {e}")
+            return False
+    
+    return True
+
+def unload_modules_after_inference(model, module_names=None):
+    """
+    Unload modules from GPU after inference
+    
+    Args:
+        model: Model with dynamic loading setup
+        module_names: Specific modules to unload (None = unload all)
+    
+    Returns:
+        bool: True if successful
+    """
+    if not hasattr(model, '_dynamic_loading_info'):
+        logging.warning("Model doesn't have dynamic loading setup")
+        return False
+    
+    info = model._dynamic_loading_info
+    modules_info = info['modules_info']
+    loaded_modules = info['loaded_modules']
+    cpu_device = torch.device('cpu')
+    
+    if module_names is None:
+        module_names = list(loaded_modules)
+    
+    logging.info(f"🔄 Unloading {len(module_names)} modules after inference...")
+    
+    # Find and unload modules
+    for module_name in module_names:
+        for module_info in modules_info:
+            if module_info['name'] == module_name and module_name in loaded_modules:
+                try:
+                    module_info['module'].to(cpu_device)
+                    loaded_modules.discard(module_name)
+                    logging.info(f"  ✅ Unloaded {module_name}")
+                except Exception as e:
+                    logging.warning(f"  ⚠️  Error unloading {module_name}: {e}")
+    
+    # Clear CUDA cache
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    
+    return True
 
 def _setup_dynamic_loading(module, device):
     """

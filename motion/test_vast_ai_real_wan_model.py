@@ -198,41 +198,109 @@ def test_wan_model_inference(unet_model_patcher, unet_state_dict):
         else:
             print(f"   ✅ Inputs staying on CPU")
         
-        # Step 3: Perform inference
-        print("\n🔧 Step 3: Performing inference...")
+        # Step 3: Perform inference with dynamic loading
+        print("\n🔧 Step 3: Performing inference with dynamic loading...")
         log_memory_usage("Before Inference")
         
         start_time = time.time()
         
-        with torch.no_grad():
-            try:
-                # Ensure all tensors are on the same device as the model
-                video_latent = video_latent.to(device)
-                timestep = timestep.to(device)
-                conditioning = conditioning.to(device)
+        # Check if model has dynamic loading setup
+        if hasattr(model, '_dynamic_loading_info'):
+            print("   📊 Model has dynamic loading setup - using dynamic loading for inference")
+            
+            # Load essential modules for inference (first few blocks)
+            essential_modules = [
+                'time_projection.1',
+                'blocks.0.mlp.fc1',
+                'blocks.0.mlp.fc2', 
+                'blocks.0.self_attn.q',
+                'blocks.0.self_attn.k',
+                'blocks.0.self_attn.v',
+                'blocks.0.self_attn.o',
+                'blocks.0.cross_attn.q',
+                'blocks.0.cross_attn.k',
+                'blocks.0.cross_attn.v',
+                'blocks.0.cross_attn.o'
+            ]
+            
+            # Load modules for inference
+            from memory_utils import load_modules_for_inference, unload_modules_after_inference
+            
+            if load_modules_for_inference(model, essential_modules):
+                print("   ✅ Essential modules loaded to GPU")
                 
-                # Try different forward pass signatures that WAN models might use
                 try:
-                    # Try standard diffusion model signature
-                    output = model(video_latent, timestep, conditioning)
-                except (TypeError, NotImplementedError) as e:
+                    with torch.no_grad():
+                        # Ensure all tensors are on the same device as the model
+                        video_latent = video_latent.to(device)
+                        timestep = timestep.to(device)
+                        conditioning = conditioning.to(device)
+                        
+                        # Try WAN model signature (t, context)
+                        output = model(video_latent, timestep, conditioning)
+                        
+                        inference_time = time.time() - start_time
+                        
+                        print(f"   ✅ Inference successful!")
+                        print(f"   📊 Output shape: {output.shape}")
+                        print(f"   📊 Inference time: {inference_time:.3f} seconds")
+                        print(f"   📊 Output range: [{output.min():.3f}, {output.max():.3f}]")
+                        print(f"   📊 Output device: {output.device}")
+                        
+                        # Verify output is reasonable
+                        if torch.isfinite(output).all():
+                            print(f"   ✅ Output contains finite values")
+                        else:
+                            print(f"   ⚠️  Output contains NaN/Inf values")
+                        
+                        # Unload modules after inference
+                        unload_modules_after_inference(model)
+                        print("   ✅ Modules unloaded from GPU")
+                        
+                        return True
+                        
+                except Exception as e:
+                    print(f"   ❌ Inference failed: {e}")
+                    print(f"   📊 Error type: {type(e).__name__}")
+                    
+                    # Unload modules on error
+                    unload_modules_after_inference(model)
+                    return False
+            else:
+                print("   ❌ Failed to load essential modules")
+                return False
+        else:
+            print("   📊 Model doesn't have dynamic loading - trying standard inference")
+            
+            with torch.no_grad():
+                try:
+                    # Ensure all tensors are on the same device as the model
+                    video_latent = video_latent.to(device)
+                    timestep = timestep.to(device)
+                    conditioning = conditioning.to(device)
+                    
+                    # Try different forward pass signatures that WAN models might use
                     try:
-                        # Try with model_options
-                        output = model(video_latent, timestep, conditioning, {})
+                        # Try standard diffusion model signature
+                        output = model(video_latent, timestep, conditioning)
                     except (TypeError, NotImplementedError) as e:
                         try:
-                            # Try with just video latent and timestep
-                            output = model(video_latent, timestep)
+                            # Try with model_options
+                            output = model(video_latent, timestep, conditioning, {})
                         except (TypeError, NotImplementedError) as e:
                             try:
-                                # Try with just video latent
-                                output = model(video_latent)
+                                # Try with just video latent and timestep
+                                output = model(video_latent, timestep)
                             except (TypeError, NotImplementedError) as e:
-                                # Try a simple forward pass with minimal inputs
-                                print(f"   ⚠️  All standard signatures failed, trying minimal forward pass...")
-                                # Create minimal input for testing
-                                minimal_input = torch.randn(1, 16, 1, 4, 4).to(device)
-                                output = model(minimal_input)
+                                try:
+                                    # Try with just video latent
+                                    output = model(video_latent)
+                                except (TypeError, NotImplementedError) as e:
+                                    # Try a simple forward pass with minimal inputs
+                                    print(f"   ⚠️  All standard signatures failed, trying minimal forward pass...")
+                                    # Create minimal input for testing
+                                    minimal_input = torch.randn(1, 16, 1, 4, 4).to(device)
+                                    output = model(minimal_input)
                 
                 inference_time = time.time() - start_time
                 
