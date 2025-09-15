@@ -323,27 +323,27 @@ def test_wan_model_inference(unet_model_patcher, unet_state_dict):
                         print(f"   ❌ All inference attempts failed")
                         return False
                 
-            except Exception as e:
-                print(f"   ❌ Inference failed: {e}")
-                print(f"   📊 Error type: {type(e).__name__}")
+                except Exception as e:
+                    print(f"   ❌ Inference failed: {e}")
+                    print(f"   📊 Error type: {type(e).__name__}")
                 
-                # Check if it's a CUDA operation issue
-                if "CUDA" in str(e) and device.type == 'cpu':
-                    print(f"   💡 Suggestion: Model is on CPU but trying CUDA operations")
-                    print(f"   💡 This might be due to internal model operations")
+                    # Check if it's a CUDA operation issue
+                    if "CUDA" in str(e) and device.type == 'cpu':
+                        print(f"   💡 Suggestion: Model is on CPU but trying CUDA operations")
+                        print(f"   💡 This might be due to internal model operations")
                 
-                # Try a CPU-only inference test
-                print(f"   🔄 Trying CPU-only inference test...")
-                try:
-                    with torch.no_grad():
-                        # Force CPU inference
-                        cpu_input = torch.randn(1, 16, 1, 4, 4)
-                        cpu_output = model(cpu_input)
-                        print(f"   ✅ CPU inference successful: {cpu_output.shape}")
-                        return True
-                except Exception as cpu_e:
-                    print(f"   ❌ CPU inference also failed: {cpu_e}")
-                
+                    # Try a CPU-only inference test
+                    print(f"   🔄 Trying CPU-only inference test...")
+                    try:
+                        with torch.no_grad():
+                            # Force CPU inference
+                            cpu_input = torch.randn(1, 16, 1, 4, 4)
+                            cpu_output = model(cpu_input)
+                            print(f"   ✅ CPU inference successful: {cpu_output.shape}")
+                            return True
+                    except Exception as cpu_e:
+                        print(f"   ❌ CPU inference also failed: {cpu_e}")
+                    
                 return False
         
         log_memory_usage("After Inference")
