@@ -989,9 +989,18 @@ class WanVideoPipeline:
             # Memory before denoising
             log_memory_usage("Before Denoising")
             
+            # Clear CUDA cache to free up any fragmented memory
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                print("   🧹 CUDA cache cleared")
+            
             # Check if UNet has dynamic loading setup
             unet_model = self.unet.model if hasattr(self.unet, 'model') else self.unet
             model_was_on_cpu = False
+            model_was_loaded_to_gpu = False
+            
+            print(f"   📊 Current UNet device: {unet_model.device}")
+            print(f"   📊 UNet load_device: {self.unet.load_device}")
             
             if hasattr(unet_model, '_dynamic_loading_info'):
                 print("   📊 UNet has dynamic loading setup - using ComfyUI-style loading")
@@ -1005,6 +1014,7 @@ class WanVideoPipeline:
                         # Load entire model to GPU before inference (ComfyUI approach)
                         unet_model.to('cuda')
                         print("   ✅ UNet loaded to GPU")
+                        model_was_loaded_to_gpu = True
                         
                         # Update the ModelPatcher's device info
                         self.unet.load_device = torch.device('cuda')
@@ -1017,12 +1027,26 @@ class WanVideoPipeline:
                         unet_model.to('cpu')
                         self.unet.load_device = torch.device('cpu')
                         model_was_on_cpu = True
-                        
+                else:
+                    print("   ✅ UNet already on GPU - no need to reload")
+                    
             else:
                 print("   📊 UNet doesn't have dynamic loading - using standard approach")
+                if str(unet_model.device) == 'cpu':
+                    print("   ⚠️  UNet on CPU but no dynamic loading - may cause OOM")
+                else:
+                    print("   ✅ UNet already on GPU")
             
             # Perform the denoising process
             try:
+                # Create a memory monitoring callback
+                def memory_callback(step, total_steps, **kwargs):
+                    if step % max(1, total_steps // 4) == 0:  # Log every 25% of steps
+                        if torch.cuda.is_available():
+                            allocated = torch.cuda.memory_allocated() / 1024**3
+                            reserved = torch.cuda.memory_reserved() / 1024**3
+                            print(f"      Step {step}/{total_steps}: GPU Memory - Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
+                
                 denoised_latent = ksampler.sample(
                     noise=noise,
                     positive=positive_conditioning,
@@ -1034,12 +1058,17 @@ class WanVideoPipeline:
                     force_full_denoise=False,
                     denoise_mask=None,
                     sigmas=None,
-                    callback=None,
+                    callback=memory_callback,
                     disable_pbar=False,
                     seed=seed
                 )
                 
                 print("   ✅ Denoising completed successfully")
+                
+                # Clear CUDA cache after inference to free intermediate tensors
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    print("   🧹 CUDA cache cleared after inference")
                 
             except Exception as e:
                 print(f"   ❌ Denoising failed: {e}")
@@ -1047,7 +1076,8 @@ class WanVideoPipeline:
             
             finally:
                 # ComfyUI-style cleanup: Unload model back to CPU after inference
-                if hasattr(unet_model, '_dynamic_loading_info') and not model_was_on_cpu:
+                # Only unload if we actually loaded it to GPU during this step
+                if hasattr(unet_model, '_dynamic_loading_info') and model_was_loaded_to_gpu:
                     try:
                         print("   🔄 Unloading UNet back to CPU after inference...")
                         unet_model.to('cpu')
@@ -1055,6 +1085,10 @@ class WanVideoPipeline:
                         print("   ✅ UNet unloaded to CPU")
                     except Exception as cleanup_e:
                         print(f"   ⚠️  Warning: Failed to unload UNet to CPU: {cleanup_e}")
+                elif hasattr(unet_model, '_dynamic_loading_info') and not model_was_loaded_to_gpu:
+                    print("   📊 UNet was already on GPU - keeping it there")
+                else:
+                    print("   📊 No dynamic loading - no cleanup needed")
             
             denoising_time = time.time() - denoising_start
             
