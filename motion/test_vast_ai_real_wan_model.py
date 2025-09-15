@@ -302,19 +302,21 @@ def test_wan_model_inference(unet_model_patcher, unet_state_dict):
                                     minimal_input = torch.randn(1, 16, 1, 4, 4).to(device)
                                     output = model(minimal_input)
                 
-                inference_time = time.time() - start_time
-                
-                print(f"   ✅ Inference successful!")
-                print(f"   📊 Output shape: {output.shape}")
-                print(f"   📊 Inference time: {inference_time:.3f} seconds")
-                print(f"   📊 Output range: [{output.min():.3f}, {output.max():.3f}]")
-                print(f"   📊 Output device: {output.device}")
-                
-                # Verify output is reasonable
-                if torch.isfinite(output).all():
-                    print(f"   ✅ Output contains finite values")
-                else:
-                    print(f"   ⚠️  Output contains NaN/Inf values")
+                    inference_time = time.time() - start_time
+                    
+                    print(f"   ✅ Inference successful!")
+                    print(f"   📊 Output shape: {output.shape}")
+                    print(f"   📊 Inference time: {inference_time:.3f} seconds")
+                    print(f"   📊 Output range: [{output.min():.3f}, {output.max():.3f}]")
+                    print(f"   📊 Output device: {output.device}")
+                    
+                    # Verify output is reasonable
+                    if torch.isfinite(output).all():
+                        print(f"   ✅ Output contains finite values")
+                    else:
+                        print(f"   ⚠️  Output contains NaN/Inf values")
+                    
+                    return True
                 
             except Exception as e:
                 print(f"   ❌ Inference failed: {e}")
