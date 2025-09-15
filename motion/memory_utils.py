@@ -27,7 +27,19 @@ def get_memory_info():
         # Get device properties
         device_props = torch.cuda.get_device_properties(0)
         info['cuda_total'] = device_props.total_memory / 1024**3  # GB
-        info['cuda_free'] = info['cuda_total'] - info['cuda_allocated']
+        
+        # Get more accurate free memory using memory stats
+        try:
+            memory_stats = torch.cuda.memory_stats()
+            # Use bytes_free from memory stats if available
+            if 'bytes_free' in memory_stats:
+                info['cuda_free'] = memory_stats['bytes_free'] / 1024**3
+            else:
+                # Fallback to total - reserved
+                info['cuda_free'] = info['cuda_total'] - info['cuda_reserved']
+        except:
+            # Fallback to total - reserved
+            info['cuda_free'] = info['cuda_total'] - info['cuda_reserved']
     
     return info
 
@@ -140,7 +152,8 @@ def safe_model_to_device_advanced(model, device, min_free_gb=2.0, state_dict=Non
         # Get memory information
         info = get_memory_info()
         available_memory_gb = info['cuda_free']
-        memory_budget_gb = available_memory_gb - min_free_gb
+        # Use more conservative memory budget (reserve more space)
+        memory_budget_gb = max(0, available_memory_gb - min_free_gb - 2.0)  # Extra 2GB buffer
         
         logging.info(f"🚀 Advanced model loading to {device}")
         logging.info(f"  Available memory: {available_memory_gb:.2f} GB")
@@ -389,7 +402,13 @@ def load_modules_for_inference(model, module_names, device=None):
     # Load modules to GPU
     for module_info in modules_to_load:
         try:
-            module_info['module'].to(target_device)
+            # Move module parameters to GPU
+            module = module_info['module']
+            for param in module.parameters():
+                param.data = param.data.to(target_device)
+            for buffer in module.buffers():
+                buffer.data = buffer.data.to(target_device)
+            
             loaded_modules.add(module_info['name'])
             logging.info(f"  ✅ Loaded {module_info['name']}: {module_info['size_gb']:.3f} GB")
         except torch.cuda.OutOfMemoryError as e:
@@ -428,7 +447,13 @@ def unload_modules_after_inference(model, module_names=None):
         for module_info in modules_info:
             if module_info['name'] == module_name and module_name in loaded_modules:
                 try:
-                    module_info['module'].to(cpu_device)
+                    # Move module parameters back to CPU
+                    module = module_info['module']
+                    for param in module.parameters():
+                        param.data = param.data.to(cpu_device)
+                    for buffer in module.buffers():
+                        buffer.data = buffer.data.to(cpu_device)
+                    
                     loaded_modules.discard(module_name)
                     logging.info(f"  ✅ Unloaded {module_name}")
                 except Exception as e:
