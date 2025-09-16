@@ -132,8 +132,11 @@ def monitor_memory_during_pipeline():
             
             if hasattr(unet_model, '_dynamic_loading_info'):
                 info = unet_model._dynamic_loading_info
-                print(f"   📊 Dynamic loading enabled: {len(info['modules'])} modules")
-                print(f"   📊 Total module size: {info['total_size_gb']:.3f} GB")
+                if 'modules' in info:
+                    print(f"   📊 Dynamic loading enabled: {len(info['modules'])} modules")
+                if 'total_size_gb' in info:
+                    print(f"   📊 Total module size: {info['total_size_gb']:.3f} GB")
+                print(f"   📊 Dynamic loading info keys: {list(info.keys())}")
             else:
                 print(f"   📊 Dynamic loading: Not available")
         

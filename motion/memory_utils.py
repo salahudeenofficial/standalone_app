@@ -8,12 +8,17 @@ import logging
 import gc
 
 def clear_cuda_memory():
-    """Clear CUDA memory cache and run garbage collection"""
+    """Clear CUDA memory cache and run garbage collection aggressively"""
     if torch.cuda.is_available():
+        # Multiple rounds of cleanup for stubborn memory
+        for i in range(3):
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            gc.collect()
+        
+        # Final cleanup
         torch.cuda.empty_cache()
-        torch.cuda.synchronize()
-        gc.collect()
-        logging.info("CUDA memory cache cleared")
+        logging.info("CUDA memory cache cleared aggressively")
 
 def get_memory_info():
     """Get current memory usage information"""
@@ -183,6 +188,8 @@ def safe_model_to_device_advanced(model, device, min_free_gb=2.0, state_dict=Non
             except torch.cuda.OutOfMemoryError as e:
                 logging.warning(f"❌ CUDA OOM during full loading: {e}")
                 logging.info("🔄 Falling back to CPU with dynamic loading setup...")
+                # Clear memory before fallback
+                clear_cuda_memory()
                 return _setup_dynamic_model_loading(model, device, state_dict)
         else:
             # Model too large for GPU, use CPU with dynamic loading
@@ -213,6 +220,16 @@ def _setup_dynamic_model_loading(model, device, state_dict=None):
     # Load entire model to CPU
     cpu_device = torch.device('cpu')
     model = model.to(cpu_device)
+    
+    # Aggressively clear CUDA memory after moving to CPU
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()  # Wait for all operations to complete
+        # Force garbage collection
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
+        logging.info("🧹 Aggressively cleared CUDA memory after CPU transfer")
     
     # Analyze model structure for dynamic loading
     modules_info = _analyze_model_modules(model, state_dict)
