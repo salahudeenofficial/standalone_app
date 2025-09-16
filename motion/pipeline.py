@@ -1040,7 +1040,7 @@ class WanVideoPipeline:
             # Perform the denoising process
             try:
                 # Create a memory monitoring callback
-                def memory_callback(step, total_steps, **kwargs):
+                def memory_callback(step, total_steps, current_step=None, **kwargs):
                     if step % max(1, total_steps // 4) == 0:  # Log every 25% of steps
                         if torch.cuda.is_available():
                             allocated = torch.cuda.memory_allocated() / 1024**3
