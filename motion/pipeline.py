@@ -1705,9 +1705,15 @@ class WanVideoPipeline:
 # ============================================================================
 
 def main():
-    """Example usage of Steps 1, 2, 3, 4 pipeline"""
-    print("🚀 WAN Video Pipeline - Steps 1, 2, 3, 4 Test")
-    print("="*60)
+    """Example usage of Steps 1 and 2 with multithreaded memory tracking"""
+    print("🚀 WAN Video Pipeline - Steps 1 and 2 Test with Memory Tracking")
+    print("="*80)
+    
+    # Import memory tracker
+    from memory_tracker import create_memory_tracker, track_memory_during_operation
+    
+    # Create memory tracker
+    tracker = create_memory_tracker(interval=0.05, log_file="step1_step2_memory.log")
     
     # Initialize pipeline
     pipeline = WanVideoPipeline(models_dir="models")
