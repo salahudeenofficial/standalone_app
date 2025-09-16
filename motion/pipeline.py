@@ -1173,6 +1173,292 @@ class WanVideoPipeline:
             traceback.print_exc()
             raise
 
+    def step_5_trim_latent(self,
+                          denoised_latent: torch.Tensor,
+                          trim_amount: int = 0) -> Dict[str, Any]:
+        """
+        Step 5: Trim Video Latent
+        
+        This step trims the denoised latent by removing the specified number of frames
+        from the beginning. This is essential for video generation where the initial
+        frames might be unstable or unwanted.
+        
+        Args:
+            denoised_latent: Denoised latent tensor from Step 4
+            trim_amount: Number of frames to trim from the beginning (default: 0)
+        
+        Returns:
+            Dictionary containing the trimmed latent and metadata
+        """
+        step_5_start = time.time()
+        
+        print("\n" + "="*80)
+        print("🎬 STEP 5: TRIM VIDEO LATENT")
+        print("="*80)
+        
+        try:
+            # Import TrimVideoLatent from components
+            from components.video_processor import TrimVideoLatent
+            
+            # Memory before trimming
+            log_memory_usage("Before Latent Trimming")
+            
+            print(f"5.1 Trimming video latent...")
+            print(f"   📊 Input latent shape: {denoised_latent.shape}")
+            print(f"   📊 Trim amount: {trim_amount} frames")
+            
+            # Create trim processor
+            trim_processor = TrimVideoLatent()
+            
+            # Wrap the latent tensor in the dictionary format expected by TrimVideoLatent
+            latent_dict = {"samples": denoised_latent}
+            
+            # Perform trimming
+            trimmed_latent_dict = trim_processor.op(latent_dict, trim_amount)
+            
+            # Extract the trimmed tensor from the dictionary
+            trimmed_latent = trimmed_latent_dict["samples"]
+            
+            print(f"   ✅ Trimmed latent shape: {trimmed_latent.shape}")
+            
+            # Calculate frames removed
+            original_frames = denoised_latent.shape[2]  # Assuming shape is (B, C, T, H, W)
+            trimmed_frames = trimmed_latent.shape[2]
+            frames_removed = original_frames - trimmed_frames
+            
+            print(f"   📊 Original frames: {original_frames}")
+            print(f"   📊 Trimmed frames: {trimmed_frames}")
+            print(f"   📊 Frames removed: {frames_removed}")
+            
+            # Memory after trimming
+            log_memory_usage("After Latent Trimming")
+            
+            # Prepare results
+            step_5_results = {
+                'trimmed_latent': trimmed_latent,
+                'original_latent': denoised_latent,
+                'trim_amount': trim_amount,
+                'frames_removed': frames_removed,
+                'original_shape': denoised_latent.shape,
+                'trimmed_shape': trimmed_latent.shape,
+                'timing': {
+                    'trimming_time': time.time() - step_5_start,
+                    'total_step_time': time.time() - step_5_start
+                }
+            }
+            
+            print(f"\n✅ STEP 5 COMPLETED SUCCESSFULLY in {time.time() - step_5_start:.2f}s")
+            print("="*80)
+            
+            return step_5_results
+            
+        except Exception as e:
+            print(f"❌ STEP 5 FAILED: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
+
+    def step_6_vae_decode(self,
+                         trimmed_latent: torch.Tensor,
+                         vae_model: Any = None) -> Dict[str, Any]:
+        """
+        Step 6: VAE Decode
+        
+        This step decodes the trimmed latent back to pixel space using the VAE model.
+        This is the final step that converts the latent representation back to actual
+        video frames that can be displayed or saved.
+        
+        Args:
+            trimmed_latent: Trimmed latent tensor from Step 5 (or denoised latent from Step 4)
+            vae_model: VAE model to use for decoding (uses pipeline's VAE if None)
+        
+        Returns:
+            Dictionary containing the decoded images and metadata
+        """
+        step_6_start = time.time()
+        
+        print("\n" + "="*80)
+        print("🎨 STEP 6: VAE DECODE")
+        print("="*80)
+        
+        try:
+            # Import VAEDecode from components
+            from components.vae_decoder import VAEDecode
+            
+            # Use pipeline's VAE if none provided
+            if vae_model is None:
+                vae_model = self.vae
+                if vae_model is None:
+                    raise RuntimeError("No VAE model available for decoding")
+            
+            # Memory before decoding
+            log_memory_usage("Before VAE Decoding")
+            
+            print(f"6.1 Decoding latent to pixel space...")
+            print(f"   📊 Input latent shape: {trimmed_latent.shape}")
+            print(f"   📊 VAE model: {type(vae_model).__name__}")
+            
+            # Create VAE decoder
+            vae_decoder = VAEDecode()
+            
+            # Wrap the latent tensor in the dictionary format expected by VAEDecode
+            latent_dict = {"samples": trimmed_latent}
+            
+            # Perform VAE decoding
+            decoded_images = vae_decoder.decode(vae_model, latent_dict)
+            
+            print(f"   ✅ Decoded images shape: {decoded_images.shape}")
+            
+            # Calculate output statistics
+            original_frames = trimmed_latent.shape[2]  # Assuming shape is (B, C, T, H, W)
+            decoded_frames = decoded_images.shape[0] if len(decoded_images.shape) == 4 else decoded_images.shape[1]
+            
+            print(f"   📊 Original latent frames: {original_frames}")
+            print(f"   📊 Decoded image frames: {decoded_frames}")
+            print(f"   📊 Image dimensions: {decoded_images.shape[-2:]} (H, W)")
+            
+            # Verify output range
+            if decoded_images.dtype == torch.float32:
+                min_val, max_val = decoded_images.min().item(), decoded_images.max().item()
+                print(f"   📊 Output range: [{min_val:.3f}, {max_val:.3f}]")
+                
+                if min_val >= 0.0 and max_val <= 1.0:
+                    print(f"   ✅ Output in expected range [0, 1]")
+                else:
+                    print(f"   ⚠️  Output outside expected range [0, 1]")
+            
+            # Memory after decoding
+            log_memory_usage("After VAE Decoding")
+            
+            # Prepare results
+            step_6_results = {
+                'decoded_images': decoded_images,
+                'original_latent': trimmed_latent,
+                'vae_model': vae_model,
+                'original_shape': trimmed_latent.shape,
+                'decoded_shape': decoded_images.shape,
+                'original_frames': original_frames,
+                'decoded_frames': decoded_frames,
+                'image_dimensions': decoded_images.shape[-2:],
+                'timing': {
+                    'decoding_time': time.time() - step_6_start,
+                    'total_step_time': time.time() - step_6_start
+                }
+            }
+            
+            print(f"\n✅ STEP 6 COMPLETED SUCCESSFULLY in {time.time() - step_6_start:.2f}s")
+            print("="*80)
+            
+            return step_6_results
+            
+        except Exception as e:
+            print(f"❌ STEP 6 FAILED: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
+
+    def step_7_video_export(self,
+                           decoded_images: torch.Tensor,
+                           output_path: str = "output_video.mp4",
+                           fps: int = 24) -> Dict[str, Any]:
+        """
+        Step 7: Video Export
+        
+        This step exports the decoded images to an MP4 video file.
+        This is the final step that creates the actual video output file
+        that can be played or shared.
+        
+        Args:
+            decoded_images: Decoded images tensor from Step 6
+            output_path: Path where the video file will be saved
+            fps: Frames per second for the output video
+        
+        Returns:
+            Dictionary containing the export results and metadata
+        """
+        step_7_start = time.time()
+        
+        print("\n" + "="*80)
+        print("🎬 STEP 7: VIDEO EXPORT")
+        print("="*80)
+        
+        try:
+            # Import VideoExporter from components
+            from components.video_export import VideoExporter
+            
+            # Memory before export
+            log_memory_usage("Before Video Export")
+            
+            print(f"7.1 Exporting decoded images to video...")
+            print(f"   📊 Input images shape: {decoded_images.shape}")
+            print(f"   📊 Output path: {output_path}")
+            print(f"   📊 FPS: {fps}")
+            
+            # Create video exporter
+            video_exporter = VideoExporter(fps=fps)
+            
+            # Perform video export
+            exported_path = video_exporter.export_video(decoded_images, output_path)
+            
+            print(f"   ✅ Video exported successfully!")
+            print(f"   📊 Exported to: {exported_path}")
+            
+            # Calculate output statistics
+            if len(decoded_images.shape) == 4:  # (frames, height, width, channels)
+                total_frames = decoded_images.shape[0]
+                height, width = decoded_images.shape[1], decoded_images.shape[2]
+            elif len(decoded_images.shape) == 5:  # (batch, frames, height, width, channels)
+                total_frames = decoded_images.shape[1]
+                height, width = decoded_images.shape[2], decoded_images.shape[3]
+            else:
+                total_frames = "unknown"
+                height, width = "unknown", "unknown"
+            
+            # Calculate video duration
+            duration_seconds = total_frames / fps if isinstance(total_frames, int) else 0
+            
+            print(f"   📊 Total frames: {total_frames}")
+            print(f"   📊 Video dimensions: {width}x{height}")
+            print(f"   📊 Duration: {duration_seconds:.2f} seconds")
+            print(f"   📊 Frame rate: {fps} FPS")
+            
+            # Verify output file exists
+            if os.path.exists(exported_path):
+                file_size = os.path.getsize(exported_path) / (1024 * 1024)  # MB
+                print(f"   📊 File size: {file_size:.2f} MB")
+            else:
+                print(f"   ⚠️  Warning: Output file not found at {exported_path}")
+            
+            # Memory after export
+            log_memory_usage("After Video Export")
+            
+            # Prepare results
+            step_7_results = {
+                'exported_path': exported_path,
+                'decoded_images': decoded_images,
+                'output_path': output_path,
+                'fps': fps,
+                'total_frames': total_frames,
+                'video_dimensions': (width, height),
+                'duration_seconds': duration_seconds,
+                'file_size_mb': file_size if os.path.exists(exported_path) else 0,
+                'timing': {
+                    'export_time': time.time() - step_7_start,
+                    'total_step_time': time.time() - step_7_start
+                }
+            }
+            
+            print(f"\n✅ STEP 7 COMPLETED SUCCESSFULLY in {time.time() - step_7_start:.2f}s")
+            print("="*80)
+            
+            return step_7_results
+            
+        except Exception as e:
+            print(f"❌ STEP 7 FAILED: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
+
     def load_video(self, video_path: str) -> Optional[torch.Tensor]:
         """Load control video from path as float tensor (T, H, W, 3) in [0,1]"""
         if not video_path or not os.path.exists(video_path):
@@ -1231,7 +1517,10 @@ class WanVideoPipeline:
                                                    step_1_params: Dict[str, Any],
                                                    step_2_params: Dict[str, Any], 
                                                    step_3_params: Dict[str, Any],
-                                                   step_4_params: Dict[str, Any]) -> Dict[str, Any]:
+                                                   step_4_params: Dict[str, Any],
+                                                   step_5_params: Dict[str, Any] = None,
+                                                   step_6_params: Dict[str, Any] = None,
+                                                   step_7_params: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Run the complete pipeline with advanced ComfyUI-style memory management
         
@@ -1240,12 +1529,18 @@ class WanVideoPipeline:
         2. UNet + CLIP + LoRA Loading (with dynamic loading setup)
         3. Model Sampling + Text Encoding
         4. KSampler Denoising (with ComfyUI-style model loading/unloading)
+        5. Trim Video Latent (optional)
+        6. VAE Decode (optional)
+        7. Video Export (optional)
         
         Args:
             step_1_params: Parameters for Step 1 (VAE + Latent Creation)
             step_2_params: Parameters for Step 2 (UNet + CLIP + LoRA Loading)
             step_3_params: Parameters for Step 3 (Model Sampling + Text Encoding)
             step_4_params: Parameters for Step 4 (KSampler Denoising)
+            step_5_params: Parameters for Step 5 (Trim Video Latent) - optional
+            step_6_params: Parameters for Step 6 (VAE Decode) - optional
+            step_7_params: Parameters for Step 7 (Video Export) - optional
             
         Returns:
             Dictionary containing results from all steps
@@ -1279,6 +1574,33 @@ class WanVideoPipeline:
             print("\n🎯 STEP 4: KSAMPLER DENOISING")
             step_4_results = self.step_4_ksampler_denoising(**step_4_params)
             
+            # Step 5: Trim Video Latent (optional)
+            step_5_results = None
+            if step_5_params is not None:
+                print("\n🎬 STEP 5: TRIM VIDEO LATENT")
+                step_5_params['denoised_latent'] = step_4_results['denoised_latent']
+                step_5_results = self.step_5_trim_latent(**step_5_params)
+            
+            # Step 6: VAE Decode (optional)
+            step_6_results = None
+            if step_6_params is not None:
+                print("\n🎨 STEP 6: VAE DECODE")
+                # Use trimmed latent if available, otherwise use denoised latent
+                latent_for_decode = step_5_results['trimmed_latent'] if step_5_results is not None else step_4_results['denoised_latent']
+                step_6_params['trimmed_latent'] = latent_for_decode
+                step_6_results = self.step_6_vae_decode(**step_6_params)
+            
+            # Step 7: Video Export (optional)
+            step_7_results = None
+            if step_7_params is not None:
+                print("\n🎬 STEP 7: VIDEO EXPORT")
+                # Use decoded images from Step 6 if available
+                if step_6_results is not None:
+                    step_7_params['decoded_images'] = step_6_results['decoded_images']
+                    step_7_results = self.step_7_video_export(**step_7_params)
+                else:
+                    print("   ⚠️  Step 7 requires Step 6 (VAE Decode) to be completed first")
+            
             pipeline_time = time.time() - pipeline_start
             
             # Final memory status
@@ -1286,19 +1608,22 @@ class WanVideoPipeline:
             log_memory_usage("Pipeline Complete")
             
             # Pipeline summary
+            steps_completed = 4 + (1 if step_5_results is not None else 0) + (1 if step_6_results is not None else 0) + (1 if step_7_results is not None else 0)
             print(f"\n🎉 PIPELINE COMPLETED SUCCESSFULLY!")
             print(f"   Total Time: {pipeline_time:.2f}s")
-            print(f"   Steps Completed: {sum(self.step_completed)}/4")
+            print(f"   Steps Completed: {steps_completed}/7")
             print(f"   Memory Management: ✅ Advanced ComfyUI-style")
             
             # Check if UNet has dynamic loading
             unet_model = self.unet.model if hasattr(self.unet, 'model') else self.unet
             if hasattr(unet_model, '_dynamic_loading_info'):
-                print(f"   Dynamic Loading: ✅ Enabled ({len(unet_model._dynamic_loading_info['modules'])} modules)")
+                modules_count = len(unet_model._dynamic_loading_info.get('modules_info', []))
+                print(f"   Dynamic Loading: ✅ Enabled ({modules_count} modules)")
             else:
                 print(f"   Dynamic Loading: ❌ Not available")
             
-            return {
+            # Prepare return results
+            results = {
                 'step_1_results': step_1_results,
                 'step_2_results': step_2_results,
                 'step_3_results': step_3_results,
@@ -1307,6 +1632,20 @@ class WanVideoPipeline:
                 'memory_management': 'advanced_comfyui_style',
                 'dynamic_loading_enabled': hasattr(unet_model, '_dynamic_loading_info')
             }
+            
+            # Add Step 5 results if available
+            if step_5_results is not None:
+                results['step_5_results'] = step_5_results
+            
+            # Add Step 6 results if available
+            if step_6_results is not None:
+                results['step_6_results'] = step_6_results
+            
+            # Add Step 7 results if available
+            if step_7_results is not None:
+                results['step_7_results'] = step_7_results
+            
+            return results
             
         except Exception as e:
             print(f"\n❌ PIPELINE FAILED: {str(e)}")
@@ -1419,6 +1758,25 @@ def main():
         'noise_inds': None
     }
     
+    # Step 5 parameters (optional)
+    step_5_params = {
+        'denoised_latent': None,  # Will be set from step_4_results
+        'trim_amount': 0  # Number of frames to trim from beginning
+    }
+    
+    # Step 6 parameters (optional)
+    step_6_params = {
+        'trimmed_latent': None,  # Will be set from step_5_results or step_4_results
+        'vae_model': None  # Will use pipeline's VAE if None
+    }
+    
+    # Step 7 parameters (optional)
+    step_7_params = {
+        'decoded_images': None,  # Will be set from step_6_results
+        'output_path': "output_video.mp4",  # Output video file path
+        'fps': 24  # Frames per second
+    }
+    
     
     # Check if model files exist
     required_files = [
@@ -1448,7 +1806,7 @@ def main():
         # Run complete pipeline with advanced ComfyUI-style memory management
         print("\n🚀 Running Complete Pipeline with Advanced Memory Management...")
         pipeline_results = pipeline.run_complete_pipeline_with_memory_management(
-            step_1_params, step_2_params, step_3_params, step_4_params
+            step_1_params, step_2_params, step_3_params, step_4_params, step_5_params, step_6_params, step_7_params
         )
         
         print("\n🎉 COMPLETE PIPELINE WITH MEMORY MANAGEMENT COMPLETED!")
@@ -1459,6 +1817,9 @@ def main():
         step_2_results = pipeline_results['step_2_results']
         step_3_results = pipeline_results['step_3_results']
         step_4_results = pipeline_results['step_4_results']
+        step_5_results = pipeline_results.get('step_5_results', None)
+        step_6_results = pipeline_results.get('step_6_results', None)
+        step_7_results = pipeline_results.get('step_7_results', None)
         
         # Display Step 1 results summary
         if step_1_results:
@@ -1506,9 +1867,50 @@ def main():
             print(f"   Processing Time: {step_4_results['timing']['total_step_time']:.2f}s")
             print(f"   Denoising Time: {step_4_results['timing']['denoising']:.2f}s")
         
+        # Display Step 5 results summary
+        if step_5_results:
+            print(f"\n📋 STEP 5 RESULTS (Trim Video Latent):")
+            print(f"   Original Latent Shape: {step_5_results['original_shape']}")
+            print(f"   Trimmed Latent Shape: {step_5_results['trimmed_shape']}")
+            print(f"   Trim Amount: {step_5_results['trim_amount']} frames")
+            print(f"   Frames Removed: {step_5_results['frames_removed']}")
+            print(f"   Processing Time: {step_5_results['timing']['total_step_time']:.2f}s")
+            print(f"   Trimming Time: {step_5_results['timing']['trimming_time']:.2f}s")
+        else:
+            print(f"\n📋 STEP 5 RESULTS: Skipped (no trim_amount specified)")
         
-        print("\n✅ Steps 1, 2, 3, 4 completed - Core pipeline ready!")
-        print("✅ Ready for Step 5: VAE Decoding")
+        # Display Step 6 results summary
+        if step_6_results:
+            print(f"\n📋 STEP 6 RESULTS (VAE Decode):")
+            print(f"   Original Latent Shape: {step_6_results['original_shape']}")
+            print(f"   Decoded Images Shape: {step_6_results['decoded_shape']}")
+            print(f"   Original Frames: {step_6_results['original_frames']}")
+            print(f"   Decoded Frames: {step_6_results['decoded_frames']}")
+            print(f"   Image Dimensions: {step_6_results['image_dimensions']} (H, W)")
+            print(f"   VAE Model: {type(step_6_results['vae_model']).__name__}")
+            print(f"   Processing Time: {step_6_results['timing']['total_step_time']:.2f}s")
+            print(f"   Decoding Time: {step_6_results['timing']['decoding_time']:.2f}s")
+        else:
+            print(f"\n📋 STEP 6 RESULTS: Skipped (no VAE decode requested)")
+        
+        # Display Step 7 results summary
+        if step_7_results:
+            print(f"\n📋 STEP 7 RESULTS (Video Export):")
+            print(f"   Exported Path: {step_7_results['exported_path']}")
+            print(f"   Output Path: {step_7_results['output_path']}")
+            print(f"   FPS: {step_7_results['fps']}")
+            print(f"   Total Frames: {step_7_results['total_frames']}")
+            print(f"   Video Dimensions: {step_7_results['video_dimensions']} (W, H)")
+            print(f"   Duration: {step_7_results['duration_seconds']:.2f} seconds")
+            print(f"   File Size: {step_7_results['file_size_mb']:.2f} MB")
+            print(f"   Processing Time: {step_7_results['timing']['total_step_time']:.2f}s")
+            print(f"   Export Time: {step_7_results['timing']['export_time']:.2f}s")
+        else:
+            print(f"\n📋 STEP 7 RESULTS: Skipped (no video export requested)")
+        
+        
+        print("\n✅ Steps 1, 2, 3, 4, 5, 6, 7 completed - Complete pipeline ready!")
+        print("✅ Full video generation pipeline complete!")
         
     except Exception as e:
         print(f"\n❌ PIPELINE TEST FAILED: {str(e)}")

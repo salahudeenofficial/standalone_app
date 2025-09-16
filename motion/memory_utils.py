@@ -74,7 +74,7 @@ def estimate_model_memory(model):
     }
 
 def estimate_state_dict_memory(state_dict):
-    """Estimate memory usage of a state dict"""
+    """Estimate memory usage of a state dict with realistic overhead"""
     total_params = 0
     total_size = 0
     
@@ -83,11 +83,24 @@ def estimate_state_dict_memory(state_dict):
             total_params += tensor.numel()
             total_size += tensor.numel() * tensor.element_size()
     
+    # Add realistic memory overhead multipliers based on ComfyUI observations:
+    # - PyTorch module overhead: ~1.5x
+    # - CUDA memory fragmentation: ~1.2x  
+    # - Intermediate activations: ~1.3x
+    # - Memory alignment: ~1.1x
+    # Total multiplier: ~2.6x for GPU, ~1.8x for CPU
+    gpu_overhead_multiplier = 2.6
+    cpu_overhead_multiplier = 1.8
+    
     return {
         'parameters': total_params,
         'size_bytes': total_size,
         'size_gb': total_size / 1024**3,
-        'keys': len(state_dict)
+        'size_gb_gpu': (total_size * gpu_overhead_multiplier) / 1024**3,
+        'size_gb_cpu': (total_size * cpu_overhead_multiplier) / 1024**3,
+        'keys': len(state_dict),
+        'gpu_multiplier': gpu_overhead_multiplier,
+        'cpu_multiplier': cpu_overhead_multiplier
     }
 
 def safe_model_to_device(model, device, min_free_gb=2.0, state_dict=None):
@@ -164,15 +177,21 @@ def safe_model_to_device_advanced(model, device, min_free_gb=2.0, state_dict=Non
         logging.info(f"  Available memory: {available_memory_gb:.2f} GB")
         logging.info(f"  Memory budget: {memory_budget_gb:.2f} GB")
         
-        # Estimate model size
+        # Estimate model size with realistic overhead
         if state_dict is not None:
             model_info = estimate_state_dict_memory(state_dict)
-            total_model_size_gb = model_info['size_gb']
+            # Use GPU overhead multiplier for realistic memory estimation
+            total_model_size_gb = model_info['size_gb_gpu']
+            logging.info(f"  Raw model size: {model_info['size_gb']:.2f} GB")
+            logging.info(f"  GPU overhead multiplier: {model_info['gpu_multiplier']:.1f}x")
         else:
             model_info = estimate_model_memory(model)
-            total_model_size_gb = model_info['size_gb']
+            # Apply GPU overhead multiplier to fallback estimation
+            total_model_size_gb = model_info['size_gb'] * 2.6
+            logging.info(f"  Raw model size: {model_info['size_gb']:.2f} GB")
+            logging.info(f"  GPU overhead multiplier: 2.6x")
         
-        logging.info(f"  Model size: {total_model_size_gb:.2f} GB")
+        logging.info(f"  Estimated GPU memory: {total_model_size_gb:.2f} GB")
         
         # Check if we can load the entire model
         if total_model_size_gb <= memory_budget_gb:
@@ -362,17 +381,20 @@ def _analyze_model_modules(model, state_dict=None):
                         module_size_bytes += state_dict[state_key].numel() * state_dict[state_key].element_size()
                 
                 if module_size_bytes > 0:
-                    module_size_gb = module_size_bytes / (1024**3)
+                    # Apply GPU overhead multiplier for realistic estimation
+                    module_size_gb = (module_size_bytes * 2.6) / (1024**3)
                 else:
                     # Fallback to parameter estimation
                     module_params = sum(p.numel() for p in module.parameters())
                     module_size_bytes = sum(p.numel() * p.element_size() for p in module.parameters())
-                    module_size_gb = module_size_bytes / (1024**3)
+                    # Apply GPU overhead multiplier for realistic estimation
+                    module_size_gb = (module_size_bytes * 2.6) / (1024**3)
             else:
                 # Use parameter estimation
                 module_params = sum(p.numel() for p in module.parameters())
                 module_size_bytes = sum(p.numel() * p.element_size() for p in module.parameters())
-                module_size_gb = module_size_bytes / (1024**3)
+                # Apply GPU overhead multiplier for realistic estimation
+                module_size_gb = (module_size_bytes * 2.6) / (1024**3)
             
             if module_size_gb > 0.001:  # Only include modules > 1MB
                 modules_info.append({
