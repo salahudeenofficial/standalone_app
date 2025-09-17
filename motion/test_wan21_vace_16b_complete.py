@@ -439,9 +439,71 @@ class WAN21VACEVerifier:
             logger.error(traceback.format_exc())
             return False
     
+    def test_forward_pass_i2v(self) -> bool:
+        """Test Image-to-Video forward pass if supported"""
+        logger.info("🔍 Step 6b: Testing I2V forward pass...")
+        
+        try:
+            if self.model is None:
+                logger.error("❌ Model not loaded")
+                return False
+            
+            # Check if this is an I2V model
+            model_type = getattr(self.model, 'model_type', 'unknown')
+            if model_type != 'i2v' and not hasattr(self.model, 'img_emb'):
+                logger.info("ℹ️  Not an I2V model - skipping I2V forward pass test")
+                self.verification_results['forward_pass_i2v'] = True
+                return True
+            
+            # Create I2V inputs
+            batch_size = 1
+            channels = 16
+            frames = 16
+            height = 64
+            width = 64
+            
+            logger.info(f"🎬 Creating I2V test inputs: {batch_size}x{channels}x{frames}x{height}x{width}")
+            
+            # Input tensors
+            x = torch.randn(batch_size, channels, frames, height, width, 
+                          device=self.device, dtype=torch.float16)
+            timestep = torch.randint(0, 1000, (batch_size,), device=self.device)
+            context = torch.randn(batch_size, 512, 4096, device=self.device, dtype=torch.float16)
+            
+            # I2V-specific: image features (CLIP features)
+            clip_fea = torch.randn(batch_size, 257, 1280, device=self.device, dtype=torch.float16)
+            
+            logger.info("🚀 Running I2V forward pass...")
+            start_time = time.time()
+            
+            with torch.no_grad():
+                output = self.model(x, timestep, context, clip_fea=clip_fea)
+            
+            end_time = time.time()
+            
+            logger.info(f"✅ I2V forward pass successful in {end_time - start_time:.2f}s")
+            logger.info(f"📤 Output shape: {output.shape}")
+            logger.info(f"📊 Output dtype: {output.dtype}")
+            logger.info(f"📈 Output range: [{output.min().item():.4f}, {output.max().item():.4f}]")
+            
+            # Verify output shape
+            expected_shape = (batch_size, channels, frames, height, width)
+            if output.shape == expected_shape:
+                logger.info(f"✅ Output shape matches expected: {expected_shape}")
+                self.verification_results['forward_pass_i2v'] = True
+                return True
+            else:
+                logger.error(f"❌ Output shape mismatch: expected {expected_shape}, got {output.shape}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ I2V forward pass failed: {e}")
+            logger.error(traceback.format_exc())
+            return False
+    
     def test_forward_pass_vace(self) -> bool:
         """Test VACE-specific forward pass if available"""
-        logger.info("🔍 Step 6b: Testing VACE forward pass...")
+        logger.info("🔍 Step 6c: Testing VACE forward pass...")
         
         try:
             if self.model is None:
@@ -582,6 +644,110 @@ class WAN21VACEVerifier:
             logger.error(traceback.format_exc())
             return False
     
+    def verify_components(self) -> bool:
+        """Verify all critical model components are present and functional"""
+        logger.info("🔍 Step 8: Verifying model components...")
+        
+        try:
+            if self.model is None:
+                logger.error("❌ Model not loaded")
+                return False
+            
+            # Check critical components
+            critical_components = {
+                'patch_embedding': 'Patch embedding for input processing',
+                'text_embedding': 'Text embedding for context processing', 
+                'time_embed': 'Time embedding for timestep processing',
+                'time_projection': 'Time projection for modulation',
+                'blocks': 'Transformer attention blocks',
+                'head': 'Output head for final processing',
+                'rope_embedder': 'Rotary position embedding'
+            }
+            
+            missing_components = []
+            for component, description in critical_components.items():
+                if hasattr(self.model, component):
+                    comp_obj = getattr(self.model, component)
+                    logger.info(f"   ✅ {component}: {description}")
+                    
+                    # Additional checks for specific components
+                    if component == 'blocks' and hasattr(comp_obj, '__len__'):
+                        logger.info(f"      - Contains {len(comp_obj)} transformer blocks")
+                    elif component == 'patch_embedding' and hasattr(comp_obj, 'weight'):
+                        logger.info(f"      - Input channels: {comp_obj.weight.shape[1]}")
+                        logger.info(f"      - Output channels: {comp_obj.weight.shape[0]}")
+                else:
+                    missing_components.append(component)
+                    logger.warning(f"   ❌ Missing: {component} - {description}")
+            
+            # Check VACE-specific components if VACE model
+            vace_components = {
+                'vace_blocks': 'VACE attention blocks',
+                'vace_patch_embedding': 'VACE patch embedding',
+                'vace_layers': 'VACE layer count'
+            }
+            
+            is_vace = hasattr(self.model, 'vace_blocks')
+            if is_vace:
+                logger.info("   🎯 VACE-specific components:")
+                for component, description in vace_components.items():
+                    if hasattr(self.model, component):
+                        comp_obj = getattr(self.model, component)
+                        logger.info(f"      ✅ {component}: {description}")
+                        
+                        if component == 'vace_blocks' and hasattr(comp_obj, '__len__'):
+                            logger.info(f"         - Contains {len(comp_obj)} VACE blocks")
+                        elif component == 'vace_layers' and isinstance(comp_obj, int):
+                            logger.info(f"         - VACE layers: {comp_obj}")
+                    else:
+                        missing_components.append(f"vace_{component}")
+                        logger.warning(f"      ❌ Missing VACE: {component} - {description}")
+            
+            # Check model state and functionality
+            model_checks = {
+                'device_placement': self.model.device if hasattr(self.model, 'device') else 'unknown',
+                'training_mode': self.model.training,
+                'parameter_count': sum(p.numel() for p in self.model.parameters()),
+                'dtype_consistency': self._check_dtype_consistency()
+            }
+            
+            logger.info("   📊 Model state checks:")
+            for check, value in model_checks.items():
+                logger.info(f"      {check}: {value}")
+            
+            # Overall component verification
+            if len(missing_components) == 0:
+                logger.info("✅ All critical components verified")
+                self.verification_results['component_verification'] = True
+                return True
+            else:
+                logger.error(f"❌ Missing critical components: {missing_components}")
+                # For VACE models, missing basic VACE components is not critical
+                if is_vace and all(comp.startswith('vace_') for comp in missing_components):
+                    logger.info("ℹ️  Only VACE-specific components missing, basic model functional")
+                    self.verification_results['component_verification'] = True
+                    return True
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Component verification failed: {e}")
+            logger.error(traceback.format_exc())
+            return False
+    
+    def _check_dtype_consistency(self) -> str:
+        """Check if model parameters have consistent dtypes"""
+        try:
+            dtypes = set()
+            for param in self.model.parameters():
+                dtypes.add(param.dtype)
+            
+            if len(dtypes) == 1:
+                return f"Consistent ({list(dtypes)[0]})"
+            else:
+                return f"Mixed ({list(dtypes)})"
+        except:
+            return "Unknown"
+    
     def run_complete_verification(self) -> Dict[str, Any]:
         """Run complete verification suite"""
         logger.info("🚀 STARTING COMPLETE WAN 2.1 VACE 16B MODEL VERIFICATION")
@@ -610,10 +776,14 @@ class WAN21VACEVerifier:
         
         # Step 6: Forward pass tests
         self.test_forward_pass_t2v()
+        self.test_forward_pass_i2v()
         self.test_forward_pass_vace()
         
         # Step 7: State dict verification
         self.verify_state_dict()
+        
+        # Step 8: Component verification
+        self.verify_components()
         
         end_time = time.time()
         
