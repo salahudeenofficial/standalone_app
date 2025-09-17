@@ -191,7 +191,7 @@ class ComfyUIStylePartialLoader:
     
     def _setup_dynamic_weight(self, weight_info: Dict[str, Any]):
         """
-        Set up dynamic loading for a specific weight
+        Set up dynamic loading for a specific weight using ComfyUI's weight function approach
         """
         weight_key = weight_info['key']
         weight_tensor = weight_info['tensor']
@@ -202,7 +202,7 @@ class ComfyUIStylePartialLoader:
         # Store patch
         self.loaded_weights[weight_key] = patch
         
-        # Set up weight function on the module
+        # Set up weight function on the module (ComfyUI approach)
         module_name = weight_info['module_name']
         param_name = weight_info['param_name']
         
@@ -211,16 +211,27 @@ class ComfyUIStylePartialLoader:
         
         self.weight_patches[module_name][param_name] = patch
         
-        # Patch the module's parameter
+        # Get the module and set up weight function
         module = dict(self.model.named_modules())[module_name]
-        if hasattr(module, param_name):
-            # Store original parameter
-            if not hasattr(module, '_original_params'):
-                module._original_params = {}
-            module._original_params[param_name] = getattr(module, param_name)
-            
-            # Replace with patched parameter
-            setattr(module, param_name, patch)
+        
+        # Store original parameter
+        if not hasattr(module, '_original_params'):
+            module._original_params = {}
+        module._original_params[param_name] = getattr(module, param_name)
+        
+        # Set up weight function (ComfyUI style)
+        if not hasattr(module, 'weight_function'):
+            module.weight_function = {}
+        if not hasattr(module, 'bias_function'):
+            module.bias_function = {}
+        
+        if param_name == 'weight':
+            module.weight_function[weight_key] = patch
+        elif param_name == 'bias':
+            module.bias_function[weight_key] = patch
+        
+        # Mark module as having dynamic loading
+        module._dynamic_loading_setup = True
     
     def load_weights_for_inference(self, weight_keys: Optional[List[str]] = None):
         """
