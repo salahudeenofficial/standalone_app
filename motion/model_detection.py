@@ -28,16 +28,38 @@ def detect_unet_config(state_dict: Dict[str, torch.Tensor], key_prefix: str = ""
     """
     state_dict_keys = list(state_dict.keys())
     
+    # Helper function to check if a key exists with or without prefix
+    def has_key(key_name):
+        # Try with prefix first
+        prefixed_key = '{}{}'.format(key_prefix, key_name)
+        if prefixed_key in state_dict_keys:
+            return prefixed_key
+        # Try without prefix (for mixed key formats)
+        if key_name in state_dict_keys:
+            return key_name
+        return None
+    
     # Check for WAN 2.1 models (using ComfyUI's exact detection logic)
-    if '{}head.modulation'.format(key_prefix) in state_dict_keys:  # Wan 2.1
+    head_modulation_key = has_key('head.modulation')
+    if head_modulation_key:  # Wan 2.1
         dit_config = {}
         dit_config["image_model"] = "wan2.1"
-        dim = state_dict['{}head.modulation'.format(key_prefix)].shape[-1]
-        out_dim = state_dict['{}head.head.weight'.format(key_prefix)].shape[0] // 4
+        dim = state_dict[head_modulation_key].shape[-1]
+        
+        head_weight_key = has_key('head.head.weight')
+        if not head_weight_key:
+            return None
+        out_dim = state_dict[head_weight_key].shape[0] // 4
+        
         dit_config["dim"] = dim
         dit_config["out_dim"] = out_dim
         dit_config["num_heads"] = dim // 128
-        dit_config["ffn_dim"] = state_dict['{}blocks.0.ffn.0.weight'.format(key_prefix)].shape[0]
+        
+        ffn_weight_key = has_key('blocks.0.ffn.0.weight')
+        if not ffn_weight_key:
+            return None
+        dit_config["ffn_dim"] = state_dict[ffn_weight_key].shape[0]
+        
         dit_config["num_layers"] = count_blocks(state_dict_keys, '{}blocks.'.format(key_prefix) + '{}.')
         dit_config["patch_size"] = (1, 2, 2)
         dit_config["freq_dim"] = 256
@@ -45,32 +67,37 @@ def detect_unet_config(state_dict: Dict[str, torch.Tensor], key_prefix: str = ""
         dit_config["qk_norm"] = True
         dit_config["cross_attn_norm"] = True
         dit_config["eps"] = 1e-6
-        dit_config["in_dim"] = state_dict['{}patch_embedding.weight'.format(key_prefix)].shape[1]
+        
+        patch_embed_key = has_key('patch_embedding.weight')
+        if not patch_embed_key:
+            return None
+        dit_config["in_dim"] = state_dict[patch_embed_key].shape[1]
         
         # Determine model type based on specific keys (ComfyUI's exact logic)
-        if '{}vace_patch_embedding.weight'.format(key_prefix) in state_dict_keys:
+        vace_patch_key = has_key('vace_patch_embedding.weight')
+        if vace_patch_key:
             dit_config["model_type"] = "vace"
-            dit_config["vace_in_dim"] = state_dict['{}vace_patch_embedding.weight'.format(key_prefix)].shape[1]
+            dit_config["vace_in_dim"] = state_dict[vace_patch_key].shape[1]
             dit_config["vace_layers"] = count_blocks(state_dict_keys, '{}vace_blocks.'.format(key_prefix) + '{}.')
-        elif '{}control_adapter.conv.weight'.format(key_prefix) in state_dict_keys:
-            if '{}img_emb.proj.0.bias'.format(key_prefix) in state_dict_keys:
+        elif has_key('control_adapter.conv.weight'):
+            if has_key('img_emb.proj.0.bias'):
                 dit_config["model_type"] = "camera"
             else:
                 dit_config["model_type"] = "camera_2.2"
         else:
-            if '{}img_emb.proj.0.bias'.format(key_prefix) in state_dict_keys:
+            if has_key('img_emb.proj.0.bias'):
                 dit_config["model_type"] = "i2v"
             else:
                 dit_config["model_type"] = "t2v"
         
         # Check for additional features (ComfyUI's exact logic)
-        flf_weight = state_dict.get('{}img_emb.emb_pos'.format(key_prefix))
-        if flf_weight is not None:
-            dit_config["flf_pos_embed_token_number"] = flf_weight.shape[1]
+        flf_pos_key = has_key('img_emb.emb_pos')
+        if flf_pos_key:
+            dit_config["flf_pos_embed_token_number"] = state_dict[flf_pos_key].shape[1]
 
-        ref_conv_weight = state_dict.get('{}ref_conv.weight'.format(key_prefix))
-        if ref_conv_weight is not None:
-            dit_config["in_dim_ref_conv"] = ref_conv_weight.shape[1]
+        ref_conv_key = has_key('ref_conv.weight')
+        if ref_conv_key:
+            dit_config["in_dim_ref_conv"] = state_dict[ref_conv_key].shape[1]
 
         return dit_config
     
@@ -236,7 +263,7 @@ def get_model_class_for_type(model_type: str):
         # Fallback to base WanModel
         return WanModel
 
-def create_model_from_config(model_config: Dict[str, Any], device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None):
+def create_model_from_config(model_config: Dict[str, Any], device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None, state_dict: Optional[Dict[str, torch.Tensor]] = None):
     """
     Create a model instance from configuration
     """
@@ -246,15 +273,16 @@ def create_model_from_config(model_config: Dict[str, Any], device: Optional[torc
     # Determine the appropriate model class
     if image_model == "wan2.1":
         if model_type == "vace":
-            from wan_model import VaceWanModel
-            return VaceWanModel(**model_config, device=device, dtype=dtype)
+            from comfyui_compatible_models import ComfyUIVaceWanModel
+            return ComfyUIVaceWanModel(**model_config, device=device, dtype=dtype)
         elif model_type == "camera":
-            from wan_model import CameraWanModel
-            return CameraWanModel(**model_config, device=device, dtype=dtype)
+            from comfyui_compatible_models import ComfyUIWanModel
+            return ComfyUIWanModel(**model_config, device=device, dtype=dtype)
         else:
-            from wan_model import WanModel
-            return WanModel(**model_config, device=device, dtype=dtype)
+            # Use ComfyUI-compatible WANModel for T2V models
+            from comfyui_compatible_models import ComfyUIWanModel
+            return ComfyUIWanModel(**model_config, device=device, dtype=dtype)
     
-    # Fallback to base WanModel
-    from wan_model import WanModel
-    return WanModel(**model_config, device=device, dtype=dtype)
+    # Fallback to ComfyUI-compatible WANModel
+    from comfyui_compatible_models import ComfyUIWanModel
+    return ComfyUIWanModel(**model_config, device=device, dtype=dtype)

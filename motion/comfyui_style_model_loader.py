@@ -78,17 +78,35 @@ class ComfyUIStyleModelPatcher:
     
     def model_size(self):
         """Calculate model size (ComfyUI's approach)"""
-        if self.size <= 0:
-            self.size = sum(p.numel() * p.element_size() for p in self.model.parameters())
-        return self.size
+        if hasattr(self.model, 'model_size'):
+            # If it's a ModelPatcher, use its model_size method
+            return self.model.model_size()
+        elif hasattr(self.model, 'parameters'):
+            # If it's a regular PyTorch model, calculate from parameters
+            if self.size <= 0:
+                self.size = sum(p.numel() * p.element_size() for p in self.model.parameters())
+            return self.size
+        else:
+            # Fallback: assume 0 size
+            self.size = 0
+            return self.size
     
     def _apply_comfyui_patching(self):
         """Apply ComfyUI-style patching immediately during initialization"""
         logging.info(f"🔧 Applying ComfyUI-style patching...")
         
+        # Get the actual model from ModelPatcher if needed
+        actual_model = self.model
+        if hasattr(self.model, 'model'):
+            # If it's a ModelPatcher, get the actual model
+            actual_model = self.model.model
+            logging.info(f"   Using actual model from ModelPatcher: {type(actual_model).__name__}")
+        else:
+            logging.info(f"   Using model directly: {type(actual_model).__name__}")
+        
         # Use model-aware patcher
         patcher = ModelAwarePatcher()
-        self.model = patcher.patch_model(self.model)
+        self.model = patcher.patch_model(actual_model)
         
         # Set up patches dictionary (ComfyUI's approach)
         self._setup_patches()
@@ -97,16 +115,26 @@ class ComfyUIStyleModelPatcher:
     
     def _setup_patches(self):
         """Set up patches dictionary (ComfyUI's approach)"""
+        # Get the actual model from ModelPatcher if needed
+        actual_model = self.model
+        if hasattr(self.model, 'model'):
+            actual_model = self.model.model
+        
         # Extract all parameters and create patches
-        for name, param in self.model.named_parameters():
+        for name, param in actual_model.named_parameters():
             self.patches[name] = param.data.clone()
         
         logging.debug(f"📊 Set up {len(self.patches)} patches")
     
     def _load_list(self):
         """Create loading list (ComfyUI's approach)"""
+        # Get the actual model from ModelPatcher if needed
+        actual_model = self.model
+        if hasattr(self.model, 'model'):
+            actual_model = self.model.model
+        
         loading = []
-        for name, module in self.model.named_modules():
+        for name, module in actual_model.named_modules():
             if hasattr(module, 'weight') and hasattr(module.weight, 'numel'):
                 params = sum(p.numel() for p in module.parameters())
                 module_mem = params * 4  # Assume float32
