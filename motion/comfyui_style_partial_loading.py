@@ -75,8 +75,8 @@ class ComfyUIStylePartialLoader:
         self.current_memory_usage = 0
         self.max_memory_usage = 0
         
-        # Patch model with ComfyUI-style operations (restore true ComfyUI approach)
-        from comfyui_ops import patch_model_with_comfyui_ops
+        # Patch model with ComfyUI-style operations using model-aware approach
+        from model_aware_patcher import patch_model_with_comfyui_ops
         self.model = patch_model_with_comfyui_ops(self.model)
         
         logging.info(f"🚀 ComfyUI-style partial loader initialized")
