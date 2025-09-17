@@ -470,11 +470,15 @@ class WAN21VACEVerifier:
             
             logger.info(f"🎬 Creating T2V test inputs: {batch_size}x{channels}x{frames}x{height}x{width}")
             
-            # Input tensors
+            # Determine the device where the model actually resides
+            model_device = next(self.model.parameters()).device
+            logger.info(f"📍 Model device: {model_device}")
+            
+            # Input tensors on the same device as the model
             x = torch.randn(batch_size, channels, frames, height, width, 
-                          device=self.device, dtype=torch.float16)
-            timestep = torch.randint(0, 1000, (batch_size,), device=self.device)
-            context = torch.randn(batch_size, 512, 4096, device=self.device, dtype=torch.float16)
+                          device=model_device, dtype=torch.float16)
+            timestep = torch.randint(0, 1000, (batch_size,), device=model_device)
+            context = torch.randn(batch_size, 512, 4096, device=model_device, dtype=torch.float16)
             
             logger.info("🚀 Running T2V forward pass...")
             start_time = time.time()
@@ -529,14 +533,18 @@ class WAN21VACEVerifier:
             
             logger.info(f"🎬 Creating I2V test inputs: {batch_size}x{channels}x{frames}x{height}x{width}")
             
-            # Input tensors
+            # Determine the device where the model actually resides
+            model_device = next(self.model.parameters()).device
+            logger.info(f"📍 Model device: {model_device}")
+            
+            # Input tensors on the same device as the model
             x = torch.randn(batch_size, channels, frames, height, width, 
-                          device=self.device, dtype=torch.float16)
-            timestep = torch.randint(0, 1000, (batch_size,), device=self.device)
-            context = torch.randn(batch_size, 512, 4096, device=self.device, dtype=torch.float16)
+                          device=model_device, dtype=torch.float16)
+            timestep = torch.randint(0, 1000, (batch_size,), device=model_device)
+            context = torch.randn(batch_size, 512, 4096, device=model_device, dtype=torch.float16)
             
             # I2V-specific: image features (CLIP features)
-            clip_fea = torch.randn(batch_size, 257, 1280, device=self.device, dtype=torch.float16)
+            clip_fea = torch.randn(batch_size, 257, 1280, device=model_device, dtype=torch.float16)
             
             logger.info("🚀 Running I2V forward pass...")
             start_time = time.time()
@@ -590,15 +598,19 @@ class WAN21VACEVerifier:
             
             logger.info(f"🎬 Creating VACE test inputs: {batch_size}x{channels}x{frames}x{height}x{width}")
             
-            # Input tensors
+            # Determine the device where the model actually resides
+            model_device = next(self.model.parameters()).device
+            logger.info(f"📍 Model device: {model_device}")
+            
+            # Input tensors on the same device as the model
             x = torch.randn(batch_size, channels, frames, height, width, 
-                          device=self.device, dtype=torch.float16)
-            timestep = torch.randint(0, 1000, (batch_size,), device=self.device)
-            context = torch.randn(batch_size, 512, 4096, device=self.device, dtype=torch.float16)
+                          device=model_device, dtype=torch.float16)
+            timestep = torch.randint(0, 1000, (batch_size,), device=model_device)
+            context = torch.randn(batch_size, 512, 4096, device=model_device, dtype=torch.float16)
             
             # VACE-specific inputs
             vace_context = torch.randn(batch_size, 1, channels, frames, height, width,
-                                     device=self.device, dtype=torch.float16)
+                                     device=model_device, dtype=torch.float16)
             vace_strength = [1.0]
             
             logger.info("🚀 Running VACE forward pass...")
@@ -1014,6 +1026,10 @@ class WAN21VACEVerifier:
         logger.info("🔧 Running simplified inference test...")
         
         try:
+            # Determine the device where the model actually resides
+            model_device = next(self.model_patcher.model.parameters()).device
+            logger.info(f"📍 Model device: {model_device}")
+            
             # Simple forward pass with timestep scheduling
             batch_size = 1
             channels = 16
@@ -1021,8 +1037,8 @@ class WAN21VACEVerifier:
             height = 64
             width = 64
             
-            x = torch.randn(batch_size, channels, frames, height, width, device=self.device, dtype=torch.float16)
-            context = torch.randn(batch_size, 512, 4096, device=self.device, dtype=torch.float16)
+            x = torch.randn(batch_size, channels, frames, height, width, device=model_device, dtype=torch.float16)
+            context = torch.randn(batch_size, 512, 4096, device=model_device, dtype=torch.float16)
             
             # Test multiple timesteps (simulate sampling)
             timesteps = [999, 750, 500, 250, 0]  # 5 denoising steps
@@ -1031,7 +1047,7 @@ class WAN21VACEVerifier:
             
             with torch.no_grad():
                 for i, t in enumerate(timesteps):
-                    timestep = torch.tensor([t], device=self.device)
+                    timestep = torch.tensor([t], device=model_device)
                     
                     start_step = time.time()
                     output = self.model_patcher.model(x, timestep, context)
