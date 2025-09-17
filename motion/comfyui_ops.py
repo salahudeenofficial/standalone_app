@@ -135,7 +135,12 @@ def patch_model_with_comfyui_ops(model):
     
     patched_count = 0
     
+    # Get all modules first to avoid modification during iteration
+    modules_to_patch = []
     for name, module in model.named_modules():
+        modules_to_patch.append((name, module))
+    
+    for name, module in modules_to_patch:
         # Patch Linear layers
         if isinstance(module, torch.nn.Linear):
             # Create new ComfyUI-style Linear layer
@@ -149,19 +154,30 @@ def patch_model_with_comfyui_ops(model):
             if module.bias is not None:
                 new_module.bias.data = module.bias.data.clone()
             
-            # Replace in parent module
+            # Replace in parent module using a more robust approach
             parent_name = '.'.join(name.split('.')[:-1])
             if parent_name:
                 try:
-                    parent_module = dict(model.named_modules())[parent_name]
-                    attr_name = name.split('.')[-1]
-                    setattr(parent_module, attr_name, new_module)
-                except KeyError:
-                    logging.warning(f"⚠️  Could not find parent module '{parent_name}' for '{name}' - skipping patch")
+                    # Try to find parent module
+                    parent_module = None
+                    for parent_name_candidate, parent_module_candidate in model.named_modules():
+                        if parent_name_candidate == parent_name:
+                            parent_module = parent_module_candidate
+                            break
+                    
+                    if parent_module is not None:
+                        attr_name = name.split('.')[-1]
+                        setattr(parent_module, attr_name, new_module)
+                    else:
+                        logging.warning(f"⚠️  Could not find parent module '{parent_name}' for '{name}' - skipping patch")
+                        continue
+                except Exception as e:
+                    logging.warning(f"⚠️  Error patching '{name}': {e} - skipping patch")
                     continue
             else:
-                # Root module
-                model = new_module
+                # Root module - this is rare but handle it
+                logging.warning(f"⚠️  Attempting to patch root module '{name}' - this may not work correctly")
+                continue
             
             patched_count += 1
             logging.debug(f"  ✅ Patched Linear layer: {name}")
