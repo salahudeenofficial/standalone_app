@@ -271,15 +271,25 @@ def load_unet_with_comfyui_patching(unet_path: str, load_device: torch.device, o
         
         logging.info(f"📊 Loaded state dict with {len(sd)} keys")
         
-        # Create model (simplified - in real implementation, you'd detect model type)
-        # For now, we'll assume it's a standard UNet-like model
-        from standalone_sd import WANModel
+        # Create model using the same approach as standalone_sd
+        from standalone_sd import load_state_dict_guess_config
         
-        # Create model instance
-        model = WANModel()
+        # Use load_state_dict_guess_config to create the model properly
+        result = load_state_dict_guess_config(
+            sd,
+            output_vae=False,
+            output_clip=False,
+            output_clipvision=False,
+            output_model=True
+        )
         
-        # Load weights
-        model.load_state_dict(sd, strict=False)
+        if result is None:
+            raise RuntimeError("Failed to create model from state dict")
+        
+        model, _, _, _ = result
+        
+        if model is None:
+            raise RuntimeError("Model is None after creation")
         
         logging.info(f"✅ Model created and weights loaded")
         
