@@ -111,7 +111,12 @@ class WanSelfAttention(nn.Module):
             # Fallback to standard attention
             q = q.view(b, s, n * d)
             k = k.view(b, s, n * d)
-            x = torch.nn.functional.scaled_dot_product_attention(q, k, v, num_heads=self.num_heads)
+            # Reshape for attention: [batch, seq_len, heads, head_dim]
+            q = q.view(b, s, self.num_heads, d)
+            k = k.view(b, s, self.num_heads, d)
+            v = v.view(b, s, self.num_heads, d)
+            x = torch.nn.functional.scaled_dot_product_attention(q, k, v)
+            x = x.view(b, s, n * d)
 
         x = self.o(x)
         return x
@@ -131,7 +136,14 @@ class WanT2VCrossAttention(WanSelfAttention):
             from comfy.ldm.modules.attention import optimized_attention
             x = optimized_attention(q, k, v, heads=self.num_heads)
         except ImportError:
-            x = torch.nn.functional.scaled_dot_product_attention(q, k, v, num_heads=self.num_heads)
+            # Reshape for attention: [batch, seq_len, heads, head_dim]
+            b, s, _ = q.shape
+            d = self.head_dim
+            q = q.view(b, s, self.num_heads, d)
+            k = k.view(b, -1, self.num_heads, d)
+            v = v.view(b, -1, self.num_heads, d)
+            x = torch.nn.functional.scaled_dot_product_attention(q, k, v)
+            x = x.view(b, s, -1)
 
         x = self.o(x)
         return x

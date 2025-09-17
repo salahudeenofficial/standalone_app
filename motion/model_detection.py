@@ -288,19 +288,46 @@ def create_model_from_config(model_config: Dict[str, Any], device: Optional[torc
     model_type = model_config.get("model_type", "t2v")
     image_model = model_config.get("image_model", "wan2.1")
     
-    # Determine the appropriate model class
+    # Auto-detect dtype from state dict if not provided
+    if dtype is None and state_dict is not None:
+        # Get dtype from first tensor in state dict
+        first_tensor = next(iter(state_dict.values()))
+        if isinstance(first_tensor, torch.Tensor):
+            dtype = first_tensor.dtype
+            logging.info(f"Auto-detected dtype from state dict: {dtype}")
+    
+    # Default to float32 if still None
+    if dtype is None:
+        dtype = torch.float32
+    
+    # Determine the appropriate model class (Pure PyTorch - no ComfyUI dependencies)
     if image_model == "wan2.1":
         if model_type == "vace":
-            from comfyui_compatible_models import ComfyUIVaceWanModel
-            return ComfyUIVaceWanModel(**model_config, device=device, dtype=dtype)
+            from pure_wan_models import PureVaceWanModel
+            model = PureVaceWanModel(**model_config, device=device, dtype=dtype)
         elif model_type == "camera":
-            from comfyui_compatible_models import ComfyUIWanModel
-            return ComfyUIWanModel(**model_config, device=device, dtype=dtype)
+            from pure_wan_models import PureWanModel
+            model = PureWanModel(**model_config, device=device, dtype=dtype)
         else:
-            # Use ComfyUI-compatible WANModel for T2V models
-            from comfyui_compatible_models import ComfyUIWanModel
-            return ComfyUIWanModel(**model_config, device=device, dtype=dtype)
+            # Use Pure WANModel for T2V models
+            from pure_wan_models import PureWanModel
+            model = PureWanModel(**model_config, device=device, dtype=dtype)
+    else:
+        # Fallback to Pure WANModel
+        from pure_wan_models import PureWanModel
+        model = PureWanModel(**model_config, device=device, dtype=dtype)
     
-    # Fallback to ComfyUI-compatible WANModel
-    from comfyui_compatible_models import ComfyUIWanModel
-    return ComfyUIWanModel(**model_config, device=device, dtype=dtype)
+    # Convert model to correct dtype before loading state dict
+    if dtype is not None:
+        model = model.to(dtype=dtype)
+    
+    # Load state dict if provided
+    if state_dict is not None:
+        missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+        
+        if missing_keys:
+            logging.warning(f"Missing keys in model: {missing_keys}")
+        if unexpected_keys:
+            logging.warning(f"Unexpected keys in model: {unexpected_keys}")
+    
+    return model

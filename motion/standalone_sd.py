@@ -353,7 +353,7 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
         logging.info(f"Creating model with config: {model_config}")
         
         # Create the appropriate WAN model instance
-        model = create_model_from_config(model_config, device=None, dtype=weight_dtype_val)
+        model = create_model_from_config(model_config, device=None, dtype=weight_dtype_val, state_dict=sd)
         
         # Memory-aware device management
         log_memory_usage("Before model loading")
