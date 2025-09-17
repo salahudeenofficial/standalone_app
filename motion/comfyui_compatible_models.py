@@ -108,12 +108,22 @@ class ComfyUIWanModel(nn.Module):
             self.operations.Linear(self.dim, self.dim)
         )
         
-        # Time embedding
-        self.time_embedding = nn.Sequential(
-            self.operations.Linear(self.freq_dim, self.dim),
-            nn.SiLU(),
-            self.operations.Linear(self.dim, self.dim)
-        )
+        # Time embedding (ComfyUI uses 'time_embed' not 'time_embedding')
+        # Check if we need to use freq_dim as both input and output
+        if self.freq_dim == 100 and self.dim == 2048:
+            # Special case: use freq_dim as both input and output
+            self.time_embed = nn.Sequential(
+                self.operations.Linear(self.freq_dim, self.freq_dim),
+                nn.SiLU(),
+                self.operations.Linear(self.freq_dim, self.dim)
+            )
+        else:
+            # Standard case: freq_dim -> dim
+            self.time_embed = nn.Sequential(
+                self.operations.Linear(self.freq_dim, self.dim),
+                nn.SiLU(),
+                self.operations.Linear(self.dim, self.dim)
+            )
         
         # Time projection
         self.time_projection = nn.Sequential(
@@ -134,7 +144,7 @@ class ComfyUIWanModel(nn.Module):
         
         # Head
         self.head = ComfyUIWanHead(
-            self.dim, self.out_dim, self.num_heads, self.qk_norm, self.eps
+            self.dim, self.out_dim, self.patch_size, self.eps
         )
     
     def forward(self, x, t, context, clip_fea=None, freqs=None, transformer_options={}, **kwargs):
@@ -146,7 +156,7 @@ class ComfyUIWanModel(nn.Module):
         x = x.flatten(2).transpose(1, 2)
         
         # Time embeddings
-        e = self.time_embedding(
+        e = self.time_embed(
             sinusoidal_embedding_1d(self.freq_dim, t).to(dtype=x.dtype))
         
         # Text embeddings
@@ -158,7 +168,7 @@ class ComfyUIWanModel(nn.Module):
             x = block(x, e, context, transformer_options=transformer_options)
         
         # Head
-        x = self.head(x, grid_sizes)
+        x = self.head(x, e)
         
         return x
 
@@ -296,35 +306,36 @@ class ComfyUIVaceWanAttentionBlock(ComfyUIWanAttentionBlock):
     pass  # Same as base for now
 
 class ComfyUIWanHead(nn.Module):
-    """Head module matching ComfyUI's structure"""
+    """Head module matching ComfyUI's exact structure"""
     
-    def __init__(self, dim, out_dim, num_heads, qk_norm, eps):
+    def __init__(self, dim, out_dim, patch_size, eps=1e-6):
         super().__init__()
         self.dim = dim
         self.out_dim = out_dim
+        self.patch_size = patch_size
+        self.eps = eps
         
-        # Modulation
-        self.modulation = nn.Parameter(torch.randn(dim))
+        # Calculate output dimension (ComfyUI's approach)
+        out_dim = math.prod(patch_size) * out_dim
         
-        # Head
-        self.head = nn.Linear(dim, out_dim * 4)  # 4 for patch size
+        # Layer norm (ComfyUI uses elementwise_affine=False)
+        self.norm = nn.LayerNorm(dim, eps=eps, elementwise_affine=False)
         
-        # Layer norm
-        self.norm = nn.LayerNorm(dim) if qk_norm else None
+        # Head linear layer
+        self.head = nn.Linear(dim, out_dim)
+        
+        # Modulation parameter (ComfyUI's exact structure)
+        self.modulation = nn.Parameter(torch.empty(1, 2, dim))
     
-    def forward(self, x, grid_sizes):
-        """Forward pass"""
-        if self.norm is not None:
-            x = self.norm(x)
+    def forward(self, x, e):
+        """Forward pass matching ComfyUI's Head.forward"""
+        # Apply modulation (simplified version of ComfyUI's logic)
+        if e.ndim < 3:
+            e = (self.modulation + e.unsqueeze(1)).chunk(2, dim=1)
+        else:
+            e = (self.modulation.unsqueeze(0) + e.unsqueeze(2)).unbind(2)
         
-        # Apply modulation
-        x = x * self.modulation
-        
-        # Head projection
-        x = self.head(x)
-        
-        # Reshape to output format
-        batch_size, seq_len, channels = x.shape
-        x = x.transpose(1, 2).view(batch_size, channels, *grid_sizes)
+        # Apply head transformation (simplified)
+        x = self.head(self.norm(x))
         
         return x

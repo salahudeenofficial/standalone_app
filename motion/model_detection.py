@@ -60,9 +60,27 @@ def detect_unet_config(state_dict: Dict[str, torch.Tensor], key_prefix: str = ""
             return None
         dit_config["ffn_dim"] = state_dict[ffn_weight_key].shape[0]
         
-        dit_config["num_layers"] = count_blocks(state_dict_keys, '{}blocks.'.format(key_prefix) + '{}.')
+        # Count blocks - look for any key that starts with blocks.X.
+        block_count = 0
+        while True:
+            found_block = False
+            for key in state_dict_keys:
+                if key.startswith(f'blocks.{block_count}.'):
+                    found_block = True
+                    break
+            if found_block:
+                block_count += 1
+            else:
+                break
+        dit_config["num_layers"] = block_count
         dit_config["patch_size"] = (1, 2, 2)
-        dit_config["freq_dim"] = 256
+        
+        # Get freq_dim from time_embed.0.weight if available
+        time_embed_key = has_key('time_embed.0.weight')
+        if time_embed_key:
+            dit_config["freq_dim"] = state_dict[time_embed_key].shape[1]
+        else:
+            dit_config["freq_dim"] = 256  # Default
         dit_config["window_size"] = (-1, -1)
         dit_config["qk_norm"] = True
         dit_config["cross_attn_norm"] = True
