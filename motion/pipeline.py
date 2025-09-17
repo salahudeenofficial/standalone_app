@@ -484,61 +484,29 @@ class WanVideoPipeline:
             print("2.1 Loading UNet diffusion model...")
             unet_start = time.time()
             
-            # Load UNet state dict
-            unet_state_dict = load_torch_file(unet_model_path)
-            print(f"   📊 Loaded UNet state dict with {len(unet_state_dict)} keys")
+            # Load UNet model using ComfyUI-style loading with integrated patching
+            print("🔧 Loading UNet with ComfyUI-style integrated patching...")
             
-            # Log memory before UNet loading
-            log_memory_usage("Before UNet Loading")
+            # Import ComfyUI-style loader
+            from comfyui_style_model_loader import load_unet_with_comfyui_patching
             
-            # Load UNet model using standalone_sd with advanced memory management
-            result = load_state_dict_guess_config(
-                unet_state_dict,
-                output_vae=False,
-                output_clip=False,
-                output_clipvision=False,
-                output_model=True
+            # Load UNet with ComfyUI-style patching (model + patching + low-VRAM setup all in one go)
+            self.unet = load_unet_with_comfyui_patching(
+                unet_model_path,
+                load_device=self.load_device,
+                offload_device=self.offload_device,
+                model_options={}
             )
             
-            if result is None:
-                raise RuntimeError("Failed to load UNet model - load_state_dict_guess_config returned None")
-            
-            model, _, _, _ = result
-            self.unet = model
-            
             if self.unet is None:
-                raise RuntimeError("UNet model is None after loading")
+                raise RuntimeError("UNet model is None after ComfyUI-style loading")
             
-            # Apply advanced memory management to the loaded UNet
-            print("🔧 Applying advanced memory management to UNet...")
-            
-            # Get the actual model from the ModelPatcher
-            if hasattr(self.unet, 'model'):
-                actual_model = self.unet.model
-                target_device = self.unet.load_device
-                
-                # Use advanced partial loading
-                actual_model, final_device, loading_info = safe_model_to_device_advanced(
-                    actual_model, 
-                    target_device, 
-                    min_free_gb=2.0, 
-                    state_dict=unet_state_dict,
-                    enable_partial_loading=True
-                )
-                
-                print(f"   📊 UNet loading type: {loading_info['loading_type']}")
-                if loading_info['loading_type'] == 'partial':
-                    print(f"   📊 Modules loaded to GPU: {loading_info['modules_loaded']}")
-                    print(f"   📊 Modules with dynamic loading: {loading_info['modules_dynamic']}")
-                    print(f"   📊 GPU memory used: {loading_info['memory_used_gb']:.3f} GB")
-                    print(f"   📊 Memory budget: {loading_info['memory_budget_gb']:.3f} GB")
-                elif loading_info['loading_type'] == 'full':
-                    print(f"   📊 Full model loaded to GPU")
-                else:
-                    print(f"   📊 Model loaded to: {final_device}")
-                
-                # Update the ModelPatcher's device info
-                self.unet.load_device = final_device
+            print(f"   📊 UNet loaded with ComfyUI-style ModelPatcher")
+            print(f"   📊 Model size: {self.unet.size / (1024**3):.2f} GB")
+            print(f"   📊 Load device: {self.unet.load_device}")
+            print(f"   📊 Offload device: {self.unet.offload_device}")
+            print(f"   📊 Low-VRAM attributes set up: ✅")
+            print(f"   📊 Weight functions ready: ✅")
             
             unet_time = time.time() - unet_start
             print(f"✅ UNet loaded successfully in {unet_time:.2f}s")
@@ -994,48 +962,36 @@ class WanVideoPipeline:
                 torch.cuda.empty_cache()
                 print("   🧹 CUDA cache cleared")
             
-            # Check if UNet has dynamic loading setup
-            unet_model = self.unet.model if hasattr(self.unet, 'model') else self.unet
-            model_was_on_cpu = False
-            model_was_loaded_to_gpu = False
+            # Use ComfyUI-style loading for inference
+            print("🔧 Using ComfyUI-style loading for inference...")
             
-            print(f"   📊 Current UNet device: {unet_model.device}")
-            print(f"   📊 UNet load_device: {self.unet.load_device}")
-            
-            if hasattr(unet_model, '_dynamic_loading_info'):
-                print("   📊 UNet has dynamic loading setup - using ComfyUI-style loading")
+            # Check if UNet is a ComfyUI-style ModelPatcher
+            if hasattr(self.unet, 'load') and hasattr(self.unet, 'unload'):
+                print("   📊 UNet is ComfyUI-style ModelPatcher - using integrated loading")
                 
-                # Check if model is currently on CPU
-                if str(unet_model.device) == 'cpu':
-                    model_was_on_cpu = True
-                    print("   🔄 Loading entire UNet to GPU for inference...")
-                    
-                    try:
-                        # Load entire model to GPU before inference (ComfyUI approach)
-                        unet_model.to('cuda')
-                        print("   ✅ UNet loaded to GPU")
-                        model_was_loaded_to_gpu = True
-                        
-                        # Update the ModelPatcher's device info
-                        self.unet.load_device = torch.device('cuda')
-                        
-                    except torch.cuda.OutOfMemoryError as e:
-                        print(f"   ❌ CUDA OOM during model loading: {e}")
-                        print("   🔄 Falling back to CPU inference...")
-                        
-                        # Keep model on CPU for inference
-                        unet_model.to('cpu')
-                        self.unet.load_device = torch.device('cpu')
-                        model_was_on_cpu = True
-                else:
-                    print("   ✅ UNet already on GPU - no need to reload")
-                    
+                # Use ComfyUI-style loading with low-VRAM
+                lowvram_memory = 2.0 * 1024**3  # 2GB limit for low-VRAM
+                self.unet.load(
+                    device_to=self.device,
+                    lowvram_model_memory=lowvram_memory,
+                    force_patch_weights=False,
+                    full_load=False
+                )
+                print("   ✅ ComfyUI-style loading complete")
+                
             else:
-                print("   📊 UNet doesn't have dynamic loading - using standard approach")
+                print("   ⚠️  UNet is not ComfyUI-style ModelPatcher - using fallback")
+                # Fallback to standard approach
+                unet_model = self.unet.model if hasattr(self.unet, 'model') else self.unet
                 if str(unet_model.device) == 'cpu':
-                    print("   ⚠️  UNet on CPU but no dynamic loading - may cause OOM")
-                else:
-                    print("   ✅ UNet already on GPU")
+                    print("   🔄 Moving UNet to GPU...")
+                    try:
+                        unet_model.to(self.device)
+                        print("   ✅ UNet moved to GPU")
+                    except torch.cuda.OutOfMemoryError as e:
+                        print(f"   ❌ CUDA OOM: {e}")
+                        print("   🔄 Keeping UNet on CPU")
+                        unet_model.to('cpu')
             
             # Perform the denoising process
             try:
@@ -1075,20 +1031,24 @@ class WanVideoPipeline:
                 raise
             
             finally:
-                # ComfyUI-style cleanup: Unload model back to CPU after inference
-                # Only unload if we actually loaded it to GPU during this step
-                if hasattr(unet_model, '_dynamic_loading_info') and model_was_loaded_to_gpu:
+                # ComfyUI-style cleanup: Unload model after inference
+                if hasattr(self.unet, 'unload'):
                     try:
-                        print("   🔄 Unloading UNet back to CPU after inference...")
-                        unet_model.to('cpu')
-                        self.unet.load_device = torch.device('cpu')
-                        print("   ✅ UNet unloaded to CPU")
+                        print("   🔄 Unloading UNet with ComfyUI-style cleanup...")
+                        self.unet.unload()
+                        print("   ✅ UNet unloaded successfully")
                     except Exception as cleanup_e:
-                        print(f"   ⚠️  Warning: Failed to unload UNet to CPU: {cleanup_e}")
-                elif hasattr(unet_model, '_dynamic_loading_info') and not model_was_loaded_to_gpu:
-                    print("   📊 UNet was already on GPU - keeping it there")
+                        print(f"   ⚠️  Warning: Failed to unload UNet: {cleanup_e}")
                 else:
-                    print("   📊 No dynamic loading - no cleanup needed")
+                    print("   📊 No ComfyUI-style unload method - using fallback")
+                    # Fallback cleanup
+                    unet_model = self.unet.model if hasattr(self.unet, 'model') else self.unet
+                    if str(unet_model.device) != 'cpu':
+                        try:
+                            unet_model.to('cpu')
+                            print("   ✅ UNet moved to CPU")
+                        except Exception as e:
+                            print(f"   ⚠️  Warning: Failed to move UNet to CPU: {e}")
             
             denoising_time = time.time() - denoising_start
             

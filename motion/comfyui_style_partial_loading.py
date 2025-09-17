@@ -242,12 +242,18 @@ class ComfyUIStylePartialLoader:
         """
         logging.info(f"🔄 Preparing model for inference with ComfyUI-style dynamic loading...")
         
-        # ComfyUI's approach: Move model to target device for inference
-        # The weight_function will handle loading weights on-demand during forward pass
-        self.model.to(self.target_device)
+        # CRITICAL: Do NOT move the entire model to GPU!
+        # In ComfyUI, the model stays on CPU and weights are loaded on-demand
+        # via weight_function during forward pass
         
-        logging.info(f"  ✅ Model ready for inference on {self.target_device}")
+        # Ensure model is on CPU (it should already be)
+        if hasattr(self.model, 'device') and str(self.model.device) != 'cpu':
+            logging.warning(f"⚠️  Model is on {self.model.device}, moving to CPU for ComfyUI-style loading")
+            self.model.to('cpu')
+        
+        logging.info(f"  ✅ Model ready for inference on CPU with dynamic weight loading")
         logging.info(f"  📊 Dynamic weights will be loaded on-demand via weight_function during forward pass")
+        logging.info(f"  🎯 This is the true ComfyUI approach - model stays on CPU!")
     
     def evict_weights_after_inference(self, weight_keys: Optional[List[str]] = None):
         """
@@ -274,24 +280,28 @@ class ComfyUIStylePartialLoader:
             if hasattr(module, '_dynamic_loading_setup'):
                 del module._dynamic_loading_setup
         
-        # Move model back to CPU (ComfyUI's approach)
-        self.model.to('cpu')
-        
         # Clear CUDA cache
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             import gc
             gc.collect()
         
-        logging.info("  ✅ Cleanup complete - model moved to CPU")
+        logging.info("  ✅ Cleanup complete - weights evicted from GPU")
     
     def get_loading_info(self) -> Dict[str, Any]:
         """
         Get current loading information
         """
-        if hasattr(self.model, '_partial_loading_info'):
-            return self.model._partial_loading_info
-        return {}
+        return {
+            'loading_type': 'comfyui_partial',
+            'loaded_weights_count': len(self.loaded_weights),
+            'patched_weights_count': sum(len(patches) for patches in self.weight_patches.values()),
+            'memory_used_gb': self.current_memory_usage / (1024**3),
+            'memory_budget_gb': self.memory_budget_gb,
+            'target_device': str(self.target_device),
+            'weight_patches': self.weight_patches,
+            'loaded_weights': self.loaded_weights
+        }
 
 def setup_comfyui_style_partial_loading(model: nn.Module, target_device: torch.device, 
                                        memory_budget_gb: float) -> ComfyUIStylePartialLoader:
