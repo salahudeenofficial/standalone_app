@@ -438,16 +438,24 @@ def load_modules_for_inference(model, module_names, device=None):
                 modules_to_load.append(module_info)
                 break
     
-    # Load modules to GPU using ComfyUI-style approach
+    # Load modules using ComfyUI-style approach
     for module_info in modules_to_load:
         try:
             module = module_info['module']
             
-            # Move the entire module to GPU (ComfyUI does this for loaded modules)
-            module.to(target_device)
+            # Check if module has ComfyUI-style partial loader
+            if hasattr(module, '_partial_loader'):
+                # Use ComfyUI-style loading
+                loader = module._partial_loader
+                loader.load_weights_for_inference()
+                logging.info(f"  ✅ ComfyUI-style loaded {module_info['name']}: {module_info['size_gb']:.3f} GB")
+            else:
+                # Fallback to moving entire module to GPU
+                module.to(target_device)
+                logging.info(f"  ✅ Standard loaded {module_info['name']}: {module_info['size_gb']:.3f} GB")
             
             loaded_modules.add(module_info['name'])
-            logging.info(f"  ✅ Loaded {module_info['name']}: {module_info['size_gb']:.3f} GB")
+            
         except torch.cuda.OutOfMemoryError as e:
             logging.warning(f"  ⚠️  OOM loading {module_info['name']}: {e}")
             return False
@@ -484,12 +492,21 @@ def unload_modules_after_inference(model, module_names=None):
         for module_info in modules_info:
             if module_info['name'] == module_name and module_name in loaded_modules:
                 try:
-                    # Move the entire module back to CPU (ComfyUI style)
                     module = module_info['module']
-                    module.to(cpu_device)
+                    
+                    # Check if module has ComfyUI-style partial loader
+                    if hasattr(module, '_partial_loader'):
+                        # Use ComfyUI-style unloading
+                        loader = module._partial_loader
+                        loader.evict_weights_after_inference()
+                        logging.info(f"  ✅ ComfyUI-style unloaded {module_name}")
+                    else:
+                        # Fallback to moving entire module back to CPU
+                        module.to(cpu_device)
+                        logging.info(f"  ✅ Standard unloaded {module_name}")
                     
                     loaded_modules.discard(module_name)
-                    logging.info(f"  ✅ Unloaded {module_name}")
+                    
                 except Exception as e:
                     logging.warning(f"  ⚠️  Error unloading {module_name}: {e}")
     
@@ -501,20 +518,28 @@ def unload_modules_after_inference(model, module_names=None):
 
 def _setup_dynamic_loading(module, device):
     """
-    Set up dynamic loading for a module (placeholder for now)
+    Set up dynamic loading for a module using ComfyUI-style weight patching
     
     Args:
         module: PyTorch module
         device: Target device
     """
-    # For now, we'll just mark the module for dynamic loading
-    # In a full implementation, this would set up weight functions
-    # similar to ComfyUI's LowVramPatch system
+    # Import our ComfyUI-style partial loading system
+    from comfyui_style_partial_loading import ComfyUIStylePartialLoader
     
     if not hasattr(module, '_dynamic_loading_setup'):
         module._dynamic_loading_setup = True
         module._target_device = device
-        logging.debug(f"  🔄 Dynamic loading setup for {type(module).__name__}")
+        
+        # Set up ComfyUI-style partial loading
+        try:
+            loader = ComfyUIStylePartialLoader(module, device, memory_budget_gb=2.0)
+            module._partial_loader = loader
+            logging.info(f"  ✅ ComfyUI-style dynamic loading setup for {type(module).__name__}")
+        except Exception as e:
+            logging.warning(f"  ⚠️  Failed to setup ComfyUI-style loading: {e}")
+            # Fallback to simple marking
+            logging.debug(f"  🔄 Basic dynamic loading setup for {type(module).__name__}")
 
 if __name__ == "__main__":
     print("Memory Management Utilities")

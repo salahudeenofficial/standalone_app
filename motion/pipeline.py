@@ -569,7 +569,7 @@ class WanVideoPipeline:
             result = load_state_dict_guess_config(
                 clip_state_dict,
                 output_vae=False,
-                output_clip=True,
+                output_clip=False,
                 output_clipvision=False,
                 output_model=False
             )
