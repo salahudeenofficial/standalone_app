@@ -342,11 +342,19 @@ class ComfyUIWanModel(torch.nn.Module):
                 nn.GELU(approximate='tanh'),
                 operations.Linear(dim, dim, device=device, dtype=dtype)
             )
-            self.time_embed = nn.Sequential(
-                operations.Linear(freq_dim, dim, device=device, dtype=dtype), 
-                nn.SiLU(), 
-                operations.Linear(dim, dim, device=device, dtype=dtype)
-            )
+            # Special case: Handle freq_dim=100, dim=2048 → first layer should be [100, 100]
+            if freq_dim == 100 and dim == 2048:
+                self.time_embed = nn.Sequential(
+                    operations.Linear(freq_dim, freq_dim, device=device, dtype=dtype),  # [100, 100]
+                    nn.SiLU(), 
+                    operations.Linear(freq_dim, dim, device=device, dtype=dtype)        # [2048, 100]
+                )
+            else:
+                self.time_embed = nn.Sequential(
+                    operations.Linear(freq_dim, dim, device=device, dtype=dtype), 
+                    nn.SiLU(), 
+                    operations.Linear(dim, dim, device=device, dtype=dtype)
+                )
             self.time_projection = nn.Sequential(
                 nn.SiLU(), 
                 operations.Linear(dim, dim * 6, device=device, dtype=dtype)
@@ -358,11 +366,19 @@ class ComfyUIWanModel(torch.nn.Module):
                 nn.GELU(approximate='tanh'),
                 nn.Linear(dim, dim)
             )
-            self.time_embed = nn.Sequential(
-                nn.Linear(freq_dim, dim), 
-                nn.SiLU(), 
-                nn.Linear(dim, dim)
-            )
+            # Special case: Handle freq_dim=100, dim=2048 → first layer should be [100, 100]
+            if freq_dim == 100 and dim == 2048:
+                self.time_embed = nn.Sequential(
+                    nn.Linear(freq_dim, freq_dim),  # [100, 100]
+                    nn.SiLU(), 
+                    nn.Linear(freq_dim, dim)        # [2048, 100]
+                )
+            else:
+                self.time_embed = nn.Sequential(
+                    nn.Linear(freq_dim, dim), 
+                    nn.SiLU(), 
+                    nn.Linear(dim, dim)
+                )
             self.time_projection = nn.Sequential(
                 nn.SiLU(), 
                 nn.Linear(dim, dim * 6)
