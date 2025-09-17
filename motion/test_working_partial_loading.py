@@ -143,8 +143,7 @@ def test_working_partial_loading():
         ksampler = StandaloneKSampler(
             model=model_patcher,
             steps=3,  # Very few steps for testing
-            cfg=7.0,
-            sampler_name="euler",
+            sampler="euler",
             scheduler="normal",
             denoise=1.0
         )
@@ -168,10 +167,10 @@ def test_working_partial_loading():
                         print(f"      Step {step}/{total_steps}: GPU Memory - Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
             
             denoised_latent = ksampler.sample(
-                initial_latent=initial_latent,
-                positive_conditioning=positive_conditioning,
-                negative_conditioning=negative_conditioning,
-                seed=42,
+                noise=initial_latent,
+                positive=positive_conditioning,
+                negative=negative_conditioning,
+                cfg=7.0,
                 callback=memory_callback
             )
             
