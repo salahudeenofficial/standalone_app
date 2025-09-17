@@ -253,8 +253,19 @@ def load_unet_with_comfyui_patching(unet_path: str, load_device: torch.device, o
     try:
         # Load state dict
         if unet_path.endswith('.safetensors'):
-            import safetensors.torch
-            sd = safetensors.torch.load_file(unet_path)
+            try:
+                import safetensors.torch
+                sd = safetensors.torch.load_file(unet_path)
+            except Exception as safetensors_error:
+                logging.warning(f"⚠️  Safetensors loading failed: {safetensors_error}")
+                logging.warning(f"⚠️  Model file may be corrupted, trying torch.load...")
+                try:
+                    sd = torch.load(unet_path, map_location='cpu')
+                except Exception as torch_error:
+                    logging.error(f"❌ Both safetensors and torch loading failed:")
+                    logging.error(f"   Safetensors error: {safetensors_error}")
+                    logging.error(f"   Torch error: {torch_error}")
+                    raise RuntimeError(f"Failed to load model file: {unet_path}")
         else:
             sd = torch.load(unet_path, map_location='cpu')
         

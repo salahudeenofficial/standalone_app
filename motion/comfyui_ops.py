@@ -52,8 +52,14 @@ class ComfyUILinear(torch.nn.Linear):
             weight, bias = cast_bias_weight(self, input)
             return F.linear(input, weight, bias)
         else:
-            # Standard forward pass
-            return super().forward(input)
+            # Standard forward pass - ensure weights are on same device as input
+            if self.weight.device != input.device:
+                # Move weights to input device temporarily
+                weight = self.weight.to(input.device)
+                bias = self.bias.to(input.device) if self.bias is not None else None
+                return F.linear(input, weight, bias)
+            else:
+                return super().forward(input)
 
 class ComfyUIConv2d(torch.nn.Conv2d):
     """
@@ -70,8 +76,14 @@ class ComfyUIConv2d(torch.nn.Conv2d):
             weight, bias = cast_bias_weight(self, input)
             return self._conv_forward(input, weight, bias)
         else:
-            # Standard forward pass
-            return super().forward(input)
+            # Standard forward pass - ensure weights are on same device as input
+            if self.weight.device != input.device:
+                # Move weights to input device temporarily
+                weight = self.weight.to(input.device)
+                bias = self.bias.to(input.device) if self.bias is not None else None
+                return self._conv_forward(input, weight, bias)
+            else:
+                return super().forward(input)
 
 class ComfyUIConv3d(torch.nn.Conv3d):
     """
