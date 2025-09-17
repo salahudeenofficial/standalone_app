@@ -32,15 +32,17 @@ class ModelAwarePatcher:
         try:
             from standalone_sd import VaceWanModel
             self.register_model_handler(VaceWanModel, self._patch_vace_wan_model)
+            logging.info("✅ VaceWanModel handler registered")
         except ImportError:
-            logging.warning("VaceWanModel not available for patching")
+            logging.debug("VaceWanModel not available for patching")
         
         # Register generic UNet handler
         try:
             from comfy.ldm.modules.diffusionmodules.openaimodel import UNetModel
             self.register_model_handler(UNetModel, self._patch_generic_unet)
+            logging.info("✅ UNetModel handler registered")
         except ImportError:
-            logging.warning("UNetModel not available for patching")
+            logging.debug("UNetModel not available for patching")
     
     def patch_model(self, model: nn.Module) -> nn.Module:
         """
@@ -372,14 +374,29 @@ class ModelAwarePatcher:
                     setattr(parent_module, attr_name, new_module)
                     return True
                 else:
-                    logging.warning(f"    ⚠️  Could not find parent module '{parent_name}' for '{module_name}'")
+                    logging.debug(f"    ⚠️  Could not find parent module '{parent_name}' for '{module_name}'")
                     return False
             else:
-                # Root module
-                logging.warning(f"    ⚠️  Attempting to patch root module '{module_name}' - skipping")
-                return False
+                # Root module - handle Sequential and other container modules
+                if isinstance(model, nn.Sequential):
+                    # For Sequential, we need to replace by index
+                    try:
+                        index = int(module_name)
+                        model[index] = new_module
+                        return True
+                    except (ValueError, IndexError):
+                        logging.debug(f"    ⚠️  Could not replace Sequential module at index '{module_name}'")
+                        return False
+                else:
+                    # For other root modules, try to replace by attribute name
+                    try:
+                        setattr(model, module_name, new_module)
+                        return True
+                    except AttributeError:
+                        logging.debug(f"    ⚠️  Could not replace root module '{module_name}'")
+                        return False
         except Exception as e:
-            logging.warning(f"    ⚠️  Error patching '{module_name}': {e}")
+            logging.debug(f"    ⚠️  Error patching '{module_name}': {e}")
             return False
     
     def _get_parent_module(self, module):

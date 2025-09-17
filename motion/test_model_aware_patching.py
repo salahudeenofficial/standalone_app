@@ -20,24 +20,25 @@ def test_model_aware_patching():
     class MockVaceBlock(nn.Module):
         def __init__(self):
             super().__init__()
-            self.self_attn = nn.ModuleDict({
-                'q': nn.Linear(512, 512),
-                'k': nn.Linear(512, 512),
-                'v': nn.Linear(512, 512),
-                'o': nn.Linear(512, 512),
-                'norm_q': nn.LayerNorm(512),
-                'norm_k': nn.LayerNorm(512)
-            })
-            self.cross_attn = nn.ModuleDict({
-                'q': nn.Linear(512, 512),
-                'k': nn.Linear(512, 512),
-                'v': nn.Linear(512, 512),
-                'o': nn.Linear(512, 512)
-            })
-            self.mlp = nn.ModuleDict({
-                'fc1': nn.Linear(512, 2048),
-                'fc2': nn.Linear(2048, 512)
-            })
+            # Use direct attributes instead of ModuleDict for easier patching
+            self.self_attn = nn.Module()
+            self.self_attn.q = nn.Linear(512, 512)
+            self.self_attn.k = nn.Linear(512, 512)
+            self.self_attn.v = nn.Linear(512, 512)
+            self.self_attn.o = nn.Linear(512, 512)
+            self.self_attn.norm_q = nn.LayerNorm(512)
+            self.self_attn.norm_k = nn.LayerNorm(512)
+            
+            self.cross_attn = nn.Module()
+            self.cross_attn.q = nn.Linear(512, 512)
+            self.cross_attn.k = nn.Linear(512, 512)
+            self.cross_attn.v = nn.Linear(512, 512)
+            self.cross_attn.o = nn.Linear(512, 512)
+            
+            self.mlp = nn.Module()
+            self.mlp.fc1 = nn.Linear(512, 2048)
+            self.mlp.fc2 = nn.Linear(2048, 512)
+            
             self.norm1 = nn.LayerNorm(512)
             self.norm2 = nn.LayerNorm(512)
             self.norm3 = nn.LayerNorm(512)
@@ -62,6 +63,11 @@ def test_model_aware_patching():
     
     # Patch the model
     patcher = ModelAwarePatcher()
+    
+    # Register MockVaceWanModel handler for testing
+    patcher.register_model_handler(MockVaceWanModel, patcher._patch_vace_wan_model)
+    print("✅ MockVaceWanModel handler registered for testing")
+    
     patched_model = patcher.patch_model(model)
     
     # Count patched layers
