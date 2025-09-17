@@ -260,23 +260,23 @@ def load_unet_with_comfyui_patching(unet_path: str, load_device: torch.device, o
                 logging.warning(f"⚠️  Safetensors loading failed: {safetensors_error}")
                 logging.warning(f"⚠️  Model file may be corrupted, trying torch.load...")
                 try:
-                    sd = torch.load(unet_path, map_location='cpu')
+                    sd = torch.load(unet_path, map_location='cpu', weights_only=True)
                 except Exception as torch_error:
                     logging.error(f"❌ Both safetensors and torch loading failed:")
                     logging.error(f"   Safetensors error: {safetensors_error}")
                     logging.error(f"   Torch error: {torch_error}")
                     raise RuntimeError(f"Failed to load model file: {unet_path}")
         else:
-            sd = torch.load(unet_path, map_location='cpu')
+            sd = torch.load(unet_path, map_location='cpu', weights_only=True)
         
         logging.info(f"📊 Loaded state dict with {len(sd)} keys")
         
         # Create model (simplified - in real implementation, you'd detect model type)
         # For now, we'll assume it's a standard UNet-like model
-        from standalone_sd import VaceWanModel
+        from standalone_sd import WANModel
         
         # Create model instance
-        model = VaceWanModel()
+        model = WANModel()
         
         # Load weights
         model.load_state_dict(sd, strict=False)
