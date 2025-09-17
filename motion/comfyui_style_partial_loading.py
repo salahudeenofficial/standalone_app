@@ -75,6 +75,10 @@ class ComfyUIStylePartialLoader:
         self.current_memory_usage = 0
         self.max_memory_usage = 0
         
+        # Patch model with ComfyUI-style operations
+        from comfyui_ops import patch_model_with_comfyui_ops
+        self.model = patch_model_with_comfyui_ops(self.model)
+        
         logging.info(f"🚀 ComfyUI-style partial loader initialized")
         logging.info(f"   Target device: {target_device}")
         logging.info(f"   Memory budget: {memory_budget_gb:.2f} GB")
@@ -191,7 +195,7 @@ class ComfyUIStylePartialLoader:
     
     def _setup_dynamic_weight(self, weight_info: Dict[str, Any]):
         """
-        Set up dynamic loading for a specific weight using ComfyUI's weight function approach
+        Set up dynamic loading for a specific weight using ComfyUI's weight_function approach
         """
         weight_key = weight_info['key']
         weight_tensor = weight_info['tensor']
@@ -202,7 +206,7 @@ class ComfyUIStylePartialLoader:
         # Store patch
         self.loaded_weights[weight_key] = patch
         
-        # Set up weight function on the module (ComfyUI approach)
+        # Set up weight_function on the module (ComfyUI's actual approach)
         module_name = weight_info['module_name']
         param_name = weight_info['param_name']
         
@@ -211,61 +215,76 @@ class ComfyUIStylePartialLoader:
         
         self.weight_patches[module_name][param_name] = patch
         
-        # Get the module and set up weight function
+        # Get the module and set up weight_function
         module = dict(self.model.named_modules())[module_name]
         
-        # Store original parameter
-        if not hasattr(module, '_original_params'):
-            module._original_params = {}
-        module._original_params[param_name] = getattr(module, param_name)
-        
-        # Set up weight function (ComfyUI style)
+        # Initialize weight_function and bias_function lists (ComfyUI approach)
         if not hasattr(module, 'weight_function'):
-            module.weight_function = {}
+            module.weight_function = []
         if not hasattr(module, 'bias_function'):
-            module.bias_function = {}
+            module.bias_function = []
         
+        # Add the LowVramPatch to the appropriate function list
         if param_name == 'weight':
-            module.weight_function[weight_key] = patch
+            module.weight_function.append(patch)
         elif param_name == 'bias':
-            module.bias_function[weight_key] = patch
+            module.bias_function.append(patch)
         
         # Mark module as having dynamic loading
         module._dynamic_loading_setup = True
+        
+        logging.debug(f"  ✅ Set up weight_function for {weight_key} on {module_name}.{param_name}")
     
     def load_weights_for_inference(self, weight_keys: Optional[List[str]] = None):
         """
-        Load specific weights to GPU for inference
+        Prepare model for inference with ComfyUI's weight_function approach.
+        Weights are loaded on-demand during forward pass via weight_function calls.
         """
-        if weight_keys is None:
-            weight_keys = list(self.loaded_weights.keys())
+        logging.info(f"🔄 Preparing model for inference with ComfyUI-style dynamic loading...")
         
-        logging.info(f"🔄 Loading {len(weight_keys)} weights for inference...")
+        # Ensure model is on target device for inference
+        self.model.to(self.target_device)
         
-        for weight_key in weight_keys:
-            if weight_key in self.loaded_weights:
-                patch = self.loaded_weights[weight_key]
-                patch()  # Load to GPU
-                logging.debug(f"  ✅ Loaded {weight_key}")
+        # The actual weight loading happens during forward pass when weight_function is called
+        # This is ComfyUI's approach - no pre-loading needed!
+        logging.info(f"  ✅ Model ready for inference on {self.target_device}")
+        logging.info(f"  📊 Dynamic weights will be loaded on-demand during forward pass")
     
     def evict_weights_after_inference(self, weight_keys: Optional[List[str]] = None):
         """
-        Evict weights from GPU after inference
+        Clean up after inference using ComfyUI's approach
         """
-        if weight_keys is None:
-            weight_keys = list(self.loaded_weights.keys())
+        logging.info(f"🧹 Cleaning up after inference...")
         
-        logging.info(f"🧹 Evicting {len(weight_keys)} weights after inference...")
+        # Evict all dynamic weights from GPU
+        for weight_key, patch in self.loaded_weights.items():
+            patch.evict()
+            logging.debug(f"  ✅ Evicted {weight_key}")
         
-        for weight_key in weight_keys:
-            if weight_key in self.loaded_weights:
-                patch = self.loaded_weights[weight_key]
-                patch.evict()  # Evict from GPU
-                logging.debug(f"  ✅ Evicted {weight_key}")
+        # Clear weight_function and bias_function lists
+        for module_name, param_patches in self.weight_patches.items():
+            module = dict(self.model.named_modules())[module_name]
+            
+            # Clear the function lists
+            if hasattr(module, 'weight_function'):
+                module.weight_function = []
+            if hasattr(module, 'bias_function'):
+                module.bias_function = []
+            
+            # Remove dynamic loading setup flag
+            if hasattr(module, '_dynamic_loading_setup'):
+                del module._dynamic_loading_setup
+        
+        # Move model back to CPU
+        self.model.to('cpu')
         
         # Clear CUDA cache
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+            import gc
+            gc.collect()
+        
+        logging.info("  ✅ Cleanup complete - model moved to CPU")
     
     def get_loading_info(self) -> Dict[str, Any]:
         """

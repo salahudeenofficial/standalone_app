@@ -180,6 +180,10 @@ def test_partial_loading_with_ksampler():
         
         # Create KSampler
         print("🚀 Creating KSampler...")
+        sampler_name = "euler"
+        scheduler = "normal"
+        denoise = 1.0
+        
         ksampler = StandaloneKSampler(
             model=model_patcher,
             steps=5,  # Reduced steps for testing
