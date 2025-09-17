@@ -28,7 +28,7 @@ def detect_unet_config(state_dict: Dict[str, torch.Tensor], key_prefix: str = ""
     """
     state_dict_keys = list(state_dict.keys())
     
-    # Check for WAN 2.1 models
+    # Check for WAN 2.1 models (using ComfyUI's exact detection logic)
     if '{}head.modulation'.format(key_prefix) in state_dict_keys:  # Wan 2.1
         dit_config = {}
         dit_config["image_model"] = "wan2.1"
@@ -47,7 +47,7 @@ def detect_unet_config(state_dict: Dict[str, torch.Tensor], key_prefix: str = ""
         dit_config["eps"] = 1e-6
         dit_config["in_dim"] = state_dict['{}patch_embedding.weight'.format(key_prefix)].shape[1]
         
-        # Determine model type based on specific keys
+        # Determine model type based on specific keys (ComfyUI's exact logic)
         if '{}vace_patch_embedding.weight'.format(key_prefix) in state_dict_keys:
             dit_config["model_type"] = "vace"
             dit_config["vace_in_dim"] = state_dict['{}vace_patch_embedding.weight'.format(key_prefix)].shape[1]
@@ -63,7 +63,7 @@ def detect_unet_config(state_dict: Dict[str, torch.Tensor], key_prefix: str = ""
             else:
                 dit_config["model_type"] = "t2v"
         
-        # Check for additional features
+        # Check for additional features (ComfyUI's exact logic)
         flf_weight = state_dict.get('{}img_emb.emb_pos'.format(key_prefix))
         if flf_weight is not None:
             dit_config["flf_pos_embed_token_number"] = flf_weight.shape[1]
