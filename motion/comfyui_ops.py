@@ -152,9 +152,13 @@ def patch_model_with_comfyui_ops(model):
             # Replace in parent module
             parent_name = '.'.join(name.split('.')[:-1])
             if parent_name:
-                parent_module = dict(model.named_modules())[parent_name]
-                attr_name = name.split('.')[-1]
-                setattr(parent_module, attr_name, new_module)
+                try:
+                    parent_module = dict(model.named_modules())[parent_name]
+                    attr_name = name.split('.')[-1]
+                    setattr(parent_module, attr_name, new_module)
+                except KeyError:
+                    logging.warning(f"⚠️  Could not find parent module '{parent_name}' for '{name}' - skipping patch")
+                    continue
             else:
                 # Root module
                 model = new_module
@@ -181,9 +185,13 @@ def patch_model_with_comfyui_ops(model):
             
             parent_name = '.'.join(name.split('.')[:-1])
             if parent_name:
-                parent_module = dict(model.named_modules())[parent_name]
-                attr_name = name.split('.')[-1]
-                setattr(parent_module, attr_name, new_module)
+                try:
+                    parent_module = dict(model.named_modules())[parent_name]
+                    attr_name = name.split('.')[-1]
+                    setattr(parent_module, attr_name, new_module)
+                except KeyError:
+                    logging.warning(f"⚠️  Could not find parent module '{parent_name}' for '{name}' - skipping patch")
+                    continue
             else:
                 model = new_module
             
@@ -209,9 +217,13 @@ def patch_model_with_comfyui_ops(model):
             
             parent_name = '.'.join(name.split('.')[:-1])
             if parent_name:
-                parent_module = dict(model.named_modules())[parent_name]
-                attr_name = name.split('.')[-1]
-                setattr(parent_module, attr_name, new_module)
+                try:
+                    parent_module = dict(model.named_modules())[parent_name]
+                    attr_name = name.split('.')[-1]
+                    setattr(parent_module, attr_name, new_module)
+                except KeyError:
+                    logging.warning(f"⚠️  Could not find parent module '{parent_name}' for '{name}' - skipping patch")
+                    continue
             else:
                 model = new_module
             
@@ -233,9 +245,13 @@ def patch_model_with_comfyui_ops(model):
             
             parent_name = '.'.join(name.split('.')[:-1])
             if parent_name:
-                parent_module = dict(model.named_modules())[parent_name]
-                attr_name = name.split('.')[-1]
-                setattr(parent_module, attr_name, new_module)
+                try:
+                    parent_module = dict(model.named_modules())[parent_name]
+                    attr_name = name.split('.')[-1]
+                    setattr(parent_module, attr_name, new_module)
+                except KeyError:
+                    logging.warning(f"⚠️  Could not find parent module '{parent_name}' for '{name}' - skipping patch")
+                    continue
             else:
                 model = new_module
             
@@ -256,9 +272,13 @@ def patch_model_with_comfyui_ops(model):
             
             parent_name = '.'.join(name.split('.')[:-1])
             if parent_name:
-                parent_module = dict(model.named_modules())[parent_name]
-                attr_name = name.split('.')[-1]
-                setattr(parent_module, attr_name, new_module)
+                try:
+                    parent_module = dict(model.named_modules())[parent_name]
+                    attr_name = name.split('.')[-1]
+                    setattr(parent_module, attr_name, new_module)
+                except KeyError:
+                    logging.warning(f"⚠️  Could not find parent module '{parent_name}' for '{name}' - skipping patch")
+                    continue
             else:
                 model = new_module
             

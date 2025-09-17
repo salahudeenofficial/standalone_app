@@ -75,9 +75,9 @@ class ComfyUIStylePartialLoader:
         self.current_memory_usage = 0
         self.max_memory_usage = 0
         
-        # Patch model with ComfyUI-style operations
-        from comfyui_ops import patch_model_with_comfyui_ops
-        self.model = patch_model_with_comfyui_ops(self.model)
+        # Skip model patching for now - we'll use a different approach
+        # from comfyui_ops import patch_model_with_comfyui_ops
+        # self.model = patch_model_with_comfyui_ops(self.model)
         
         logging.info(f"🚀 ComfyUI-style partial loader initialized")
         logging.info(f"   Target device: {target_device}")
@@ -237,43 +237,68 @@ class ComfyUIStylePartialLoader:
     
     def load_weights_for_inference(self, weight_keys: Optional[List[str]] = None):
         """
-        Prepare model for inference with ComfyUI's weight_function approach.
-        Weights are loaded on-demand during forward pass via weight_function calls.
+        Load all dynamic weights to GPU and replace module parameters for inference
         """
-        logging.info(f"🔄 Preparing model for inference with ComfyUI-style dynamic loading...")
+        logging.info(f"🔄 Loading dynamic weights to GPU for inference...")
         
-        # Ensure model is on target device for inference
+        # Load all dynamic weights to GPU and replace module parameters
+        for weight_key, patch in self.loaded_weights.items():
+            try:
+                # Load weight to GPU
+                gpu_weight = patch()
+                
+                # Find the module and parameter to replace
+                for module_name, param_patches in self.weight_patches.items():
+                    for param_name, weight_patch in param_patches.items():
+                        if weight_patch == patch:
+                            # Get the module
+                            module = dict(self.model.named_modules())[module_name]
+                            
+                            # Replace the parameter in the module
+                            if param_name == 'weight':
+                                module.weight = torch.nn.Parameter(gpu_weight)
+                            elif param_name == 'bias':
+                                module.bias = torch.nn.Parameter(gpu_weight)
+                            
+                            logging.debug(f"  ✅ Loaded {weight_key} to {module_name}.{param_name}")
+                            break
+            except Exception as e:
+                logging.warning(f"  ⚠️  Failed to load {weight_key}: {e}")
+        
+        # Ensure model is on target device
         self.model.to(self.target_device)
-        
-        # The actual weight loading happens during forward pass when weight_function is called
-        # This is ComfyUI's approach - no pre-loading needed!
         logging.info(f"  ✅ Model ready for inference on {self.target_device}")
-        logging.info(f"  📊 Dynamic weights will be loaded on-demand during forward pass")
     
     def evict_weights_after_inference(self, weight_keys: Optional[List[str]] = None):
         """
-        Clean up after inference using ComfyUI's approach
+        Evict weights from GPU and restore original parameters
         """
-        logging.info(f"🧹 Cleaning up after inference...")
+        logging.info(f"🧹 Evicting dynamic weights after inference...")
         
-        # Evict all dynamic weights from GPU
+        # Restore original parameters and evict from GPU
         for weight_key, patch in self.loaded_weights.items():
-            patch.evict()
-            logging.debug(f"  ✅ Evicted {weight_key}")
-        
-        # Clear weight_function and bias_function lists
-        for module_name, param_patches in self.weight_patches.items():
-            module = dict(self.model.named_modules())[module_name]
-            
-            # Clear the function lists
-            if hasattr(module, 'weight_function'):
-                module.weight_function = []
-            if hasattr(module, 'bias_function'):
-                module.bias_function = []
-            
-            # Remove dynamic loading setup flag
-            if hasattr(module, '_dynamic_loading_setup'):
-                del module._dynamic_loading_setup
+            try:
+                # Find the module and parameter to restore
+                for module_name, param_patches in self.weight_patches.items():
+                    for param_name, weight_patch in param_patches.items():
+                        if weight_patch == patch:
+                            # Get the module
+                            module = dict(self.model.named_modules())[module_name]
+                            
+                            # Restore original parameter (CPU version)
+                            original_weight = patch.weight_tensor  # This is the original CPU weight
+                            if param_name == 'weight':
+                                module.weight = torch.nn.Parameter(original_weight)
+                            elif param_name == 'bias':
+                                module.bias = torch.nn.Parameter(original_weight)
+                            
+                            # Evict from GPU
+                            patch.evict()
+                            
+                            logging.debug(f"  ✅ Evicted {weight_key} from {module_name}.{param_name}")
+                            break
+            except Exception as e:
+                logging.warning(f"  ⚠️  Failed to evict {weight_key}: {e}")
         
         # Move model back to CPU
         self.model.to('cpu')
@@ -284,7 +309,7 @@ class ComfyUIStylePartialLoader:
             import gc
             gc.collect()
         
-        logging.info("  ✅ Cleanup complete - model moved to CPU")
+        logging.info("  ✅ Dynamic weights evicted and model moved to CPU")
     
     def get_loading_info(self) -> Dict[str, Any]:
         """
