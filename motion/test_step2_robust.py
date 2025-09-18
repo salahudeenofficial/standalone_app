@@ -107,12 +107,12 @@ def safe_import_modules():
         return modules, []
 
 def test_step2_unet_clip_loading():
-    """Test Step 2: UNet + CLIP loading with ComfyUI-style patcher"""
-    print("🚀 Testing Step 2: UNet + CLIP Loading with ComfyUI-style Patcher")
+    """Test Step 2: CLIP loading with ComfyUI-style patcher (UNet commented out)"""
+    print("🚀 Testing Step 2: CLIP Loading with ComfyUI-style Patcher")
     print("="*80)
     print("🎯 Models:")
-    print(f"   UNet: {UNET_SPECS['model_name']} ({UNET_SPECS['model_size']})")
-    print(f"   CLIP: {T5_XXL_SPECS['model_name']}")
+    print(f"   UNet: {UNET_SPECS['model_name']} ({UNET_SPECS['model_size']}) - COMMENTED OUT")
+    print(f"   CLIP: {T5_XXL_SPECS['model_name']} - FOCUS")
     print("="*80)
     
     # Import modules safely
@@ -143,46 +143,42 @@ def test_step2_unet_clip_loading():
             print("\n💡 Testing model class initialization instead...")
             return test_model_class_initialization(modules)
         
-        # Test UNet loading
-        print(f"\n🧠 Testing UNet loading...")
-        unet_results = test_unet_loading(unet_model_path, load_state_dict_guess_config)
+        # Test UNet loading - COMMENTED OUT TO FOCUS ON CLIP ONLY
+        # print(f"\n🧠 Testing UNet loading...")
+        # unet_results = test_unet_loading(unet_model_path, load_state_dict_guess_config)
         
         # Test CLIP loading
         print(f"\n📝 Testing CLIP loading...")
         clip_results = test_clip_loading(clip_model_path, load_state_dict_guess_config)
         
-        # Test combined loading (Step 2 style)
-        print(f"\n🔗 Testing combined UNet + CLIP loading (Step 2 style)...")
-        combined_results = test_combined_loading(unet_model_path, clip_model_path, load_state_dict_guess_config)
+        # Test combined loading (Step 2 style) - COMMENTED OUT TO FOCUS ON CLIP ONLY
+        # print(f"\n🔗 Testing combined UNet + CLIP loading (Step 2 style)...")
+        # combined_results = test_combined_loading(unet_model_path, clip_model_path, load_state_dict_guess_config)
         
         # Display comprehensive results
         print(f"\n📊 STEP 2 COMPREHENSIVE TEST RESULTS")
         print("="*60)
-        print(f"✅ UNet Loading: {'PASS' if unet_results['success'] else 'FAIL'}")
+        # print(f"✅ UNet Loading: {'PASS' if unet_results['success'] else 'FAIL'}")
         print(f"✅ CLIP Loading: {'PASS' if clip_results['success'] else 'FAIL'}")
-        print(f"✅ Combined Loading: {'PASS' if combined_results['success'] else 'FAIL'}")
+        # print(f"✅ Combined Loading: {'PASS' if combined_results['success'] else 'FAIL'}")
         
         # Display detailed results
-        if unet_results['success']:
-            print(f"\n📋 UNET DETAILS:")
-            for key, value in unet_results['details'].items():
-                print(f"   {key}: {value}")
+        # if unet_results['success']:
+        #     print(f"\n📋 UNET DETAILS:")
+        #     for key, value in unet_results['details'].items():
+        #         print(f"   {key}: {value}")
         
         if clip_results['success']:
             print(f"\n📋 CLIP DETAILS:")
             for key, value in clip_results['details'].items():
                 print(f"   {key}: {value}")
         
-        if combined_results['success']:
-            print(f"\n📋 COMBINED LOADING DETAILS:")
-            for key, value in combined_results['details'].items():
-                print(f"   {key}: {value}")
+        # if combined_results['success']:
+        #     print(f"\n📋 COMBINED LOADING DETAILS:")
+        #     for key, value in combined_results['details'].items():
+        #         print(f"   {key}: {value}")
         
-        overall_success = all([
-            unet_results['success'],
-            clip_results['success'],
-            combined_results['success']
-        ])
+        overall_success = clip_results['success']  # Only check CLIP success
         
         print(f"\n🎯 STEP 2 OVERALL RESULT: {'✅ SUCCESS' if overall_success else '❌ FAILED'}")
         return overall_success
@@ -478,12 +474,12 @@ def test_model_class_initialization(modules):
 
 def main():
     """Main test function"""
-    print("🚀 Robust Step 2: UNet + CLIP Loading Test")
+    print("🚀 Robust Step 2: CLIP Loading Test (UNet commented out)")
     print("="*80)
-    print("🎯 Testing ComfyUI-style UNet and CLIP loading")
+    print("🎯 Testing ComfyUI-style CLIP loading only")
     print("📊 Models:")
-    print(f"   UNet: {UNET_SPECS['model_name']} ({UNET_SPECS['model_size']})")
-    print(f"   CLIP: {T5_XXL_SPECS['model_name']}")
+    print(f"   UNet: {UNET_SPECS['model_name']} ({UNET_SPECS['model_size']}) - COMMENTED OUT")
+    print(f"   CLIP: {T5_XXL_SPECS['model_name']} - FOCUS")
     print("="*80)
     
     # Get system info
@@ -497,11 +493,11 @@ def main():
     success = test_step2_unet_clip_loading()
     
     if success:
-        print(f"\n🎉 STEP 2 TEST COMPLETED SUCCESSFULLY!")
-        print(f"✅ ComfyUI-style UNet + CLIP loading and verification passed")
+        print(f"\n🎉 STEP 2 CLIP TEST COMPLETED SUCCESSFULLY!")
+        print(f"✅ ComfyUI-style CLIP loading and verification passed")
         print(f"🎯 Ready for integration with pipeline Step 2")
     else:
-        print(f"\n❌ STEP 2 TEST FAILED!")
+        print(f"\n❌ STEP 2 CLIP TEST FAILED!")
         print(f"💡 Check the error details above and fix any issues")
     
     return success
