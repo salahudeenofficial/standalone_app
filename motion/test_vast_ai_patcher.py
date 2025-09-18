@@ -32,8 +32,8 @@ def test_vast_ai_models():
     # Model paths - adjust these to your actual paths
     model_paths = {
         "UNet": "./models/diffusion_models/wan_2.1_diffusion_model.safetensors",
-        "VAE": "./models/vae/vae.safetensors", 
-        "Text Encoder": "./models/clip/clip.safetensors"
+        "VAE": "./models/vaes/vae.safetensors", 
+        "Text Encoder": "./models/text_encoders/clip.safetensors"
     }
     
     # Check which models exist
@@ -144,15 +144,19 @@ def test_vast_ai_models():
             # Test inference
             print(f"🧠 Testing inference...")
             try:
+                # Get model dtype from first parameter
+                model_dtype = next(model.parameters()).dtype
+                print(f"📊 Model dtype: {model_dtype}")
+                
                 with torch.no_grad():
-                    # Create dummy input
+                    # Create dummy input with matching dtype
                     if final_device.type == 'cuda':
-                        x = torch.randn(1, 10, device=final_device, dtype=torch.float16)
+                        x = torch.randn(1, 10, device=final_device, dtype=model_dtype)
                     else:
-                        x = torch.randn(1, 10, dtype=torch.float16)
+                        x = torch.randn(1, 10, dtype=model_dtype)
                     
                     output = model(x)
-                    print(f"✅ Inference successful! Output shape: {output.shape}")
+                    print(f"✅ Inference successful! Output shape: {output.shape}, dtype: {output.dtype}")
                     
                 results[name] = {
                     'success': True,
