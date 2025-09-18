@@ -31,8 +31,8 @@ def check_model_files():
     # Model paths to check
     model_paths = {
         "UNet": "./models/diffusion_models/wan_2.1_diffusion_model.safetensors",
-        "VAE": "./models/vaes/vae.safetensors", 
-        "Text Encoder": "./models/text_encoders/clip.safetensors"
+        "VAE": "./models/vaes/wan_vae.safetensors", 
+        "Text Encoder": "./models/text_encoders/wan_clip_model.safetensors"
     }
     
     # Expected sizes

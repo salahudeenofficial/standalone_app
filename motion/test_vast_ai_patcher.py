@@ -32,8 +32,8 @@ def test_vast_ai_models():
     # Model paths - adjust these to your actual paths
     model_paths = {
         "UNet": "./models/diffusion_models/wan_2.1_diffusion_model.safetensors",
-        "VAE": "./models/vaes/vae.safetensors", 
-        "Text Encoder": "./models/text_encoders/clip.safetensors"
+        "VAE": "./models/vaes/wan_vae.safetensors", 
+        "Text Encoder": "./models/text_encoders/wan_clip_model.safetensors"
     }
     
     # Check which models exist
@@ -109,21 +109,18 @@ def test_vast_ai_models():
             class DummyModel(torch.nn.Module):
                 def __init__(self, state_dict):
                     super().__init__()
-                    # Create a simple model structure
-                    self.layers = torch.nn.ModuleList()
-                    for i, (key, tensor) in enumerate(list(state_dict.items())[:5]):  # Use first 5 tensors
-                        if len(tensor.shape) >= 2:
-                            layer = torch.nn.Linear(tensor.shape[0], tensor.shape[1])
-                            self.layers.append(layer)
+                    # Create a simple linear layer - use fixed small size for testing
+                    input_size = 10
+                    output_size = 10
+                    
+                    self.linear = torch.nn.Linear(input_size, output_size)
                 
                 def forward(self, x):
-                    for layer in self.layers:
-                        x = layer(x)
-                    return x
+                    return self.linear(x)
             
             # Create dummy model
             dummy_model = DummyModel(state_dict)
-            print(f"✅ Dummy model created with {len(dummy_model.layers)} layers")
+            print(f"✅ Dummy model created with 1 layer")
             
             # Test ComfyUI-style loading
             print(f"🚀 Testing ComfyUI-style loading...")
