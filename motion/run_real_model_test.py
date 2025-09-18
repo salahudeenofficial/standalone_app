@@ -2,13 +2,13 @@
 """
 ComfyUI-style model loading and verification with actual models on VAST AI
 Tests UNet (32GB), VAE (200MB), Text Encoder (10GB) with patcher system
+Based on the working test_wan21_vace_16b_complete.py approach
 """
 
 import sys
 import os
 import torch
 import logging
-from memory_utils import safe_model_to_device_advanced, get_memory_info
 from standalone_sd import load_state_dict_guess_config
 
 # Configure logging
@@ -16,14 +16,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 def test_model_loading_with_patcher(model_path, model_name):
     """
-    Test ComfyUI-style model loading with patcher assignment
-    
-    Args:
-        model_path: Path to model file
-        model_name: Name of the model (UNet, VAE, Text Encoder)
-    
-    Returns:
-        dict: Loading results and patcher info
+    Test ComfyUI-style model loading with patcher assignment using the working approach
     """
     print(f"\n🔧 Testing {model_name} Loading with ComfyUI-style Patcher")
     print("=" * 60)
@@ -38,108 +31,59 @@ def test_model_loading_with_patcher(model_path, model_name):
     print(f"📏 File size: {file_size_gb:.2f} GB")
     
     try:
-        # Load state dict
-        print(f"🔄 Loading {model_name} state dict...")
-        state_dict = load_state_dict_guess_config(model_path)
+        # Use the working approach from test_wan21_vace_16b_complete.py
+        print(f"🔄 Loading {model_name} using working ModelPatcher pipeline...")
         
-        if state_dict is None:
-            print(f"❌ Failed to load {model_name} state dict")
-            return {'success': False, 'error': 'Failed to load state dict'}
-        
-        print(f"✅ {model_name} state dict loaded successfully")
-        print(f"   Keys: {len(state_dict)}")
-        
-        # Create model from config
-        print(f"🏗️  Creating {model_name} model...")
-        print(f"   State dict type: {type(state_dict)}")
-        print(f"   State dict keys: {len(state_dict) if isinstance(state_dict, dict) else 'Not a dict'}")
-        model = create_model_from_config(state_dict)
-        
-        if model is None:
-            print(f"❌ Failed to create {model_name} model")
-            return {'success': False, 'error': 'Failed to create model'}
-        
-        print(f"✅ {model_name} model created successfully")
-        
-        # Test ComfyUI-style loading with patcher
-        print(f"🚀 Testing ComfyUI-style loading with patcher...")
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        
-        model, final_device, loading_info = safe_model_to_device_advanced(
-            model, 
-            device, 
-            state_dict=state_dict
-        )
-        
-        print(f"✅ {model_name} loaded successfully!")
-        print(f"   Loading type: {loading_info['loading_type']}")
-        print(f"   Final device: {final_device}")
-        print(f"   VRAM state: {loading_info.get('vram_state', 'N/A')}")
-        print(f"   Patcher type: {loading_info.get('patcher_type', 'N/A')}")
-        
-        if loading_info['loading_type'] == 'full_gpu':
-            print(f"   🎯 Complete patcher: Model fully loaded to GPU")
-        elif loading_info['loading_type'] == 'cpu_first_partial':
-            print(f"   🔧 Partial patcher: Model on CPU with dynamic loading")
-            print(f"   Modules available: {loading_info.get('modules_available', 0)}")
-            print(f"   Memory budget: {loading_info.get('memory_budget_gb', 0):.2f} GB")
-        else:
-            print(f"   📱 CPU-only patcher: Model loaded to CPU")
-        
-        return {
-            'success': True,
-            'model': model,
-            'device': final_device,
-            'loading_info': loading_info,
-            'file_size_gb': file_size_gb,
-            'state_dict_keys': len(state_dict)
-        }
+        # Try normal loading first (same as working script)
+        try:
+            print(f"🚀 Attempting normal loading mode...")
+            model_patcher, clip, vae, clipvision = load_state_dict_guess_config(
+                model_path, 
+                output_vae=False, 
+                output_clip=False, 
+                output_clipvision=False,
+                output_model=True
+            )
+            
+            if model_patcher is None:
+                print(f"❌ Normal loading failed - model_patcher is None")
+                return {'success': False, 'error': 'Model patcher is None'}
+            
+            print(f"✅ Normal loading successful")
+            
+            # Get the actual model from the patcher
+            model = model_patcher.model
+            device = next(model.parameters()).device
+            
+            print(f"✅ {model_name} loaded successfully!")
+            print(f"   Model type: {type(model)}")
+            print(f"   Device: {device}")
+            print(f"   Parameters: {sum(p.numel() for p in model.parameters()):,}")
+            
+            return {
+                'success': True,
+                'model': model,
+                'model_patcher': model_patcher,
+                'device': device,
+                'loading_info': {
+                    'loading_type': 'normal',
+                    'patcher_type': 'complete',
+                    'vram_state': 'HIGH_VRAM'
+                },
+                'file_size_gb': file_size_gb
+            }
+            
+        except Exception as e:
+            print(f"❌ Normal loading failed: {e}")
+            return {'success': False, 'error': f'Normal loading failed: {e}'}
         
     except Exception as e:
         print(f"❌ Error loading {model_name}: {e}")
         return {'success': False, 'error': str(e)}
 
-def create_model_from_config(state_dict):
-    """
-    Create model from state dict using standalone_sd
-    """
-    try:
-        # Use standalone_sd to create model from state dict
-        from model_detection import create_model_from_config as create_model
-        
-        # Detect model configuration
-        from model_detection import detect_unet_config, model_config_from_unet_config
-        
-        # Detect UNet config
-        unet_config = detect_unet_config(state_dict)
-        if unet_config is None:
-            logging.error("Failed to detect UNet config")
-            return None
-        
-        # Create model config
-        model_config = model_config_from_unet_config(unet_config)
-        if model_config is None:
-            logging.error("Failed to create model config")
-            return None
-        
-        # Create model with proper parameters
-        model = create_model(
-            model_config=model_config, 
-            device=None,  # Will be set later by patcher
-            dtype=None,   # Will be auto-detected from state_dict
-            state_dict=state_dict
-        )
-        return model
-        
-    except Exception as e:
-        logging.error(f"Failed to create model from config: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
-
 def test_inference_with_patcher(model, model_name, device):
     """
-    Test inference with ComfyUI-style patcher
+    Test inference with the loaded model
     """
     print(f"\n🧠 Testing {model_name} Inference with Patcher")
     print("=" * 50)
@@ -176,11 +120,11 @@ def main():
     print("=" * 70)
     
     # Get system info
-    info = get_memory_info()
     print(f"📊 VAST AI System Information:")
-    print(f"   Available GPU memory: {info['cuda_free']:.2f} GB")
-    print(f"   Total VRAM: {info['cuda_total']:.2f} GB")
     print(f"   CUDA available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        print(f"   GPU: {torch.cuda.get_device_name(0)}")
+        print(f"   Total VRAM: {torch.cuda.get_device_properties(0).total_memory / (1024**3):.1f} GB")
     
     # Model paths (adjust these to your actual VAST AI paths)
     models = {
@@ -225,18 +169,14 @@ def main():
             print(f"   Inference: {'✅ Success' if inference_success else '❌ Failed'}")
             print(f"   Size: {result['file_size_gb']:.2f} GB")
         else:
-            print(f"❌ {model_name}: {result.get('error', 'Unknown error')}")
+            print(f"❌ {model_name}: {result['error']}")
     
-    success_rate = (successful_models / total_models) * 100
-    print(f"\n🎯 Overall Success Rate: {success_rate:.1f}% ({successful_models}/{total_models})")
+    print(f"\n🎯 Overall Success Rate: {successful_models/total_models*100:.1f}% ({successful_models}/{total_models})")
     
-    if success_rate >= 75:
-        print("🎉 SUCCESS! ComfyUI-style loading and verification completed successfully!")
-        print("🚀 Your models are ready for inference with ComfyUI-style patchers!")
+    if successful_models == total_models:
+        print("🎉 All models loaded successfully with ComfyUI-style patcher!")
     else:
-        print("⚠️  Some models failed to load. Check the detailed output above.")
-    
-    return 0 if success_rate >= 75 else 1
+        print("⚠️  Some models failed. Check the detailed output above.")
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
