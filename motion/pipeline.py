@@ -606,7 +606,6 @@ class WanVideoPipeline:
         
         try:
             step_2_start = time.time()
-            lora_time = 0.0  # Initialize lora_time
             
             # ========================================================================
             # 2.1: Load UNet Diffusion Model
@@ -614,29 +613,26 @@ class WanVideoPipeline:
             print("2.1 Loading UNet diffusion model...")
             unet_start = time.time()
             
-            # Load UNet model using ComfyUI-style loading with integrated patching
+            # Load UNet using ComfyUI-style loading with integrated patching
             print("🔧 Loading UNet with ComfyUI-style integrated patching...")
             
-            # Import ComfyUI-style loader
-            from comfyui_style_model_loader import load_unet_with_comfyui_patching
-            
-            # Load UNet with ComfyUI-style patching (model + patching + low-VRAM setup all in one go)
-            self.unet = load_unet_with_comfyui_patching(
+            # Load UNet model using standalone_sd
+            result = load_state_dict_guess_config(
                 unet_model_path,
-                load_device=self.load_device,
-                offload_device=self.offload_device,
-                model_options={}
+                output_vae=False,
+                output_clip=False,
+                output_clipvision=False,
+                output_model=True
             )
             
-            if self.unet is None:
-                raise RuntimeError("UNet model is None after ComfyUI-style loading")
+            if result is None:
+                raise RuntimeError("Failed to load UNet model - load_state_dict_guess_config returned None")
             
-            print(f"   📊 UNet loaded with ComfyUI-style ModelPatcher")
-            print(f"   📊 Model size: {self.unet.size / (1024**3):.2f} GB")
-            print(f"   📊 Load device: {self.unet.load_device}")
-            print(f"   📊 Offload device: {self.unet.offload_device}")
-            print(f"   📊 Low-VRAM attributes set up: ✅")
-            print(f"   📊 Weight functions ready: ✅")
+            model_patcher, _, _, _ = result
+            self.unet = model_patcher
+            
+            if self.unet is None:
+                raise RuntimeError("UNet model is None after loading")
             
             unet_time = time.time() - unet_start
             print(f"✅ UNet loaded successfully in {unet_time:.2f}s")
@@ -667,7 +663,7 @@ class WanVideoPipeline:
             result = load_state_dict_guess_config(
                 clip_state_dict,
                 output_vae=False,
-                output_clip=False,
+                output_clip=True,
                 output_clipvision=False,
                 output_model=False
             )
@@ -686,12 +682,20 @@ class WanVideoPipeline:
             print(f"   Type: {type(self.clip).__name__}")
             print(f"   Device: {self.clip.load_device}")
             
-            # Calculate CLIP model size
-            if hasattr(self.clip, 'cond_stage_model') and hasattr(self.clip.cond_stage_model, 'state_dict'):
-                clip_state_dict_params = self.clip.cond_stage_model.state_dict()
-                clip_params = calculate_parameters(clip_state_dict_params)
+            # Calculate CLIP model size - handle T5CLIPModel special case
+            if hasattr(self.clip, 'model') and self.clip.model is not None:
+                clip_model = self.clip.model
+                if hasattr(clip_model, 'model_info') and 'total_params' in clip_model.model_info:
+                    # Use the actual parameter count from state dict (T5CLIPModel stores this)
+                    clip_params = clip_model.model_info['total_params']
+                    print(f"   📊 Using state dict parameter count: {clip_params:,}")
+                else:
+                    # Fallback to counting parameters
+                    clip_params = sum(p.numel() for p in clip_model.parameters())
+                    print(f"   📊 Using parameter() count: {clip_params:,}")
+                
                 print(f"   Parameters: {clip_params:,}")
-                print(f"   Size: {clip_params * 4 / (1024*1024):.1f} MB")
+                print(f"   Size: {clip_params * 2 / (1024**3):.2f} GB")
             
             # ========================================================================
             # 2.3: Apply LoRA (Optional)
@@ -1795,103 +1799,128 @@ class WanVideoPipeline:
 # ============================================================================
 
 def main():
-    """Test Step 1: ComfyUI-style VAE Loading and Encoding"""
-    print("🚀 WAN Video Pipeline - Step 1 ComfyUI-style VAE Test")
+    """Test Step 2: Complete UNet + CLIP Loading"""
+    print("🚀 WAN Video Pipeline - Step 2 Complete Test")
     print("="*80)
-    print("🎯 Testing ComfyUI-style VAE loading and encoding implementation")
+    print("🎯 Testing complete Step 2 with both UNet and CLIP loading")
     print("="*80)
     
     # Initialize pipeline
     pipeline = WanVideoPipeline(models_dir="models")
     
-    # Step 1 parameters (ComfyUI-style test)
-    step_1_params = {
-        'vae_model_path': str("models/vaes/wan_vae.safetensors"),
-        'positive_prompt': "very cinematic video",
-        'negative_prompt': "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量",
-        'control_video_path': str("safu.mp4"),
-        'reference_image_path': str("safu.jpg"),  
-        'width': 480,
-        'height': 832,
-        'length': 37,
-        'batch_size': 1,
-        'strength': 1.0
+    # Step 2 parameters
+    step_2_params = {
+        'unet_model_path': str("models/diffusion_models/wan_2.1_diffusion_model.safetensors"),
+        'clip_model_path': str("models/text_encoders/wan_clip_model.safetensors"),
+        'lora_model_path': None,  # No LoRA for this test
+        'strength_model': 1.0,
+        'strength_clip': 0.0
     }
     
-    # Check if VAE model file exists
-    if not os.path.exists(step_1_params['vae_model_path']):
-        print("❌ VAE model file not found:")
-        print(f"   {step_1_params['vae_model_path']}")
-        print("\n💡 Please ensure the WAN VAE model is available")
-        print("🧪 Testing Step 1 with dummy data instead...")
+    # Check if model files exist
+    missing_models = []
+    if not os.path.exists(step_2_params['unet_model_path']):
+        missing_models.append(f"UNet: {step_2_params['unet_model_path']}")
+    if not os.path.exists(step_2_params['clip_model_path']):
+        missing_models.append(f"CLIP: {step_2_params['clip_model_path']}")
+    
+    if missing_models:
+        print("❌ Missing model files:")
+        for missing in missing_models:
+            print(f"   {missing}")
+        print("\n💡 Please ensure the model files are available")
+        print("🧪 Testing pipeline initialization and method availability instead...")
         
-        # Test with dummy data if VAE not available
+        # Test pipeline methods without models
         try:
-            print("\n🔧 Testing ComfyUI-style VAE initialization with dummy data...")
-            # This will test the VAE class initialization without loading actual weights
-            dummy_vae = create_vae(state_dict={}, device=pipeline.device)
-            print(f"✅ VAE class initialization successful")
-            print(f"   Type: {type(dummy_vae.first_stage_model) if dummy_vae.first_stage_model else 'None'}")
-            print(f"   Latent channels: {dummy_vae.latent_channels}")
-            print(f"   Device: {dummy_vae.device}")
-            print(f"   Dtype: {dummy_vae.vae_dtype}")
+            print("\n🔧 Testing pipeline initialization...")
+            print(f"   ✅ Pipeline initialized successfully")
+            print(f"   Device: {pipeline.device}")
+            print(f"   Offload Device: {pipeline.offload_device}")
+            print(f"   Models Directory: {pipeline.models_dir}")
+            
+            # Test step status
+            step_status = pipeline.get_step_status()
+            print(f"   📊 Initial step status: {step_status}")
+            
+            print(f"\n✅ Pipeline initialization test completed successfully!")
+            print(f"💡 Pipeline is ready for Step 2 when model files are available")
         except Exception as e:
-            print(f"❌ VAE initialization failed: {e}")
+            print(f"❌ Pipeline initialization failed: {e}")
         return
     
-    
-    # Test Step 1: ComfyUI-style VAE Loading and Encoding
-    print("\n🚀 Running Step 1: ComfyUI-style VAE Loading and Encoding...")
+    # Test Step 2: Complete UNet + CLIP Loading
+    print("\n🚀 Running Step 2: Complete UNet + CLIP Loading...")
     print("="*60)
     
     try:
-        # Run Step 1 with ComfyUI-style implementation
-        step_1_results = pipeline.run_step_1_only(**step_1_params)
+        # Run Step 2 with complete implementation
+        step_2_results = pipeline.run_step_2_only(**step_2_params)
         
-        print("\n🎉 STEP 1 COMPLETED SUCCESSFULLY!")
+        print("\n🎉 STEP 2 COMPLETED SUCCESSFULLY!")
         print("="*60)
         
-        # Display Step 1 results summary
-        if step_1_results:
-            print(f"\n📋 STEP 1 RESULTS SUMMARY:")
-            print(f"   VAE Type: {step_1_results['vae_info']['vae_type']}")
-            print(f"   Latent Channels: {step_1_results['vae_info']['latent_channels']}")
-            print(f"   Latent Dimension: {step_1_results['vae_info']['latent_dim']}")
-            print(f"   Downscale Ratio: {step_1_results['vae_info']['downscale_ratio']}")
-            print(f"   VAE Device: {step_1_results['vae_info']['device']}")
-            print(f"   VAE Dtype: {step_1_results['vae_info']['vae_dtype']}")
-            print(f"   Working Dtypes: {step_1_results['vae_info']['working_dtypes']}")
+        # Display Step 2 results summary
+        if step_2_results:
+            print(f"\n📋 STEP 2 RESULTS SUMMARY:")
             
-            print(f"\n📊 LATENT INFORMATION:")
-            print(f"   Output Latent Shape: {step_1_results['out_latent']['samples'].shape}")
-            print(f"   Control Video Latent: {step_1_results['control_video_latent'].shape}")
-            if step_1_results['reference_image_latent'] is not None:
-                print(f"   Reference Image Latent: {step_1_results['reference_image_latent'].shape}")
-            print(f"   Control Mask Shape: {step_1_results['control_mask'].shape}")
+            # Model information
+            models_info = step_2_results.get('models_info', {})
+            print(f"\n🧠 MODEL INFORMATION:")
+            print(f"   UNet Type: {models_info.get('unet_type', 'Unknown')}")
+            print(f"   CLIP Type: {models_info.get('clip_type', 'Unknown')}")
+            print(f"   UNet Device: {models_info.get('unet_device', 'Unknown')}")
+            print(f"   CLIP Device: {models_info.get('clip_device', 'Unknown')}")
+            print(f"   LoRA Applied: {'Yes' if step_2_results.get('lora_applied', False) else 'No'}")
             
-            print(f"\n📊 CONDITIONING INFORMATION:")
-            print(f"   Positive Prompt: '{step_1_results['prompts']['positive_prompt']}'")
-            print(f"   Negative Prompt: '{step_1_results['prompts']['negative_prompt']}'")
-            print(f"   VACE Strength: {step_1_results['strength']}")
-            
+            # Processing information
+            processing_info = step_2_results.get('processing_info', {})
             print(f"\n⏱️  TIMING INFORMATION:")
-            print(f"   VAE Encoding Time: {step_1_results['processing_info']['vae_encoding_time']:.2f}s")
-            print(f"   Total Step Time: {step_1_results['processing_info']['total_step_time']:.2f}s")
-            print(f"   ComfyUI Style: {step_1_results['processing_info']['comfyui_style']}")
-            print(f"   Memory Management: {step_1_results['processing_info']['memory_management']}")
+            print(f"   UNet Loading Time: {processing_info.get('unet_loading_time', 0.0):.2f}s")
+            print(f"   CLIP Loading Time: {processing_info.get('clip_loading_time', 0.0):.2f}s")
+            print(f"   LoRA Time: {processing_info.get('lora_time', 0.0):.2f}s")
+            print(f"   Total Step Time: {processing_info.get('total_step_time', 0.0):.2f}s")
+            
+            # Verify models are loaded
+            print(f"\n🔍 MODEL VERIFICATION:")
+            unet = step_2_results.get('unet')
+            clip = step_2_results.get('clip')
+            
+            if unet is not None:
+                print(f"   ✅ UNet loaded successfully")
+                print(f"      Type: {type(unet).__name__}")
+                if hasattr(unet, 'load_device'):
+                    print(f"      Load Device: {unet.load_device}")
+            else:
+                print(f"   ❌ UNet is None")
+            
+            if clip is not None:
+                print(f"   ✅ CLIP loaded successfully")
+                print(f"      Type: {type(clip).__name__}")
+                if hasattr(clip, 'load_device'):
+                    print(f"      Load Device: {clip.load_device}")
+            else:
+                print(f"   ❌ CLIP is None")
+            
+            # Check step completion status
+            step_status = pipeline.get_step_status()
+            print(f"\n📊 STEP COMPLETION STATUS:")
+            for step_num, completed in step_status.items():
+                status = "✅ Completed" if completed else "⏳ Pending"
+                print(f"   Step {step_num}: {status}")
         
-        print(f"\n✅ ComfyUI-style VAE implementation test completed successfully!")
-        print(f"🎯 Step 1 is ready for integration with the full pipeline")
+        print(f"\n✅ Complete Step 2 implementation test completed successfully!")
+        print(f"🎯 Step 2 is ready for integration with the full pipeline")
         
     except Exception as e:
-        print(f"\n❌ STEP 1 TEST FAILED: {str(e)}")
+        print(f"\n❌ STEP 2 TEST FAILED: {str(e)}")
         print(f"   Error Type: {type(e).__name__}")
         import traceback
         traceback.print_exc()
         print(f"\n💡 Check the error details above and ensure:")
-        print(f"   - VAE model file exists and is valid")
-        print(f"   - Control video and reference image files are available")
+        print(f"   - UNet and CLIP model files exist and are valid")
         print(f"   - All required dependencies are installed")
+        print(f"   - The standalone_sd.py fixes are properly applied")
     
 
 if __name__ == "__main__":
