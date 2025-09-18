@@ -120,12 +120,19 @@ def create_model_from_config(state_dict):
             logging.error("Failed to create model config")
             return None
         
-        # Create model
-        model = create_model(model_config, state_dict=state_dict)
+        # Create model with proper parameters
+        model = create_model(
+            model_config=model_config, 
+            device=None,  # Will be set later by patcher
+            dtype=None,   # Will be auto-detected from state_dict
+            state_dict=state_dict
+        )
         return model
         
     except Exception as e:
         logging.error(f"Failed to create model from config: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def test_inference_with_patcher(model, model_name, device):
@@ -136,75 +143,24 @@ def test_inference_with_patcher(model, model_name, device):
     print("=" * 50)
     
     try:
-        # Test basic forward pass
-        if model_name == "UNet":
-            # Test UNet forward pass
-            batch_size = 1
-            height, width = 64, 64
-            frames = 16
-            
-            # Create dummy inputs
-            if device.type == 'cuda':
-                x = torch.randn(batch_size, 4, frames, height, width, device=device, dtype=torch.float16)
-                timestep = torch.tensor([100], device=device)
-                context = torch.randn(batch_size, 77, 5120, device=device, dtype=torch.float16)
-            else:
-                x = torch.randn(batch_size, 4, frames, height, width, dtype=torch.float16)
-                timestep = torch.tensor([100])
-                context = torch.randn(batch_size, 77, 5120, dtype=torch.float16)
-            
-            print(f"   Input shape: {x.shape}")
-            print(f"   Timestep: {timestep}")
-            print(f"   Context shape: {context.shape}")
-            
-            # Run forward pass
-            with torch.no_grad():
-                output = model(x, timestep, context)
-            
-            print(f"✅ {model_name} forward pass successful!")
-            print(f"   Output shape: {output.shape}")
-            
-        elif model_name == "VAE":
-            # Test VAE forward pass
-            batch_size = 1
-            height, width = 64, 64
-            frames = 16
-            
-            # Create dummy inputs
-            if device.type == 'cuda':
-                x = torch.randn(batch_size, 4, frames, height, width, device=device, dtype=torch.float16)
-            else:
-                x = torch.randn(batch_size, 4, frames, height, width, dtype=torch.float16)
-            
-            print(f"   Input shape: {x.shape}")
-            
-            # Run forward pass
-            with torch.no_grad():
-                output = model.decode(x)
-            
-            print(f"✅ {model_name} forward pass successful!")
-            print(f"   Output shape: {output.shape}")
-            
-        elif model_name == "Text Encoder":
-            # Test Text Encoder forward pass
-            batch_size = 1
-            seq_len = 77
-            
-            # Create dummy inputs
-            if device.type == 'cuda':
-                x = torch.randint(0, 1000, (batch_size, seq_len), device=device)
-            else:
-                x = torch.randint(0, 1000, (batch_size, seq_len))
-            
-            print(f"   Input shape: {x.shape}")
-            
-            # Run forward pass
-            with torch.no_grad():
-                output = model(x)
-            
-            print(f"✅ {model_name} forward pass successful!")
-            print(f"   Output shape: {output.shape}")
+        # Get model dtype from first parameter
+        model_dtype = next(model.parameters()).dtype
+        print(f"📊 Model dtype: {model_dtype}")
         
+        # Create test input with matching dtype
+        if device.type == 'cuda':
+            test_input = torch.randn(1, 10, device=device, dtype=model_dtype)
+        else:
+            test_input = torch.randn(1, 10, dtype=model_dtype)
+        
+        print(f"   Input shape: {test_input.shape}, dtype: {test_input.dtype}")
+        
+        # Run forward pass
+        with torch.no_grad():
+            output = model(test_input)
+        
+        print(f"✅ {model_name} inference successful!")
+        print(f"   Output shape: {output.shape}, dtype: {output.dtype}")
         return True
         
     except Exception as e:
@@ -227,8 +183,8 @@ def main():
     # Model paths (adjust these to your actual VAST AI paths)
     models = {
         "UNet": "./models/diffusion_models/wan_2.1_diffusion_model.safetensors",  # 32GB UNet
-        "VAE": "./models/vaes/wan_vae.safetensors",                                # 200MB VAE  
-        "Text Encoder": "./models/text_encoders/wan_clip_model.safetensors"         # 10GB Text Encoder
+        "VAE": "./models/vaes/wan_vae.safetensors",                                # ~200MB VAE  
+        "Text Encoder": "./models/text_encoders/wan_clip_model.safetensors"         # ~10GB Text Encoder
     }
     
     results = {}
