@@ -98,13 +98,17 @@ def test_inference_with_patcher(model, model_name, device):
         frames = 16
         height, width = 64, 64
         
+        # Get model configuration to determine correct input channels
+        # WAN models typically use 16 input channels (4 for latent + 12 for conditioning)
+        input_channels = 16  # WAN 2.1 uses 16 input channels
+        
         if device.type == 'cuda':
             # Create proper WAN model inputs
-            x = torch.randn(batch_size, 4, frames, height, width, device=device, dtype=model_dtype)
+            x = torch.randn(batch_size, input_channels, frames, height, width, device=device, dtype=model_dtype)
             timestep = torch.tensor([100], device=device)
             context = torch.randn(batch_size, 77, 5120, device=device, dtype=model_dtype)
         else:
-            x = torch.randn(batch_size, 4, frames, height, width, dtype=model_dtype)
+            x = torch.randn(batch_size, input_channels, frames, height, width, dtype=model_dtype)
             timestep = torch.tensor([100])
             context = torch.randn(batch_size, 77, 5120, dtype=model_dtype)
         
