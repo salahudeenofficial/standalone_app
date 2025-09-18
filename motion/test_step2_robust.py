@@ -298,13 +298,26 @@ def test_clip_loading(clip_model_path, load_state_dict_guess_config):
                 'details': {'Error': 'No underlying model found in CLIP object'}
             }
         
-        # Calculate parameters
-        total_params = sum(p.numel() for p in model.parameters())
-        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        # Calculate parameters - handle T5CLIPModel special case
+        if hasattr(model, 'model_info') and 'total_params' in model.model_info:
+            # Use the actual parameter count from state dict (T5CLIPModel stores this)
+            total_params = model.model_info['total_params']
+            trainable_params = total_params  # Assume all are trainable
+            print(f"   📊 Using state dict parameter count: {total_params:,}")
+        else:
+            # Fallback to counting parameters
+            total_params = sum(p.numel() for p in model.parameters())
+            trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            print(f"   📊 Using parameter() count: {total_params:,}")
         
         # Get model info
-        device = next(model.parameters()).device
-        dtype = next(model.parameters()).dtype
+        if hasattr(model, 'model_info') and 'total_params' in model.model_info:
+            # For T5CLIPModel, use dummy parameter for device/dtype
+            device = next(model.parameters()).device
+            dtype = next(model.parameters()).dtype
+        else:
+            device = next(model.parameters()).device
+            dtype = next(model.parameters()).dtype
         
         details = {
             "Load Time": f"{load_time:.2f}s",
@@ -394,7 +407,15 @@ def test_combined_loading(unet_model_path, clip_model_path, load_state_dict_gues
         
         # Calculate total parameters
         unet_params = sum(p.numel() for p in unet_model.parameters())
-        clip_params = sum(p.numel() for p in clip_model.parameters())
+        
+        # Handle T5CLIPModel special case for CLIP parameters
+        if hasattr(clip_model, 'model_info') and 'total_params' in clip_model.model_info:
+            clip_params = clip_model.model_info['total_params']
+            print(f"      📊 Using CLIP state dict parameter count: {clip_params:,}")
+        else:
+            clip_params = sum(p.numel() for p in clip_model.parameters())
+            print(f"      📊 Using CLIP parameter() count: {clip_params:,}")
+        
         total_params = unet_params + clip_params
         
         details = {
