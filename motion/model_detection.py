@@ -281,12 +281,20 @@ def get_model_class_for_type(model_type: str):
         # Fallback to base WanModel
         return WanModel
 
-def create_model_from_config(model_config: Dict[str, Any], device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None, state_dict: Optional[Dict[str, torch.Tensor]] = None):
+def create_model_from_config(state_dict: Dict[str, torch.Tensor], device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None):
     """
     Create a model instance from configuration
     Following ComfyUI's pattern: detect_unet_config -> model_config_from_unet_config -> get_model
     """
     try:
+        # Debug: Check what we're receiving
+        logging.info(f"create_model_from_config received: type={type(state_dict)}")
+        if isinstance(state_dict, dict):
+            logging.info(f"State dict keys: {len(state_dict)}")
+        else:
+            logging.error(f"Expected dict, got {type(state_dict)}: {state_dict}")
+            return None
+        
         # First, detect the UNet config from state dict
         unet_config = detect_unet_config(state_dict)
         if unet_config is None:
@@ -300,7 +308,7 @@ def create_model_from_config(model_config: Dict[str, Any], device: Optional[torc
             return None
         
         # Auto-detect dtype from state dict if not provided
-        if dtype is None and state_dict is not None:
+        if dtype is None:
             # Get dtype from first tensor in state dict
             first_tensor = next(iter(state_dict.values()))
             if isinstance(first_tensor, torch.Tensor):
@@ -328,15 +336,13 @@ def create_model_from_config(model_config: Dict[str, Any], device: Optional[torc
         
         model = DummyModel(model_config_obj, device=device, dtype=dtype)
         
-        # Load state dict if provided (for testing purposes)
-        if state_dict is not None:
-            # Create a minimal state dict for our dummy model
-            dummy_state_dict = {
-                'linear.weight': torch.randn(10, 10, dtype=dtype),
-                'linear.bias': torch.randn(10, dtype=dtype)
-            }
-            model.load_state_dict(dummy_state_dict)
-            logging.info("Loaded dummy state dict for testing")
+        # Load dummy state dict for testing
+        dummy_state_dict = {
+            'linear.weight': torch.randn(10, 10, dtype=dtype),
+            'linear.bias': torch.randn(10, dtype=dtype)
+        }
+        model.load_state_dict(dummy_state_dict)
+        logging.info("Loaded dummy state dict for testing")
         
         return model
         

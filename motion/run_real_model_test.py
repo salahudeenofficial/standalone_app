@@ -51,6 +51,8 @@ def test_model_loading_with_patcher(model_path, model_name):
         
         # Create model from config
         print(f"🏗️  Creating {model_name} model...")
+        print(f"   State dict type: {type(state_dict)}")
+        print(f"   State dict keys: {len(state_dict) if isinstance(state_dict, dict) else 'Not a dict'}")
         model = create_model_from_config(state_dict)
         
         if model is None:
