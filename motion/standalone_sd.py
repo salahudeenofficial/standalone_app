@@ -248,34 +248,30 @@ class T5CLIPModel(nn.Module):
     def parameters(self):
         """Return actual model parameters"""
         # Return parameters from actual T5 components
-        params = []
         if hasattr(self, 'shared'):
-            params.extend(self.shared.parameters())
+            yield from self.shared.parameters()
         if hasattr(self, 'encoder_layers'):
-            params.extend(self.encoder_layers.parameters())
+            yield from self.encoder_layers.parameters()
         if hasattr(self, 'layer_norm'):
-            params.extend(self.layer_norm.parameters())
+            yield from self.layer_norm.parameters()
         # Also include dummy parameter for compatibility
         if hasattr(self, 'dummy_param'):
-            params.append(self.dummy_param)
-        return params
+            yield self.dummy_param
     
     def named_parameters(self):
         """Return named parameters"""
-        named_params = []
         if hasattr(self, 'shared'):
-            named_params.extend(self.shared.named_parameters())
+            yield from self.shared.named_parameters()
         if hasattr(self, 'encoder_layers'):
             for i, layer in enumerate(self.encoder_layers):
                 for name, param in layer.named_parameters():
-                    named_params.append((f'encoder_layers.{i}.{name}', param))
+                    yield (f'encoder_layers.{i}.{name}', param)
         if hasattr(self, 'layer_norm'):
             for name, param in self.layer_norm.named_parameters():
-                named_params.append((f'layer_norm.{name}', param))
+                yield (f'layer_norm.{name}', param)
         # Also include dummy parameter for compatibility
         if hasattr(self, 'dummy_param'):
-            named_params.append(('dummy_param', self.dummy_param))
-        return named_params
+            yield ('dummy_param', self.dummy_param)
     
     def to(self, device):
         """Move model to device"""
