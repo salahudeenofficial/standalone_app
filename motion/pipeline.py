@@ -827,7 +827,21 @@ class WanVideoPipeline:
             original_model_type = type(self.unet).__name__
             original_uuid = str(self.unet.patches_uuid) if hasattr(self.unet, 'patches_uuid') else None
             
+            print(f"   🔧 UNet Model Analysis:")
+            print(f"      Type: {original_model_type}")
+            print(f"      Device: {self.unet.load_device}")
+            print(f"      Patches UUID: {original_uuid}")
+            
+            # Check if UNet is a ComfyUI-style ModelPatcher
+            if hasattr(self.unet, 'model') and hasattr(self.unet, 'patches'):
+                print(f"      ✅ ComfyUI-style ModelPatcher detected")
+                print(f"      Model Type: {type(self.unet.model).__name__}")
+                print(f"      Patches Count: {len(self.unet.patches) if self.unet.patches else 0}")
+            else:
+                print(f"      ⚠️  Standard model detected")
+            
             # Apply ModelSamplingSD3
+            print(f"   🔧 Applying ModelSamplingSD3 with shift={shift}, multiplier={multiplier}")
             model_sampling = ModelSamplingSD3()
             patched_unet = model_sampling.patch(self.unet, shift=shift, multiplier=multiplier)
             
@@ -844,7 +858,7 @@ class WanVideoPipeline:
             print(f"   🔧 SAMPLING ANALYSIS:")
             print(f"      Original Type: {original_model_type}")
             print(f"      Patched Type: {type(self.unet).__name__}")
-            print(f"      Model Cloned: {'✅ YES' if self.unet != None else '❌ NO'}")
+            print(f"      Model Cloned: {'✅ YES' if self.unet is not None else '❌ NO'}")
             print(f"      Patches UUID: {self.unet.patches_uuid}")
             print(f"      UUID Preserved: {'✅ YES' if str(self.unet.patches_uuid) == original_uuid else '❌ NO'}")
             
@@ -868,6 +882,19 @@ class WanVideoPipeline:
             print(f"   📝 Positive prompt: '{positive_prompt}'")
             print(f"   📝 Negative prompt: '{negative_prompt}'")
             
+            # Analyze CLIP model
+            print(f"   🔧 CLIP Model Analysis:")
+            print(f"      Type: {type(self.clip).__name__}")
+            print(f"      Device: {self.clip.load_device}")
+            
+            if hasattr(self.clip, 'model') and self.clip.model is not None:
+                print(f"      Model Type: {type(self.clip.model).__name__}")
+                if hasattr(self.clip.model, 'model_info') and 'total_params' in self.clip.model.model_info:
+                    clip_params = self.clip.model.model_info['total_params']
+                    print(f"      Parameters: {clip_params:,}")
+                else:
+                    print(f"      Parameters: Available via .parameters()")
+            
             # Memory before encoding
             if torch.cuda.is_available():
                 mem_before = torch.cuda.memory_allocated() / 1024**2
@@ -878,17 +905,23 @@ class WanVideoPipeline:
             
             # Encode positive prompt
             positive_encoding_start = time.time()
-            positive_cond = text_encoder.encode(self.clip, positive_prompt)
-            positive_encoding_time = time.time() - positive_encoding_start
-            
-            print(f"   ✅ Positive prompt encoded in {positive_encoding_time:.3f}s")
+            try:
+                positive_cond = text_encoder.encode(self.clip, positive_prompt)
+                positive_encoding_time = time.time() - positive_encoding_start
+                print(f"   ✅ Positive prompt encoded in {positive_encoding_time:.3f}s")
+            except Exception as e:
+                print(f"   ❌ Positive prompt encoding failed: {e}")
+                raise
             
             # Encode negative prompt
             negative_encoding_start = time.time()
-            negative_cond = text_encoder.encode(self.clip, negative_prompt)
-            negative_encoding_time = time.time() - negative_encoding_start
-            
-            print(f"   ✅ Negative prompt encoded in {negative_encoding_time:.3f}s")
+            try:
+                negative_cond = text_encoder.encode(self.clip, negative_prompt)
+                negative_encoding_time = time.time() - negative_encoding_start
+                print(f"   ✅ Negative prompt encoded in {negative_encoding_time:.3f}s")
+            except Exception as e:
+                print(f"   ❌ Negative prompt encoding failed: {e}")
+                raise
             
             total_encoding_time = time.time() - encoding_start
             
@@ -904,6 +937,7 @@ class WanVideoPipeline:
             print("\n3.3 Analyzing conditioning results...")
             
             # Analyze positive conditioning
+            pos_tensor = None
             if isinstance(positive_cond, (tuple, list)) and len(positive_cond) > 0:
                 pos_tensor = positive_cond[0]
                 if hasattr(pos_tensor, 'shape'):
@@ -917,14 +951,19 @@ class WanVideoPipeline:
                     non_zero_ratio = torch.count_nonzero(pos_tensor).item() / pos_tensor.numel()
                     print(f"      Non-zero ratio: {non_zero_ratio:.3f}")
                     print(f"      Status: {'✅ Valid' if non_zero_ratio > 0.1 else '⚠️ Mostly zeros'}")
+            else:
+                print(f"   ⚠️  Positive conditioning format unexpected: {type(positive_cond)}")
             
             # Analyze negative conditioning
+            neg_tensor = None
             if isinstance(negative_cond, (tuple, list)) and len(negative_cond) > 0:
                 neg_tensor = negative_cond[0]
                 if hasattr(neg_tensor, 'shape'):
                     print(f"   🔧 Negative Conditioning:")
                     print(f"      Shape: {neg_tensor.shape}")
-                    print(f"      Status: {'✅ Valid' if neg_tensor.shape == pos_tensor.shape else '❌ Shape mismatch'}")
+                    print(f"      Status: {'✅ Valid' if pos_tensor is not None and neg_tensor.shape == pos_tensor.shape else '❌ Shape mismatch'}")
+            else:
+                print(f"   ⚠️  Negative conditioning format unexpected: {type(negative_cond)}")
             
             # Mark step complete
             self.step_completed[3] = True
@@ -942,15 +981,18 @@ class WanVideoPipeline:
                     'sampling_patch_applied': has_sampling_patch,
                     'shift': shift,
                     'multiplier': multiplier,
-                    'unet_uuid': str(self.unet.patches_uuid) if hasattr(self.unet, 'patches_uuid') else None
+                    'unet_uuid': str(self.unet.patches_uuid) if hasattr(self.unet, 'patches_uuid') else None,
+                    'unet_device': str(self.unet.load_device),
+                    'clip_type': type(self.clip).__name__,
+                    'clip_device': str(self.clip.load_device)
                 },
                 'conditioning_info': {
                     'positive_prompt': positive_prompt,
                     'negative_prompt': negative_prompt,
-                    'positive_shape': pos_tensor.shape if hasattr(pos_tensor, 'shape') else None,
-                    'negative_shape': neg_tensor.shape if hasattr(neg_tensor, 'shape') else None,
-                    'positive_dtype': str(pos_tensor.dtype) if hasattr(pos_tensor, 'dtype') else None,
-                    'positive_device': str(pos_tensor.device) if hasattr(pos_tensor, 'device') else None
+                    'positive_shape': pos_tensor.shape if pos_tensor is not None and hasattr(pos_tensor, 'shape') else None,
+                    'negative_shape': neg_tensor.shape if neg_tensor is not None and hasattr(neg_tensor, 'shape') else None,
+                    'positive_dtype': str(pos_tensor.dtype) if pos_tensor is not None and hasattr(pos_tensor, 'dtype') else None,
+                    'positive_device': str(pos_tensor.device) if pos_tensor is not None and hasattr(pos_tensor, 'device') else None
                 },
                 'timing': {
                     'sampling_time': sampling_time,
@@ -1830,10 +1872,10 @@ class WanVideoPipeline:
 # ============================================================================
 
 def main():
-    """Test Steps 1 and 2: Sequential VAE Loading + UNet + CLIP Loading"""
-    print("🚀 WAN Video Pipeline - Sequential Steps 1 & 2 Test")
+    """Test Steps 1, 2, and 3: Sequential VAE Loading + UNet + CLIP Loading + Model Sampling + Text Encoding"""
+    print("🚀 WAN Video Pipeline - Sequential Steps 1, 2 & 3 Test")
     print("="*80)
-    print("🎯 Testing Step 1 (VAE) then Step 2 (UNet + CLIP) sequentially")
+    print("🎯 Testing Step 1 (VAE) → Step 2 (UNet + CLIP) → Step 3 (Model Sampling + Text Encoding)")
     print("="*80)
     
     # Initialize pipeline
@@ -1890,20 +1932,38 @@ def main():
         'strength_clip': 0.0
     }
     
-    # Sequential execution: Step 1 then Step 2
+    step_3_params = {
+        'positive_prompt': "very cinematic video",
+        'negative_prompt': "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量",
+        'shift': 8.0,
+        'multiplier': 1000
+    }
+    
+    # Sequential execution: Step 1 → Step 2 → Step 3
     try:
-        # Check if we can run both steps
+        # Check if we can run all three steps
         can_run_step1 = "VAE" in available_models
         can_run_step2 = "UNet" in available_models and "CLIP" in available_models
+        can_run_step3 = can_run_step2  # Step 3 depends on Step 2
         
-        if can_run_step1 and can_run_step2:
-            # Run Steps 1 and 2 sequentially using the convenience method
-            print(f"\n🚀 RUNNING STEPS 1 & 2 SEQUENTIALLY")
+        if can_run_step1 and can_run_step2 and can_run_step3:
+            # Run Steps 1, 2, and 3 sequentially
+            print(f"\n🚀 RUNNING STEPS 1, 2 & 3 SEQUENTIALLY")
             print("="*60)
             
-            step_1_results, step_2_results = pipeline.run_steps_1_and_2_only(step_1_params, step_2_params)
+            # Step 1: VAE Loading and Latent Creation
+            print("🎬 STEP 1: VAE LOADING AND LATENT CREATION")
+            step_1_results = pipeline.step_1_vae_and_latent_creation(**step_1_params)
             
-            print(f"\n🎉 SEQUENTIAL STEPS 1 & 2 COMPLETED SUCCESSFULLY!")
+            # Step 2: UNet + CLIP Loading
+            print("\n🧠 STEP 2: UNET + CLIP LOADING")
+            step_2_results = pipeline.step_2_unet_clip_lora_loading(**step_2_params)
+            
+            # Step 3: Model Sampling + Text Encoding
+            print("\n📝 STEP 3: MODEL SAMPLING + TEXT ENCODING")
+            step_3_results = pipeline.step_3_model_sampling_and_text_encoding(**step_3_params)
+            
+            print(f"\n🎉 SEQUENTIAL STEPS 1, 2 & 3 COMPLETED SUCCESSFULLY!")
             print("="*60)
             
             # Display comprehensive results
@@ -1948,12 +2008,82 @@ def main():
                 print(f"   UNet Status: {'✅ Loaded' if unet is not None else '❌ Failed'}")
                 print(f"   CLIP Status: {'✅ Loaded' if clip is not None else '❌ Failed'}")
             
+            # Step 3 Results
+            if step_3_results:
+                print(f"\n📝 STEP 3 RESULTS:")
+                model_info = step_3_results.get('model_info', {})
+                print(f"   UNet Original Type: {model_info.get('original_type', 'Unknown')}")
+                print(f"   UNet Patched Type: {model_info.get('patched_type', 'Unknown')}")
+                print(f"   Sampling Patch Applied: {'Yes' if step_3_results.get('sampling_applied', False) else 'No'}")
+                print(f"   Shift Parameter: {model_info.get('shift', 'Unknown')}")
+                print(f"   Multiplier Parameter: {model_info.get('multiplier', 'Unknown')}")
+                
+                conditioning_info = step_3_results.get('conditioning_info', {})
+                print(f"   Positive Prompt: '{conditioning_info.get('positive_prompt', 'Unknown')}'")
+                print(f"   Negative Prompt: '{conditioning_info.get('negative_prompt', 'Unknown')}'")
+                print(f"   Positive Shape: {conditioning_info.get('positive_shape', 'Unknown')}")
+                print(f"   Negative Shape: {conditioning_info.get('negative_shape', 'Unknown')}")
+                print(f"   Positive Device: {conditioning_info.get('positive_device', 'Unknown')}")
+                
+                timing = step_3_results.get('timing', {})
+                print(f"   Sampling Time: {timing.get('sampling_time', 0.0):.2f}s")
+                print(f"   Positive Encoding Time: {timing.get('positive_encoding', 0.0):.3f}s")
+                print(f"   Negative Encoding Time: {timing.get('negative_encoding', 0.0):.3f}s")
+                print(f"   Total Step Time: {timing.get('total_step_time', 0.0):.2f}s")
+                
+                # Verify conditioning
+                positive_cond = step_3_results.get('positive_conditioning')
+                negative_cond = step_3_results.get('negative_conditioning')
+                print(f"   Positive Conditioning Status: {'✅ Generated' if positive_cond is not None else '❌ Failed'}")
+                print(f"   Negative Conditioning Status: {'✅ Generated' if negative_cond is not None else '❌ Failed'}")
+            
+        elif can_run_step1 and can_run_step2:
+            # Run Steps 1 and 2 only
+            print(f"\n🚀 RUNNING STEPS 1 & 2 ONLY (Step 3 requires both)")
+            print("="*60)
+            
+            # Step 1: VAE Loading and Latent Creation
+            print("🎬 STEP 1: VAE LOADING AND LATENT CREATION")
+            step_1_results = pipeline.step_1_vae_and_latent_creation(**step_1_params)
+            
+            # Step 2: UNet + CLIP Loading
+            print("\n🧠 STEP 2: UNET + CLIP LOADING")
+            step_2_results = pipeline.step_2_unet_clip_lora_loading(**step_2_params)
+            
+            print(f"\n🎉 STEPS 1 & 2 COMPLETED SUCCESSFULLY!")
+            print("="*60)
+            
+            if step_1_results:
+                print(f"\n📋 STEP 1 RESULTS SUMMARY:")
+                vae_info = step_1_results.get('vae_info', {})
+                print(f"   VAE Type: {vae_info.get('vae_type', 'Unknown')}")
+                print(f"   Latent Channels: {vae_info.get('latent_channels', 'Unknown')}")
+                print(f"   VAE Device: {vae_info.get('device', 'Unknown')}")
+                
+                processing_info = step_1_results.get('processing_info', {})
+                print(f"   Total Step Time: {processing_info.get('total_step_time', 0.0):.2f}s")
+            
+            if step_2_results:
+                print(f"\n📋 STEP 2 RESULTS SUMMARY:")
+                models_info = step_2_results.get('models_info', {})
+                print(f"   UNet Type: {models_info.get('unet_type', 'Unknown')}")
+                print(f"   CLIP Type: {models_info.get('clip_type', 'Unknown')}")
+                print(f"   UNet Device: {models_info.get('unet_device', 'Unknown')}")
+                print(f"   CLIP Device: {models_info.get('clip_device', 'Unknown')}")
+                
+                processing_info = step_2_results.get('processing_info', {})
+                print(f"   Total Step Time: {processing_info.get('total_step_time', 0.0):.2f}s")
+            
+            print(f"\n💡 Steps 1 & 2 completed - Step 3 requires both VAE and UNet+CLIP models")
+            
         elif can_run_step1:
             # Only run Step 1
             print(f"\n🚀 RUNNING STEP 1 ONLY (Step 2 models not available)")
             print("="*60)
             
-            step_1_results = pipeline.run_step_1_only(**step_1_params)
+            # Step 1: VAE Loading and Latent Creation
+            print("🎬 STEP 1: VAE LOADING AND LATENT CREATION")
+            step_1_results = pipeline.step_1_vae_and_latent_creation(**step_1_params)
             
             print(f"\n🎉 STEP 1 COMPLETED SUCCESSFULLY!")
             print("="*60)
@@ -1975,7 +2105,9 @@ def main():
             print(f"\n🚀 RUNNING STEP 2 ONLY (Step 1 VAE model not available)")
             print("="*60)
             
-            step_2_results = pipeline.run_step_2_only(**step_2_params)
+            # Step 2: UNet + CLIP Loading
+            print("🧠 STEP 2: UNET + CLIP LOADING")
+            step_2_results = pipeline.step_2_unet_clip_lora_loading(**step_2_params)
             
             print(f"\n🎉 STEP 2 COMPLETED SUCCESSFULLY!")
             print("="*60)
@@ -2018,18 +2150,21 @@ def main():
             status = "✅ Completed" if completed else "⏳ Pending"
             print(f"   Step {step_num}: {status}")
         
-        if completed_steps >= 2:
-            print(f"\n🎉 SUCCESS: Both Step 1 and Step 2 completed sequentially!")
+        if completed_steps >= 3:
+            print(f"\n🎉 SUCCESS: Steps 1, 2, and 3 completed sequentially!")
+            print(f"🎯 Pipeline is ready for Step 4 (KSampler Denoising)")
+        elif completed_steps >= 2:
+            print(f"\n✅ PARTIAL SUCCESS: Steps 1 and 2 completed!")
             print(f"🎯 Pipeline is ready for Step 3 (Model Sampling + Text Encoding)")
         elif completed_steps == 1:
             print(f"\n✅ PARTIAL SUCCESS: One step completed!")
             print(f"💡 Additional model files needed for complete testing")
         else:
             print(f"\n💡 Pipeline initialization completed")
-            print(f"🔧 Model files required for Step 1 and Step 2 testing")
+            print(f"🔧 Model files required for Step 1, 2, and 3 testing")
         
     except Exception as e:
-        print(f"\n❌ SEQUENTIAL STEPS TEST FAILED: {str(e)}")
+        print(f"\n❌ SEQUENTIAL STEPS 1, 2 & 3 TEST FAILED: {str(e)}")
         print(f"   Error Type: {type(e).__name__}")
         import traceback
         traceback.print_exc()
@@ -2037,6 +2172,7 @@ def main():
         print(f"   - Model files exist and are valid")
         print(f"   - All required dependencies are installed")
         print(f"   - The standalone_sd.py fixes are properly applied")
+        print(f"   - Step 3 model sampling and text encoding are working correctly")
     
 
 if __name__ == "__main__":
