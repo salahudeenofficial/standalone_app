@@ -68,7 +68,7 @@ def test_clip_t5_xxl_loading():
         from utils import load_torch_file, calculate_parameters
         
         # Model path
-        clip_model_path = "models/text_encoders/umt5_xxl_fp16.safetensors"
+        clip_model_path = "models/text_encoders/wan_clip_model.safetensors"
         
         # Check if model exists
         if not os.path.exists(clip_model_path):
@@ -383,10 +383,10 @@ def test_clip_class_initialization():
     
     try:
         # Test basic CLIP class creation
-        from standalone_sd import CLIP
+        from standalone_sd import StandaloneCLIP
         
         # Create dummy CLIP instance
-        dummy_clip = CLIP(no_init=True)
+        dummy_clip = StandaloneCLIP(None)
         print(f"✅ CLIP class initialization successful")
         print(f"   Type: {type(dummy_clip).__name__}")
         

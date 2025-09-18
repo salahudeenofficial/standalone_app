@@ -65,7 +65,7 @@ def test_step2_unet_clip_loading():
         
         # Model paths
         unet_model_path = "models/diffusion_models/wan_2.1_diffusion_model.safetensors"
-        clip_model_path = "models/text_encoders/umt5_xxl_fp16.safetensors"
+        clip_model_path = "models/text_encoders/wan_clip_model.safetensors"
         
         # Check if models exist
         missing_models = []
@@ -365,14 +365,18 @@ def test_model_class_initialization():
     try:
         # Test UNet class initialization
         print("   Testing UNet class initialization...")
-        from standalone_sd import ModelPatcher
-        dummy_unet_patcher = ModelPatcher(None, load_device=torch.device('cpu'), offload_device=torch.device('cpu'))
+        from standalone_model_patcher import ModelPatcher
+        import torch.nn as nn
+        
+        # Create a simple dummy model
+        dummy_model = nn.Linear(10, 10)
+        dummy_unet_patcher = ModelPatcher(dummy_model, load_device=torch.device('cpu'), offload_device=torch.device('cpu'))
         print(f"   ✅ UNet patcher class initialization successful")
         
         # Test CLIP class initialization
         print("   Testing CLIP class initialization...")
-        from standalone_sd import CLIP
-        dummy_clip = CLIP(no_init=True)
+        from standalone_sd import StandaloneCLIP
+        dummy_clip = StandaloneCLIP(None)
         print(f"   ✅ CLIP class initialization successful")
         
         return True
