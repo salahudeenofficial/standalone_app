@@ -235,12 +235,15 @@ def test_clip_loading(clip_model_path):
             }
         
         # Get the actual model
-        if hasattr(clip, 'cond_stage_model'):
-            model = clip.cond_stage_model
-        elif hasattr(clip, 'model'):
+        if hasattr(clip, 'model') and clip.model is not None:
             model = clip.model
+        elif hasattr(clip, 'cond_stage_model') and clip.cond_stage_model is not None:
+            model = clip.cond_stage_model
         else:
-            model = clip
+            return {
+                'success': False,
+                'details': {'Error': 'No underlying model found in CLIP object'}
+            }
         
         # Calculate parameters
         total_params = sum(p.numel() for p in model.parameters())
@@ -326,10 +329,15 @@ def test_combined_loading(unet_model_path, clip_model_path):
         
         # Get models
         unet_model = unet_patcher.model
-        if hasattr(clip, 'cond_stage_model'):
+        if hasattr(clip, 'model') and clip.model is not None:
+            clip_model = clip.model
+        elif hasattr(clip, 'cond_stage_model') and clip.cond_stage_model is not None:
             clip_model = clip.cond_stage_model
         else:
-            clip_model = clip.model if hasattr(clip, 'model') else clip
+            return {
+                'success': False,
+                'details': {'Error': 'No underlying model found in CLIP object'}
+            }
         
         # Calculate total parameters
         unet_params = sum(p.numel() for p in unet_model.parameters())
