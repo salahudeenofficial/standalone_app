@@ -15,6 +15,14 @@ from typing import Dict, Any, Optional, Tuple
 # Add motion directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Import required modules at top level
+try:
+    from standalone_sd import load_state_dict_guess_config
+    IMPORT_SUCCESS = True
+except ImportError as e:
+    print(f"❌ Import error: {e}")
+    IMPORT_SUCCESS = False
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
@@ -59,9 +67,10 @@ def test_step2_unet_clip_loading():
     print("="*80)
     
     try:
-        # Import required modules
-        from standalone_sd import load_state_dict_guess_config
-        from utils import load_torch_file, calculate_parameters
+        # Check if imports were successful
+        if not IMPORT_SUCCESS:
+            print("❌ Required imports failed. Cannot proceed with model loading.")
+            return False
         
         # Model paths
         unet_model_path = "models/diffusion_models/wan_2.1_diffusion_model.safetensors"
