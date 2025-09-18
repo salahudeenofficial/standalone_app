@@ -83,7 +83,7 @@ def test_model_loading_with_patcher(model_path, model_name):
 
 def test_inference_with_patcher(model, model_name, device):
     """
-    Test inference with the loaded model
+    Test inference with the loaded model using proper WAN model parameters
     """
     print(f"\n🧠 Testing {model_name} Inference with Patcher")
     print("=" * 50)
@@ -93,17 +93,28 @@ def test_inference_with_patcher(model, model_name, device):
         model_dtype = next(model.parameters()).dtype
         print(f"📊 Model dtype: {model_dtype}")
         
-        # Create test input with matching dtype
-        if device.type == 'cuda':
-            test_input = torch.randn(1, 10, device=device, dtype=model_dtype)
-        else:
-            test_input = torch.randn(1, 10, dtype=model_dtype)
+        # Create proper inputs for WAN model
+        batch_size = 1
+        frames = 16
+        height, width = 64, 64
         
-        print(f"   Input shape: {test_input.shape}, dtype: {test_input.dtype}")
+        if device.type == 'cuda':
+            # Create proper WAN model inputs
+            x = torch.randn(batch_size, 4, frames, height, width, device=device, dtype=model_dtype)
+            timestep = torch.tensor([100], device=device)
+            context = torch.randn(batch_size, 77, 5120, device=device, dtype=model_dtype)
+        else:
+            x = torch.randn(batch_size, 4, frames, height, width, dtype=model_dtype)
+            timestep = torch.tensor([100])
+            context = torch.randn(batch_size, 77, 5120, dtype=model_dtype)
+        
+        print(f"   Input shape: {x.shape}")
+        print(f"   Timestep: {timestep}")
+        print(f"   Context shape: {context.shape}")
         
         # Run forward pass
         with torch.no_grad():
-            output = model(test_input)
+            output = model(x, timestep, context)
         
         print(f"✅ {model_name} inference successful!")
         print(f"   Output shape: {output.shape}, dtype: {output.dtype}")
