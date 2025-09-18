@@ -1793,132 +1793,248 @@ class WanVideoPipeline:
         step_4_results = self.step_4_ksampler_denoising(**step_4_params)
         return step_1_results, step_2_results, step_3_results, step_4_results
     
+    def run_steps_1_and_2_only(self, step_1_params: Dict[str, Any], step_2_params: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Run Steps 1 and 2 in sequence - convenient for testing both steps"""
+        print("🚀 Running Steps 1 and 2 in sequence...")
+        print("="*60)
+        
+        # Run Step 1
+        print("🎬 STEP 1: VAE LOADING AND LATENT CREATION")
+        step_1_results = self.step_1_vae_and_latent_creation(**step_1_params)
+        
+        # Run Step 2
+        print("\n🧠 STEP 2: UNET + CLIP LOADING")
+        step_2_results = self.step_2_unet_clip_lora_loading(**step_2_params)
+        
+        # Summary
+        print(f"\n🎉 STEPS 1 & 2 COMPLETED SUCCESSFULLY!")
+        print("="*60)
+        
+        # Display summary
+        step_status = self.get_step_status()
+        completed_steps = sum(1 for completed in step_status.values() if completed)
+        
+        print(f"\n📊 COMPLETION SUMMARY:")
+        print(f"   Steps Completed: {completed_steps}/7")
+        print(f"   Step 1 (VAE): {'✅ Completed' if step_status.get(1, False) else '❌ Failed'}")
+        print(f"   Step 2 (UNet+CLIP): {'✅ Completed' if step_status.get(2, False) else '❌ Failed'}")
+        
+        if completed_steps >= 2:
+            print(f"🎯 Ready for Step 3 (Model Sampling + Text Encoding)")
+        
+        return step_1_results, step_2_results
+    
 
 # ============================================================================
 # EXAMPLE USAGE AND TESTING
 # ============================================================================
 
 def main():
-    """Test Step 2: Complete UNet + CLIP Loading"""
-    print("🚀 WAN Video Pipeline - Step 2 Complete Test")
+    """Test Steps 1 and 2: Sequential VAE Loading + UNet + CLIP Loading"""
+    print("🚀 WAN Video Pipeline - Sequential Steps 1 & 2 Test")
     print("="*80)
-    print("🎯 Testing complete Step 2 with both UNet and CLIP loading")
+    print("🎯 Testing Step 1 (VAE) then Step 2 (UNet + CLIP) sequentially")
     print("="*80)
     
     # Initialize pipeline
     pipeline = WanVideoPipeline(models_dir="models")
     
-    # Step 2 parameters
+    # Model file paths
+    vae_model_path = "models/vaes/wan_vae.safetensors"
+    unet_model_path = "models/diffusion_models/wan_2.1_diffusion_model.safetensors"
+    clip_model_path = "models/text_encoders/wan_clip_model.safetensors"
+    
+    # Check available model files
+    available_models = []
+    missing_models = []
+    
+    if os.path.exists(vae_model_path):
+        available_models.append("VAE")
+    else:
+        missing_models.append(f"VAE: {vae_model_path}")
+    
+    if os.path.exists(unet_model_path):
+        available_models.append("UNet")
+    else:
+        missing_models.append(f"UNet: {unet_model_path}")
+    
+    if os.path.exists(clip_model_path):
+        available_models.append("CLIP")
+    else:
+        missing_models.append(f"CLIP: {clip_model_path}")
+    
+    print(f"\n📊 MODEL AVAILABILITY:")
+    print(f"   Available: {', '.join(available_models) if available_models else 'None'}")
+    if missing_models:
+        print(f"   Missing: {', '.join(missing_models)}")
+    
+    # Prepare parameters for both steps
+    step_1_params = {
+        'vae_model_path': vae_model_path,
+        'positive_prompt': "very cinematic video",
+        'negative_prompt': "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量",
+        'control_video_path': "safu.mp4" if os.path.exists("safu.mp4") else None,
+        'reference_image_path': "safu.jpg" if os.path.exists("safu.jpg") else None,
+        'width': 480,
+        'height': 832,
+        'length': 37,
+        'batch_size': 1,
+        'strength': 1.0
+    }
+    
     step_2_params = {
-        'unet_model_path': str("models/diffusion_models/wan_2.1_diffusion_model.safetensors"),
-        'clip_model_path': str("models/text_encoders/wan_clip_model.safetensors"),
+        'unet_model_path': unet_model_path,
+        'clip_model_path': clip_model_path,
         'lora_model_path': None,  # No LoRA for this test
         'strength_model': 1.0,
         'strength_clip': 0.0
     }
     
-    # Check if model files exist
-    missing_models = []
-    if not os.path.exists(step_2_params['unet_model_path']):
-        missing_models.append(f"UNet: {step_2_params['unet_model_path']}")
-    if not os.path.exists(step_2_params['clip_model_path']):
-        missing_models.append(f"CLIP: {step_2_params['clip_model_path']}")
-    
-    if missing_models:
-        print("❌ Missing model files:")
-        for missing in missing_models:
-            print(f"   {missing}")
-        print("\n💡 Please ensure the model files are available")
-        print("🧪 Testing pipeline initialization and method availability instead...")
+    # Sequential execution: Step 1 then Step 2
+    try:
+        # Check if we can run both steps
+        can_run_step1 = "VAE" in available_models
+        can_run_step2 = "UNet" in available_models and "CLIP" in available_models
         
-        # Test pipeline methods without models
-        try:
-            print("\n🔧 Testing pipeline initialization...")
+        if can_run_step1 and can_run_step2:
+            # Run Steps 1 and 2 sequentially using the convenience method
+            print(f"\n🚀 RUNNING STEPS 1 & 2 SEQUENTIALLY")
+            print("="*60)
+            
+            step_1_results, step_2_results = pipeline.run_steps_1_and_2_only(step_1_params, step_2_params)
+            
+            print(f"\n🎉 SEQUENTIAL STEPS 1 & 2 COMPLETED SUCCESSFULLY!")
+            print("="*60)
+            
+            # Display comprehensive results
+            print(f"\n📋 COMPREHENSIVE RESULTS SUMMARY:")
+            
+            # Step 1 Results
+            if step_1_results:
+                print(f"\n🎬 STEP 1 RESULTS:")
+                vae_info = step_1_results.get('vae_info', {})
+                print(f"   VAE Type: {vae_info.get('vae_type', 'Unknown')}")
+                print(f"   Latent Channels: {vae_info.get('latent_channels', 'Unknown')}")
+                print(f"   Latent Dimension: {vae_info.get('latent_dim', 'Unknown')}")
+                print(f"   Downscale Ratio: {vae_info.get('downscale_ratio', 'Unknown')}")
+                print(f"   VAE Device: {vae_info.get('device', 'Unknown')}")
+                
+                processing_info = step_1_results.get('processing_info', {})
+                print(f"   VAE Encoding Time: {processing_info.get('vae_encoding_time', 0.0):.2f}s")
+                print(f"   Total Step Time: {processing_info.get('total_step_time', 0.0):.2f}s")
+                
+                out_latent = step_1_results.get('out_latent', {})
+                if 'samples' in out_latent:
+                    print(f"   Output Latent Shape: {out_latent['samples'].shape}")
+            
+            # Step 2 Results
+            if step_2_results:
+                print(f"\n🧠 STEP 2 RESULTS:")
+                models_info = step_2_results.get('models_info', {})
+                print(f"   UNet Type: {models_info.get('unet_type', 'Unknown')}")
+                print(f"   CLIP Type: {models_info.get('clip_type', 'Unknown')}")
+                print(f"   UNet Device: {models_info.get('unet_device', 'Unknown')}")
+                print(f"   CLIP Device: {models_info.get('clip_device', 'Unknown')}")
+                print(f"   LoRA Applied: {'Yes' if step_2_results.get('lora_applied', False) else 'No'}")
+                
+                processing_info = step_2_results.get('processing_info', {})
+                print(f"   UNet Loading Time: {processing_info.get('unet_loading_time', 0.0):.2f}s")
+                print(f"   CLIP Loading Time: {processing_info.get('clip_loading_time', 0.0):.2f}s")
+                print(f"   Total Step Time: {processing_info.get('total_step_time', 0.0):.2f}s")
+                
+                # Verify models are loaded
+                unet = step_2_results.get('unet')
+                clip = step_2_results.get('clip')
+                print(f"   UNet Status: {'✅ Loaded' if unet is not None else '❌ Failed'}")
+                print(f"   CLIP Status: {'✅ Loaded' if clip is not None else '❌ Failed'}")
+            
+        elif can_run_step1:
+            # Only run Step 1
+            print(f"\n🚀 RUNNING STEP 1 ONLY (Step 2 models not available)")
+            print("="*60)
+            
+            step_1_results = pipeline.run_step_1_only(**step_1_params)
+            
+            print(f"\n🎉 STEP 1 COMPLETED SUCCESSFULLY!")
+            print("="*60)
+            
+            if step_1_results:
+                print(f"\n📋 STEP 1 RESULTS SUMMARY:")
+                vae_info = step_1_results.get('vae_info', {})
+                print(f"   VAE Type: {vae_info.get('vae_type', 'Unknown')}")
+                print(f"   Latent Channels: {vae_info.get('latent_channels', 'Unknown')}")
+                print(f"   VAE Device: {vae_info.get('device', 'Unknown')}")
+                
+                processing_info = step_1_results.get('processing_info', {})
+                print(f"   Total Step Time: {processing_info.get('total_step_time', 0.0):.2f}s")
+            
+            print(f"\n💡 Step 1 completed - Step 2 requires UNet and CLIP model files")
+            
+        elif can_run_step2:
+            # Only run Step 2
+            print(f"\n🚀 RUNNING STEP 2 ONLY (Step 1 VAE model not available)")
+            print("="*60)
+            
+            step_2_results = pipeline.run_step_2_only(**step_2_params)
+            
+            print(f"\n🎉 STEP 2 COMPLETED SUCCESSFULLY!")
+            print("="*60)
+            
+            if step_2_results:
+                print(f"\n📋 STEP 2 RESULTS SUMMARY:")
+                models_info = step_2_results.get('models_info', {})
+                print(f"   UNet Type: {models_info.get('unet_type', 'Unknown')}")
+                print(f"   CLIP Type: {models_info.get('clip_type', 'Unknown')}")
+                print(f"   UNet Device: {models_info.get('unet_device', 'Unknown')}")
+                print(f"   CLIP Device: {models_info.get('clip_device', 'Unknown')}")
+                
+                processing_info = step_2_results.get('processing_info', {})
+                print(f"   Total Step Time: {processing_info.get('total_step_time', 0.0):.2f}s")
+            
+            print(f"\n💡 Step 2 completed - Step 1 requires VAE model file")
+            
+        else:
+            # No models available
+            print(f"\n⏭️  NO MODELS AVAILABLE - Testing pipeline initialization only")
+            print("="*60)
+            
             print(f"   ✅ Pipeline initialized successfully")
             print(f"   Device: {pipeline.device}")
             print(f"   Offload Device: {pipeline.offload_device}")
             print(f"   Models Directory: {pipeline.models_dir}")
             
-            # Test step status
             step_status = pipeline.get_step_status()
-            print(f"   📊 Initial step status: {step_status}")
+            print(f"   Initial step status: {step_status}")
             
-            print(f"\n✅ Pipeline initialization test completed successfully!")
-            print(f"💡 Pipeline is ready for Step 2 when model files are available")
-        except Exception as e:
-            print(f"❌ Pipeline initialization failed: {e}")
-        return
-    
-    # Test Step 2: Complete UNet + CLIP Loading
-    print("\n🚀 Running Step 2: Complete UNet + CLIP Loading...")
-    print("="*60)
-    
-    try:
-        # Run Step 2 with complete implementation
-        step_2_results = pipeline.run_step_2_only(**step_2_params)
+            print(f"\n💡 Pipeline ready - model files required for Step 1 and Step 2")
         
-        print("\n🎉 STEP 2 COMPLETED SUCCESSFULLY!")
-        print("="*60)
+        # Final status check
+        step_status = pipeline.get_step_status()
+        completed_steps = sum(1 for completed in step_status.values() if completed)
         
-        # Display Step 2 results summary
-        if step_2_results:
-            print(f"\n📋 STEP 2 RESULTS SUMMARY:")
-            
-            # Model information
-            models_info = step_2_results.get('models_info', {})
-            print(f"\n🧠 MODEL INFORMATION:")
-            print(f"   UNet Type: {models_info.get('unet_type', 'Unknown')}")
-            print(f"   CLIP Type: {models_info.get('clip_type', 'Unknown')}")
-            print(f"   UNet Device: {models_info.get('unet_device', 'Unknown')}")
-            print(f"   CLIP Device: {models_info.get('clip_device', 'Unknown')}")
-            print(f"   LoRA Applied: {'Yes' if step_2_results.get('lora_applied', False) else 'No'}")
-            
-            # Processing information
-            processing_info = step_2_results.get('processing_info', {})
-            print(f"\n⏱️  TIMING INFORMATION:")
-            print(f"   UNet Loading Time: {processing_info.get('unet_loading_time', 0.0):.2f}s")
-            print(f"   CLIP Loading Time: {processing_info.get('clip_loading_time', 0.0):.2f}s")
-            print(f"   LoRA Time: {processing_info.get('lora_time', 0.0):.2f}s")
-            print(f"   Total Step Time: {processing_info.get('total_step_time', 0.0):.2f}s")
-            
-            # Verify models are loaded
-            print(f"\n🔍 MODEL VERIFICATION:")
-            unet = step_2_results.get('unet')
-            clip = step_2_results.get('clip')
-            
-            if unet is not None:
-                print(f"   ✅ UNet loaded successfully")
-                print(f"      Type: {type(unet).__name__}")
-                if hasattr(unet, 'load_device'):
-                    print(f"      Load Device: {unet.load_device}")
-            else:
-                print(f"   ❌ UNet is None")
-            
-            if clip is not None:
-                print(f"   ✅ CLIP loaded successfully")
-                print(f"      Type: {type(clip).__name__}")
-                if hasattr(clip, 'load_device'):
-                    print(f"      Load Device: {clip.load_device}")
-            else:
-                print(f"   ❌ CLIP is None")
-            
-            # Check step completion status
-            step_status = pipeline.get_step_status()
-            print(f"\n📊 STEP COMPLETION STATUS:")
-            for step_num, completed in step_status.items():
-                status = "✅ Completed" if completed else "⏳ Pending"
-                print(f"   Step {step_num}: {status}")
+        print(f"\n📊 FINAL PIPELINE STATUS:")
+        print(f"   Steps Completed: {completed_steps}/7")
+        for step_num, completed in step_status.items():
+            status = "✅ Completed" if completed else "⏳ Pending"
+            print(f"   Step {step_num}: {status}")
         
-        print(f"\n✅ Complete Step 2 implementation test completed successfully!")
-        print(f"🎯 Step 2 is ready for integration with the full pipeline")
+        if completed_steps >= 2:
+            print(f"\n🎉 SUCCESS: Both Step 1 and Step 2 completed sequentially!")
+            print(f"🎯 Pipeline is ready for Step 3 (Model Sampling + Text Encoding)")
+        elif completed_steps == 1:
+            print(f"\n✅ PARTIAL SUCCESS: One step completed!")
+            print(f"💡 Additional model files needed for complete testing")
+        else:
+            print(f"\n💡 Pipeline initialization completed")
+            print(f"🔧 Model files required for Step 1 and Step 2 testing")
         
     except Exception as e:
-        print(f"\n❌ STEP 2 TEST FAILED: {str(e)}")
+        print(f"\n❌ SEQUENTIAL STEPS TEST FAILED: {str(e)}")
         print(f"   Error Type: {type(e).__name__}")
         import traceback
         traceback.print_exc()
         print(f"\n💡 Check the error details above and ensure:")
-        print(f"   - UNet and CLIP model files exist and are valid")
+        print(f"   - Model files exist and are valid")
         print(f"   - All required dependencies are installed")
         print(f"   - The standalone_sd.py fixes are properly applied")
     
