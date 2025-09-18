@@ -31,9 +31,9 @@ def test_vast_ai_models():
     
     # Model paths - adjust these to your actual paths
     model_paths = {
-        "UNet": "../models/diffusion_models/wan_2.1_diffusion_model.safetensors",
-        "VAE": "../models/vae/vae.safetensors", 
-        "Text Encoder": "../models/clip/clip.safetensors"
+        "UNet": "./models/diffusion_models/wan_2.1_diffusion_model.safetensors",
+        "VAE": "./models/vae/vae.safetensors", 
+        "Text Encoder": "./models/clip/clip.safetensors"
     }
     
     # Check which models exist
@@ -67,16 +67,43 @@ def test_vast_ai_models():
             mem_info = get_memory_info()
             print(f"📊 Available GPU memory: {mem_info['cuda_free']:.2f} GB")
             
-            # Load state dict
+            # Validate file size first
+            expected_sizes = {
+                "UNet": 30,  # Should be ~32GB
+                "VAE": 0.2,  # Should be ~200MB
+                "Text Encoder": 10  # Should be ~10GB
+            }
+            
+            expected_size = expected_sizes.get(name, 0)
+            if info['size_gb'] < expected_size * 0.1:  # Less than 10% of expected
+                print(f"⚠️  WARNING: {name} file size ({info['size_gb']:.2f} GB) seems too small!")
+                print(f"   Expected: ~{expected_size} GB")
+                print(f"   This might be a corrupted or incomplete file.")
+                
+                # Ask user if they want to continue
+                response = input(f"   Continue anyway? (y/N): ").strip().lower()
+                if response != 'y':
+                    print(f"   Skipping {name} due to suspicious file size.")
+                    results[name] = {'success': False, 'error': 'File size too small - likely corrupted'}
+                    continue
+            
+            # Load state dict with better error handling
             print(f"🔄 Loading {name} state dict...")
-            from safetensors import safe_open
-            
-            state_dict = {}
-            with safe_open(info['path'], framework="pt", device="cpu") as f:
-                for key in f.keys():
-                    state_dict[key] = f.get_tensor(key)
-            
-            print(f"✅ State dict loaded: {len(state_dict)} keys")
+            try:
+                from safetensors import safe_open
+                
+                state_dict = {}
+                with safe_open(info['path'], framework="pt", device="cpu") as f:
+                    for key in f.keys():
+                        state_dict[key] = f.get_tensor(key)
+                
+                print(f"✅ State dict loaded: {len(state_dict)} keys")
+                
+            except Exception as e:
+                print(f"❌ Failed to load {name} state dict: {e}")
+                print(f"   This suggests the file is corrupted or incomplete.")
+                results[name] = {'success': False, 'error': f'Failed to load state dict: {e}'}
+                continue
             
             # Create a simple dummy model for testing
             class DummyModel(torch.nn.Module):

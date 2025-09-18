@@ -226,9 +226,9 @@ def main():
     
     # Model paths (adjust these to your actual VAST AI paths)
     models = {
-        "UNet": "../models/diffusion_models/wan_2.1_diffusion_model.safetensors",  # 32GB UNet
-        "VAE": "../models/vae/vae.safetensors",                                    # 200MB VAE  
-        "Text Encoder": "../models/clip/clip.safetensors"                          # 10GB Text Encoder
+        "UNet": "./models/diffusion_models/wan_2.1_diffusion_model.safetensors",  # 32GB UNet
+        "VAE": "./models/vae/vae.safetensors",                                    # 200MB VAE  
+        "Text Encoder": "./models/clip/clip.safetensors"                          # 10GB Text Encoder
     }
     
     results = {}
