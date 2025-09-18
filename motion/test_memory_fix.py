@@ -1,131 +1,74 @@
 #!/usr/bin/env python3
 """
-Quick Memory Fix Test
-
-This script tests the aggressive memory cleanup fix.
+Test the fixed memory calculation for large models
 """
 
-import os
-import sys
+from memory_utils import estimate_state_dict_memory, get_memory_info, safe_model_to_device_advanced
 import torch
-import logging
-from pathlib import Path
 
-# Add motion directory to path
-sys.path.insert(0, str(Path(__file__).parent))
-
-from memory_utils import log_memory_usage, get_memory_info, clear_cuda_memory, safe_model_to_device_advanced
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-
-def test_memory_cleanup():
-    """Test aggressive memory cleanup"""
+def test_memory_estimation():
+    """Test memory estimation for 32GB model"""
+    print("🧪 Testing Fixed Memory Estimation")
+    print("=" * 50)
     
-    print("🧪 TESTING AGGRESSIVE MEMORY CLEANUP")
-    print("="*50)
+    # Simulate your 32GB model state dict
+    fake_state_dict = {}
     
-    if not torch.cuda.is_available():
-        print("❌ CUDA not available - cannot test")
-        return False
+    # Create a realistic 32GB model simulation
+    # WAN 2.1 VACE has ~17B parameters in FP16 = ~32GB
+    total_params_target = 17_000_000_000  # 17B parameters
+    param_size_fp16 = 2  # 2 bytes per FP16 parameter
     
-    # Initial memory
-    print("\n📊 Initial Memory:")
-    log_memory_usage("Initial")
+    # Create a few large tensors to simulate the model
+    params_per_tensor = total_params_target // 10  # Split into 10 tensors
+    for i in range(10):
+        tensor_shape = (params_per_tensor,)
+        fake_state_dict[f'large_tensor_{i}'] = torch.randn(tensor_shape, dtype=torch.float16)
     
-    # Allocate some memory
-    print("\n🔄 Allocating 10GB of GPU memory...")
-    try:
-        # Create a large tensor (10GB)
-        large_tensor = torch.randn(1024, 1024, 1024, device='cuda', dtype=torch.float32)
-        log_memory_usage("After Allocation")
-        
-        # Move to CPU
-        print("\n🔄 Moving tensor to CPU...")
-        large_tensor = large_tensor.to('cpu')
-        log_memory_usage("After CPU Transfer")
-        
-        # Test aggressive cleanup
-        print("\n🔄 Testing aggressive cleanup...")
-        clear_cuda_memory()
-        log_memory_usage("After Aggressive Cleanup")
-        
-        # Delete tensor
-        print("\n🔄 Deleting tensor...")
-        del large_tensor
-        clear_cuda_memory()
-        log_memory_usage("After Deletion")
-        
-        print("\n✅ Memory cleanup test completed")
-        return True
-        
-    except torch.cuda.OutOfMemoryError as e:
-        print(f"❌ OOM during test: {e}")
-        return False
-    except Exception as e:
-        print(f"❌ Test failed: {e}")
-        return False
-
-def test_model_loading_cleanup():
-    """Test model loading with cleanup"""
+    # Test the estimation
+    print("📊 Model Simulation:")
+    total_params = sum(t.numel() for t in fake_state_dict.values())
+    total_size_gb = sum(t.numel() * t.element_size() for t in fake_state_dict.values()) / 1024**3
+    print(f"   Total parameters: {total_params:,}")
+    print(f"   Raw size: {total_size_gb:.2f} GB")
+    print()
     
-    print("\n🧪 TESTING MODEL LOADING WITH CLEANUP")
-    print("="*50)
+    # Test the new estimation function
+    estimation = estimate_state_dict_memory(fake_state_dict)
     
-    if not torch.cuda.is_available():
-        print("❌ CUDA not available - cannot test")
-        return False
+    print("🔍 Memory Estimation Results:")
+    print(f"   Raw model size: {estimation['size_gb']:.2f} GB")
+    print(f"   GPU overhead multiplier: {estimation['gpu_multiplier']:.1f}x")
+    print(f"   Estimated GPU memory: {estimation['size_gb_gpu']:.2f} GB")
+    print(f"   CPU overhead multiplier: {estimation['cpu_multiplier']:.1f}x")
+    print(f"   Estimated CPU memory: {estimation['size_gb_cpu']:.2f} GB")
+    print()
     
-    try:
-        # Create a large dummy model
-        print("\n🔄 Creating large dummy model...")
-        model = torch.nn.Sequential(
-            torch.nn.Linear(10000, 10000),
-            torch.nn.ReLU(),
-            torch.nn.Linear(10000, 10000),
-            torch.nn.ReLU(),
-            torch.nn.Linear(10000, 1000)
-        )
+    # Check GPU availability
+    if torch.cuda.is_available():
+        gpu_info = get_memory_info()
+        print("🎮 GPU Information:")
+        print(f"   Available GPU memory: {gpu_info['cuda_free']:.2f} GB")
+        print(f"   Total GPU memory: {gpu_info['cuda_total']:.2f} GB")
+        print()
         
-        log_memory_usage("After Model Creation")
+        # Test loading decision
+        memory_budget = gpu_info['cuda_free'] - 3.0  # 3GB buffer
+        will_fit = estimation['size_gb_gpu'] <= memory_budget
         
-        # Test advanced loading
-        print("\n🔄 Testing safe_model_to_device_advanced...")
-        model, device, info = safe_model_to_device_advanced(
-            model, 
-            torch.device('cuda'), 
-            min_free_gb=2.0,
-            enable_partial_loading=True
-        )
+        print("🎯 Loading Decision:")
+        print(f"   Memory budget: {memory_budget:.2f} GB")
+        print(f"   Required memory: {estimation['size_gb_gpu']:.2f} GB")
+        print(f"   Will fit on GPU: {'✅ YES' if will_fit else '❌ NO'}")
+        print()
         
-        log_memory_usage("After Advanced Loading")
-        print(f"   📊 Loading type: {info['loading_type']}")
-        print(f"   📊 Final device: {device}")
-        
-        # Cleanup
-        del model
-        clear_cuda_memory()
-        log_memory_usage("After Cleanup")
-        
-        print("\n✅ Model loading test completed")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Model loading test failed: {e}")
-        return False
+        if will_fit:
+            print("🚀 RESULT: Model should load on GPU!")
+        else:
+            print("📱 RESULT: Model will load on CPU")
+            print(f"   Need: {estimation['size_gb_gpu'] - memory_budget:.2f} GB more")
+    else:
+        print("❌ CUDA not available")
 
 if __name__ == "__main__":
-    print("🚀 Starting Memory Fix Tests...")
-    
-    success1 = test_memory_cleanup()
-    success2 = test_model_loading_cleanup()
-    
-    if success1 and success2:
-        print("\n🎉 ALL TESTS PASSED!")
-        print("   ✅ Aggressive memory cleanup works")
-        print("   ✅ Model loading with cleanup works")
-    else:
-        print("\n⚠️  SOME TESTS FAILED")
-        print("   Check the output above for issues")
-    
-    print("\n" + "="*50)
+    test_memory_estimation()

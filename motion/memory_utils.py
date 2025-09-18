@@ -74,7 +74,7 @@ def estimate_model_memory(model):
     }
 
 def estimate_state_dict_memory(state_dict):
-    """Estimate memory usage of a state dict with realistic overhead"""
+    """Estimate memory usage of a state dict - ComfyUI approach (no multipliers)"""
     total_params = 0
     total_size = 0
     
@@ -83,24 +83,17 @@ def estimate_state_dict_memory(state_dict):
             total_params += tensor.numel()
             total_size += tensor.numel() * tensor.element_size()
     
-    # Add realistic memory overhead multipliers based on ComfyUI observations:
-    # - PyTorch module overhead: ~1.5x
-    # - CUDA memory fragmentation: ~1.2x  
-    # - Intermediate activations: ~1.3x
-    # - Memory alignment: ~1.1x
-    # Total multiplier: ~2.6x for GPU, ~1.8x for CPU
-    gpu_overhead_multiplier = 2.6
-    cpu_overhead_multiplier = 1.8
-    
+    # ComfyUI approach: No multipliers, just raw model size
+    # The system will handle memory management dynamically
     return {
         'parameters': total_params,
         'size_bytes': total_size,
         'size_gb': total_size / 1024**3,
-        'size_gb_gpu': (total_size * gpu_overhead_multiplier) / 1024**3,
-        'size_gb_cpu': (total_size * cpu_overhead_multiplier) / 1024**3,
+        'size_gb_gpu': total_size / 1024**3,  # Same as raw size
+        'size_gb_cpu': total_size / 1024**3,   # Same as raw size
         'keys': len(state_dict),
-        'gpu_multiplier': gpu_overhead_multiplier,
-        'cpu_multiplier': cpu_overhead_multiplier
+        'gpu_multiplier': 1.0,  # No multiplier
+        'cpu_multiplier': 1.0   # No multiplier
     }
 
 def safe_model_to_device(model, device, min_free_gb=2.0, state_dict=None):
@@ -151,13 +144,13 @@ def safe_model_to_device(model, device, min_free_gb=2.0, state_dict=None):
 
 def safe_model_to_device_advanced(model, device, min_free_gb=2.0, state_dict=None, enable_partial_loading=True):
     """
-    Advanced model loading with partial loading capability inspired by ComfyUI
+    ComfyUI-style model loading with CPU-first loading and patcher assignment
     
     Args:
-        model: PyTorch model to load
+        model: PyTorch model
         device: Target device
         min_free_gb: Minimum free memory to reserve
-        state_dict: Optional state dict for accurate memory estimation
+        state_dict: Optional state dict for memory estimation
         enable_partial_loading: Enable partial loading for large models
     
     Returns:
@@ -170,57 +163,154 @@ def safe_model_to_device_advanced(model, device, min_free_gb=2.0, state_dict=Non
         # Get memory information
         info = get_memory_info()
         available_memory_gb = info['cuda_free']
-        # Use more conservative memory budget (reserve more space)
-        memory_budget_gb = max(0, available_memory_gb - min_free_gb - 2.0)  # Extra 2GB buffer
+        total_vram_gb = info['cuda_total']
         
-        logging.info(f"🚀 Advanced model loading to {device}")
-        logging.info(f"  Available memory: {available_memory_gb:.2f} GB")
-        logging.info(f"  Memory budget: {memory_budget_gb:.2f} GB")
+        logging.info(f"🚀 ComfyUI-style model loading to {device}")
+        logging.info(f"  Available GPU memory: {available_memory_gb:.2f} GB")
+        logging.info(f"  Total VRAM: {total_vram_gb:.2f} GB")
         
-        # Estimate model size with realistic overhead
+        # ComfyUI VRAM state detection
+        if total_vram_gb < 4:
+            vram_state = "NO_VRAM"
+        elif total_vram_gb < 8:
+            vram_state = "LOW_VRAM"
+        elif total_vram_gb < 16:
+            vram_state = "NORMAL_VRAM"
+        else:
+            vram_state = "HIGH_VRAM"
+            
+        logging.info(f"  Detected VRAM state: {vram_state}")
+        
+        # ComfyUI approach: Calculate model size directly
         if state_dict is not None:
             model_info = estimate_state_dict_memory(state_dict)
-            # Use GPU overhead multiplier for realistic memory estimation
-            total_model_size_gb = model_info['size_gb_gpu']
-            logging.info(f"  Raw model size: {model_info['size_gb']:.2f} GB")
-            logging.info(f"  GPU overhead multiplier: {model_info['gpu_multiplier']:.1f}x")
+            model_size_gb = model_info['size_gb']
+            logging.info(f"  Model size: {model_size_gb:.2f} GB")
         else:
             model_info = estimate_model_memory(model)
-            # Apply GPU overhead multiplier to fallback estimation
-            total_model_size_gb = model_info['size_gb'] * 2.6
-            logging.info(f"  Raw model size: {model_info['size_gb']:.2f} GB")
-            logging.info(f"  GPU overhead multiplier: 2.6x")
+            model_size_gb = model_info['size_gb']
+            logging.info(f"  Model size: {model_size_gb:.2f} GB")
         
-        logging.info(f"  Estimated GPU memory: {total_model_size_gb:.2f} GB")
-        
-        # Check if we can load the entire model
-        if total_model_size_gb <= memory_budget_gb:
-            try:
-                model = model.to(device)
-                logging.info(f"✅ Full model loaded to {device}")
-                return model, device, {
-                    'loading_type': 'full',
-                    'modules_loaded': 'all',
-                    'memory_used_gb': total_model_size_gb,
-                    'memory_budget_gb': memory_budget_gb
-                }
-            except torch.cuda.OutOfMemoryError as e:
-                logging.warning(f"❌ CUDA OOM during full loading: {e}")
-                logging.info("🔄 Falling back to CPU with dynamic loading setup...")
-                # Clear memory before fallback
-                clear_cuda_memory()
-                return _setup_dynamic_model_loading(model, device, state_dict)
+        # ComfyUI decision logic with CPU-first loading
+        if vram_state == "HIGH_VRAM":
+            # High VRAM - try complete loading first
+            if model_size_gb < available_memory_gb - 1.0:  # Reserve 1GB
+                try:
+                    model = model.to(device)
+                    logging.info(f"✅ Model loaded to GPU (HIGH_VRAM mode)")
+                    return model, device, {
+                        'loading_type': 'full_gpu',
+                        'vram_state': vram_state,
+                        'memory_used_gb': model_size_gb,
+                        'available_memory_gb': available_memory_gb,
+                        'patcher_type': 'complete'
+                    }
+                except torch.cuda.OutOfMemoryError as e:
+                    logging.warning(f"❌ CUDA OOM during GPU loading: {e}")
+                    logging.info("🔄 Falling back to CPU with dynamic loading...")
+                    clear_cuda_memory()
+                    return _setup_dynamic_model_loading(model, device, state_dict)
+            else:
+                # Model too large for complete loading, use partial loading
+                logging.info(f"📊 Model too large for complete loading ({model_size_gb:.2f} GB > {available_memory_gb - 1.0:.2f} GB)")
+                logging.info("🔄 Setting up CPU-first loading with partial patcher...")
+                return _setup_cpu_first_partial_loading(model, device, state_dict, available_memory_gb - 1.0)
         else:
-            # Model too large for GPU, use CPU with dynamic loading
-            logging.info(f"📊 Model too large for GPU ({total_model_size_gb:.2f} GB > {memory_budget_gb:.2f} GB)")
-            logging.info("🔄 Loading to CPU with dynamic loading setup...")
-            return _setup_dynamic_model_loading(model, device, state_dict)
+            # Low/Normal VRAM - use CPU-first loading with patcher
+            reserved_memory_gb = 1.0
+            usable_memory_gb = available_memory_gb - reserved_memory_gb
+            
+            logging.info(f"  Usable memory: {usable_memory_gb:.2f} GB")
+            logging.info(f"  Model size: {model_size_gb:.2f} GB")
+            
+            if model_size_gb < usable_memory_gb:
+                try:
+                    model = model.to(device)
+                    logging.info(f"✅ Model loaded to GPU (fits in {usable_memory_gb:.2f} GB)")
+                    return model, device, {
+                        'loading_type': 'full_gpu',
+                        'vram_state': vram_state,
+                        'memory_used_gb': model_size_gb,
+                        'available_memory_gb': available_memory_gb,
+                        'usable_memory_gb': usable_memory_gb,
+                        'patcher_type': 'complete'
+                    }
+                except torch.cuda.OutOfMemoryError as e:
+                    logging.warning(f"❌ CUDA OOM during GPU loading: {e}")
+                    logging.info("🔄 Falling back to CPU with dynamic loading...")
+                    clear_cuda_memory()
+                    return _setup_dynamic_model_loading(model, device, state_dict)
+            else:
+                # Model too large for GPU, use CPU-first loading with partial patcher
+                logging.info(f"📊 Model too large for GPU ({model_size_gb:.2f} GB > {usable_memory_gb:.2f} GB)")
+                logging.info("🔄 Setting up CPU-first loading with partial patcher...")
+                return _setup_cpu_first_partial_loading(model, device, state_dict, usable_memory_gb)
     else:
         logging.info(f"Using CPU device: {device}")
         return model, torch.device('cpu'), {
             'loading_type': 'cpu_only',
-            'reason': 'cuda_not_available'
+            'reason': 'cuda_not_available',
+            'patcher_type': 'cpu_only'
         }
+
+def _setup_cpu_first_partial_loading(model, device, state_dict=None, memory_budget_gb=0):
+    """
+    Set up CPU-first loading with partial patcher (ComfyUI approach)
+    
+    Args:
+        model: PyTorch model
+        device: Target GPU device for partial loading
+        state_dict: Optional state dict for module analysis
+        memory_budget_gb: Memory budget for partial loading
+    
+    Returns:
+        tuple: (model, cpu_device, loading_info)
+    """
+    logging.info("🔧 Setting up CPU-first loading with partial patcher...")
+    
+    # Load entire model to CPU first (ComfyUI approach)
+    cpu_device = torch.device('cpu')
+    model = model.to(cpu_device)
+    
+    # Aggressively clear CUDA memory after moving to CPU
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
+        logging.info("🧹 Aggressively cleared CUDA memory after CPU transfer")
+    
+    # Analyze model structure for partial loading
+    modules_info = _analyze_model_modules(model, state_dict)
+    
+    logging.info(f"📊 Found {len(modules_info)} leaf modules for partial loading")
+    if modules_info:
+        total_modules_size = sum(m['size_gb'] for m in modules_info)
+        logging.info(f"📊 Total modules size: {total_modules_size:.3f} GB")
+    
+    # Store module info for partial loading
+    model._partial_loading_info = {
+        'modules_info': modules_info,
+        'target_device': device,
+        'loaded_modules': set(),
+        'memory_budget_gb': memory_budget_gb,
+        'patcher_type': 'partial'
+    }
+    
+    logging.info(f"✅ Model loaded to CPU with partial patcher setup")
+    logging.info(f"   Target GPU device: {device}")
+    logging.info(f"   Modules available for partial loading: {len(modules_info)}")
+    logging.info(f"   Memory budget: {memory_budget_gb:.2f} GB")
+    
+    return model, cpu_device, {
+        'loading_type': 'cpu_first_partial',
+        'modules_available': len(modules_info),
+        'target_gpu_device': str(device),
+        'total_size_gb': total_modules_size if modules_info else 0,
+        'memory_budget_gb': memory_budget_gb,
+        'patcher_type': 'partial'
+    }
 
 def _setup_dynamic_model_loading(model, device, state_dict=None):
     """
