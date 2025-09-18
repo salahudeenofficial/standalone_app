@@ -1169,7 +1169,7 @@ class WanVideoPipeline:
                         print("   🔄 Keeping UNet on CPU")
                         unet_model.to('cpu')
             
-            # Perform the denoising process
+            # Perform the denoising process with ComfyUI integration
             try:
                 # Create a memory monitoring callback
                 def memory_callback(step, total_steps, current_step=None, **kwargs):
@@ -1179,21 +1179,97 @@ class WanVideoPipeline:
                             reserved = torch.cuda.memory_reserved() / 1024**3
                             print(f"      Step {step}/{total_steps}: GPU Memory - Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
                 
-                denoised_latent = ksampler.sample(
-                    noise=noise,
-                    positive=positive_conditioning,
-                    negative=negative_conditioning,
-                    cfg=cfg,
-                    latent_image=None,
-                    start_step=None,
-                    last_step=None,
-                    force_full_denoise=False,
-                    denoise_mask=None,
-                    sigmas=None,
-                    callback=memory_callback,
-                    disable_pbar=False,
-                    seed=seed
-                )
+                # Try ComfyUI integration first
+                try:
+                    from comfy.samplers import CFGGuider, sample as comfy_sample
+                    from comfy.samplers import sampler_object
+                    
+                    print("   🔧 Using ComfyUI CFGGuider for sampling...")
+                    
+                    # Create ComfyUI-style CFGGuider
+                    cfg_guider = CFGGuider(self.unet)
+                    cfg_guider.set_conds(positive_conditioning, negative_conditioning)
+                    cfg_guider.set_cfg(cfg)
+                    print("   ✅ ComfyUI CFGGuider created and configured")
+                    
+                    # Get sampler object
+                    sampler = sampler_object(sampler_name)
+                    print(f"   ✅ ComfyUI sampler '{sampler_name}' created")
+                    
+                    # Calculate sigmas using ComfyUI logic
+                    sigmas = ksampler.calculate_sigmas(steps)
+                    print(f"   ✅ Sigmas calculated: {len(sigmas)} steps")
+                    
+                    # Perform ComfyUI-style sampling
+                    print("   🚀 Starting ComfyUI-style sampling...")
+                    denoised_latent = comfy_sample(
+                        model=self.unet,
+                        noise=noise,
+                        positive=positive_conditioning,
+                        negative=negative_conditioning,
+                        cfg=cfg,
+                        sampler_name=sampler_name,
+                        scheduler=scheduler,
+                        steps=steps,
+                        denoise=denoise,
+                        latent_image=None,
+                        start_step=None,
+                        last_step=None,
+                        force_full_denoise=False,
+                        noise_mask=None,
+                        sigmas=sigmas,
+                        callback=memory_callback,
+                        disable_pbar=False,
+                        seed=seed
+                    )
+                    
+                    print("   ✅ ComfyUI-style sampling completed successfully")
+                    
+                except ImportError as e:
+                    print(f"   ⚠️  ComfyUI components not available: {e}")
+                    print("   🔄 Falling back to standalone KSampler...")
+                    
+                    # Fallback to our standalone KSampler
+                    denoised_latent = ksampler.sample(
+                        noise=noise,
+                        positive=positive_conditioning,
+                        negative=negative_conditioning,
+                        cfg=cfg,
+                        latent_image=None,
+                        start_step=None,
+                        last_step=None,
+                        force_full_denoise=False,
+                        denoise_mask=None,
+                        sigmas=None,
+                        callback=memory_callback,
+                        disable_pbar=False,
+                        seed=seed
+                    )
+                    
+                    print("   ✅ Standalone sampling completed successfully")
+                
+                except Exception as comfy_e:
+                    print(f"   ⚠️  ComfyUI sampling failed: {comfy_e}")
+                    print("   🔄 Falling back to standalone KSampler...")
+                    
+                    # Fallback to our standalone KSampler
+                    denoised_latent = ksampler.sample(
+                        noise=noise,
+                        positive=positive_conditioning,
+                        negative=negative_conditioning,
+                        cfg=cfg,
+                        latent_image=None,
+                        start_step=None,
+                        last_step=None,
+                        force_full_denoise=False,
+                        denoise_mask=None,
+                        sigmas=None,
+                        callback=memory_callback,
+                        disable_pbar=False,
+                        seed=seed
+                    )
+                    
+                    print("   ✅ Fallback sampling completed successfully")
                 
                 print("   ✅ Denoising completed successfully")
                 
@@ -1872,10 +1948,10 @@ class WanVideoPipeline:
 # ============================================================================
 
 def main():
-    """Test Steps 1, 2, and 3: Sequential VAE Loading + UNet + CLIP Loading + Model Sampling + Text Encoding"""
-    print("🚀 WAN Video Pipeline - Sequential Steps 1, 2 & 3 Test")
+    """Test Steps 1, 2, 3, and 4: Sequential VAE Loading + UNet + CLIP Loading + Model Sampling + Text Encoding + KSampler Denoising"""
+    print("🚀 WAN Video Pipeline - Sequential Steps 1, 2, 3 & 4 Test")
     print("="*80)
-    print("🎯 Testing Step 1 (VAE) → Step 2 (UNet + CLIP) → Step 3 (Model Sampling + Text Encoding)")
+    print("🎯 Testing Step 1 (VAE) → Step 2 (UNet + CLIP) → Step 3 (Model Sampling + Text Encoding) → Step 4 (KSampler Denoising)")
     print("="*80)
     
     # Initialize pipeline
@@ -1941,14 +2017,15 @@ def main():
     
     # Sequential execution: Step 1 → Step 2 → Step 3
     try:
-        # Check if we can run all three steps
+        # Check if we can run all four steps
         can_run_step1 = "VAE" in available_models
         can_run_step2 = "UNet" in available_models and "CLIP" in available_models
         can_run_step3 = can_run_step2  # Step 3 depends on Step 2
+        can_run_step4 = can_run_step2  # Step 4 depends on Step 2 (UNet + CLIP)
         
-        if can_run_step1 and can_run_step2 and can_run_step3:
-            # Run Steps 1, 2, and 3 sequentially
-            print(f"\n🚀 RUNNING STEPS 1, 2 & 3 SEQUENTIALLY")
+        if can_run_step1 and can_run_step2 and can_run_step3 and can_run_step4:
+            # Run Steps 1, 2, 3, and 4 sequentially
+            print(f"\n🚀 RUNNING STEPS 1, 2, 3 & 4 SEQUENTIALLY")
             print("="*60)
             
             # Step 1: VAE Loading and Latent Creation
@@ -1963,7 +2040,23 @@ def main():
             print("\n📝 STEP 3: MODEL SAMPLING + TEXT ENCODING")
             step_3_results = pipeline.step_3_model_sampling_and_text_encoding(**step_3_params)
             
-            print(f"\n🎉 SEQUENTIAL STEPS 1, 2 & 3 COMPLETED SUCCESSFULLY!")
+            # Step 4: KSampler Denoising
+            print("\n🎯 STEP 4: KSAMPLER DENOISING")
+            step_4_params = {
+                'initial_latent': step_1_results['out_latent']['samples'],
+                'positive_conditioning': step_3_results['positive_conditioning'],
+                'negative_conditioning': step_3_results['negative_conditioning'],
+                'seed': 42,
+                'steps': 20,
+                'cfg': 7.0,
+                'sampler_name': 'euler',
+                'scheduler': 'normal',
+                'denoise': 1.0,
+                'noise_inds': None
+            }
+            step_4_results = pipeline.step_4_ksampler_denoising(**step_4_params)
+            
+            print(f"\n🎉 SEQUENTIAL STEPS 1, 2, 3 & 4 COMPLETED SUCCESSFULLY!")
             print("="*60)
             
             # Display comprehensive results
@@ -2008,38 +2101,63 @@ def main():
                 print(f"   UNet Status: {'✅ Loaded' if unet is not None else '❌ Failed'}")
                 print(f"   CLIP Status: {'✅ Loaded' if clip is not None else '❌ Failed'}")
             
-            # Step 3 Results
-            if step_3_results:
-                print(f"\n📝 STEP 3 RESULTS:")
-                model_info = step_3_results.get('model_info', {})
-                print(f"   UNet Original Type: {model_info.get('original_type', 'Unknown')}")
-                print(f"   UNet Patched Type: {model_info.get('patched_type', 'Unknown')}")
-                print(f"   Sampling Patch Applied: {'Yes' if step_3_results.get('sampling_applied', False) else 'No'}")
-                print(f"   Shift Parameter: {model_info.get('shift', 'Unknown')}")
-                print(f"   Multiplier Parameter: {model_info.get('multiplier', 'Unknown')}")
+                # Step 3 Results
+                if step_3_results:
+                    print(f"\n📝 STEP 3 RESULTS:")
+                    model_info = step_3_results.get('model_info', {})
+                    print(f"   UNet Original Type: {model_info.get('original_type', 'Unknown')}")
+                    print(f"   UNet Patched Type: {model_info.get('patched_type', 'Unknown')}")
+                    print(f"   Sampling Patch Applied: {'Yes' if step_3_results.get('sampling_applied', False) else 'No'}")
+                    print(f"   Shift Parameter: {model_info.get('shift', 'Unknown')}")
+                    print(f"   Multiplier Parameter: {model_info.get('multiplier', 'Unknown')}")
+                    
+                    conditioning_info = step_3_results.get('conditioning_info', {})
+                    print(f"   Positive Prompt: '{conditioning_info.get('positive_prompt', 'Unknown')}'")
+                    print(f"   Negative Prompt: '{conditioning_info.get('negative_prompt', 'Unknown')}'")
+                    print(f"   Positive Shape: {conditioning_info.get('positive_shape', 'Unknown')}")
+                    print(f"   Negative Shape: {conditioning_info.get('negative_shape', 'Unknown')}")
+                    print(f"   Positive Device: {conditioning_info.get('positive_device', 'Unknown')}")
+                    
+                    timing = step_3_results.get('timing', {})
+                    print(f"   Sampling Time: {timing.get('sampling_time', 0.0):.2f}s")
+                    print(f"   Positive Encoding Time: {timing.get('positive_encoding', 0.0):.3f}s")
+                    print(f"   Negative Encoding Time: {timing.get('negative_encoding', 0.0):.3f}s")
+                    print(f"   Total Step Time: {timing.get('total_step_time', 0.0):.2f}s")
+                    
+                    # Verify conditioning
+                    positive_cond = step_3_results.get('positive_conditioning')
+                    negative_cond = step_3_results.get('negative_conditioning')
+                    print(f"   Positive Conditioning Status: {'✅ Generated' if positive_cond is not None else '❌ Failed'}")
+                    print(f"   Negative Conditioning Status: {'✅ Generated' if negative_cond is not None else '❌ Failed'}")
                 
-                conditioning_info = step_3_results.get('conditioning_info', {})
-                print(f"   Positive Prompt: '{conditioning_info.get('positive_prompt', 'Unknown')}'")
-                print(f"   Negative Prompt: '{conditioning_info.get('negative_prompt', 'Unknown')}'")
-                print(f"   Positive Shape: {conditioning_info.get('positive_shape', 'Unknown')}")
-                print(f"   Negative Shape: {conditioning_info.get('negative_shape', 'Unknown')}")
-                print(f"   Positive Device: {conditioning_info.get('positive_device', 'Unknown')}")
-                
-                timing = step_3_results.get('timing', {})
-                print(f"   Sampling Time: {timing.get('sampling_time', 0.0):.2f}s")
-                print(f"   Positive Encoding Time: {timing.get('positive_encoding', 0.0):.3f}s")
-                print(f"   Negative Encoding Time: {timing.get('negative_encoding', 0.0):.3f}s")
-                print(f"   Total Step Time: {timing.get('total_step_time', 0.0):.2f}s")
-                
-                # Verify conditioning
-                positive_cond = step_3_results.get('positive_conditioning')
-                negative_cond = step_3_results.get('negative_conditioning')
-                print(f"   Positive Conditioning Status: {'✅ Generated' if positive_cond is not None else '❌ Failed'}")
-                print(f"   Negative Conditioning Status: {'✅ Generated' if negative_cond is not None else '❌ Failed'}")
+                # Step 4 Results
+                if step_4_results:
+                    print(f"\n🎯 STEP 4 RESULTS:")
+                    sampling_config = step_4_results.get('sampling_config', {})
+                    print(f"   Seed: {sampling_config.get('seed', 'Unknown')}")
+                    print(f"   Steps: {sampling_config.get('steps', 'Unknown')}")
+                    print(f"   CFG: {sampling_config.get('cfg', 'Unknown')}")
+                    print(f"   Sampler: {sampling_config.get('sampler_name', 'Unknown')}")
+                    print(f"   Scheduler: {sampling_config.get('scheduler', 'Unknown')}")
+                    print(f"   Denoise: {sampling_config.get('denoise', 'Unknown')}")
+                    
+                    processing_info = step_4_results.get('processing_info', {})
+                    print(f"   Noise Preparation Time: {processing_info.get('noise_preparation_time', 0.0):.3f}s")
+                    print(f"   KSampler Setup Time: {processing_info.get('ksampler_setup_time', 0.0):.3f}s")
+                    print(f"   Denoising Time: {processing_info.get('denoising_time', 0.0):.2f}s")
+                    print(f"   Total Step Time: {processing_info.get('total_step_time', 0.0):.2f}s")
+                    
+                    # Verify denoised latent
+                    denoised_latent = step_4_results.get('denoised_latent')
+                    print(f"   Denoised Latent Status: {'✅ Generated' if denoised_latent is not None else '❌ Failed'}")
+                    if denoised_latent is not None:
+                        print(f"   Denoised Latent Shape: {denoised_latent.shape}")
+                        print(f"   Denoised Latent Device: {denoised_latent.device}")
+                        print(f"   Denoised Latent Range: [{denoised_latent.min().item():.3f}, {denoised_latent.max().item():.3f}]")
             
-        elif can_run_step1 and can_run_step2:
-            # Run Steps 1 and 2 only
-            print(f"\n🚀 RUNNING STEPS 1 & 2 ONLY (Step 3 requires both)")
+        elif can_run_step1 and can_run_step2 and can_run_step3:
+            # Run Steps 1, 2, and 3 only
+            print(f"\n🚀 RUNNING STEPS 1, 2 & 3 ONLY (Step 4 requires all)")
             print("="*60)
             
             # Step 1: VAE Loading and Latent Creation
@@ -2074,7 +2192,7 @@ def main():
                 processing_info = step_2_results.get('processing_info', {})
                 print(f"   Total Step Time: {processing_info.get('total_step_time', 0.0):.2f}s")
             
-            print(f"\n💡 Steps 1 & 2 completed - Step 3 requires both VAE and UNet+CLIP models")
+            print(f"\n💡 Steps 1, 2 & 3 completed - Step 4 requires all models")
             
         elif can_run_step1:
             # Only run Step 1
@@ -2150,8 +2268,11 @@ def main():
             status = "✅ Completed" if completed else "⏳ Pending"
             print(f"   Step {step_num}: {status}")
         
-        if completed_steps >= 3:
-            print(f"\n🎉 SUCCESS: Steps 1, 2, and 3 completed sequentially!")
+        if completed_steps >= 4:
+            print(f"\n🎉 SUCCESS: Steps 1, 2, 3, and 4 completed sequentially!")
+            print(f"🎯 Pipeline is ready for Step 5 (VAE Decoding)")
+        elif completed_steps >= 3:
+            print(f"\n✅ PARTIAL SUCCESS: Steps 1, 2, and 3 completed!")
             print(f"🎯 Pipeline is ready for Step 4 (KSampler Denoising)")
         elif completed_steps >= 2:
             print(f"\n✅ PARTIAL SUCCESS: Steps 1 and 2 completed!")
@@ -2161,10 +2282,10 @@ def main():
             print(f"💡 Additional model files needed for complete testing")
         else:
             print(f"\n💡 Pipeline initialization completed")
-            print(f"🔧 Model files required for Step 1, 2, and 3 testing")
+            print(f"🔧 Model files required for Step 1, 2, 3, and 4 testing")
         
     except Exception as e:
-        print(f"\n❌ SEQUENTIAL STEPS 1, 2 & 3 TEST FAILED: {str(e)}")
+        print(f"\n❌ SEQUENTIAL STEPS 1, 2, 3 & 4 TEST FAILED: {str(e)}")
         print(f"   Error Type: {type(e).__name__}")
         import traceback
         traceback.print_exc()
@@ -2172,7 +2293,7 @@ def main():
         print(f"   - Model files exist and are valid")
         print(f"   - All required dependencies are installed")
         print(f"   - The standalone_sd.py fixes are properly applied")
-        print(f"   - Step 3 model sampling and text encoding are working correctly")
+        print(f"   - Step 4 KSampler denoising and ComfyUI integration are working correctly")
     
 
 if __name__ == "__main__":
