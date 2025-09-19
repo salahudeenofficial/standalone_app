@@ -24,7 +24,7 @@ class VAEDecode:
             logging.warning("Warning: Ran out of memory when regular VAE decoding, retrying with tiled VAE decoding.")
             
             # Check if VAE supports tiled decoding
-            if hasattr(vae, 'decode_tiled'):
+            if hasattr(vae, 'decode_tiled') and vae.first_stage_model is not None:
                 print("   🔧 Using VAE tiled decoding fallback...")
                 
                 # Extract tensor from dict for tiled decoding
