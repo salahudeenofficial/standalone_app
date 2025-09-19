@@ -1388,7 +1388,9 @@ class WanVideoPipeline:
         print("="*80)
         
         try:
-            # Import TrimVideoLatent from components
+            # Import TrimVideoLatent from components (following Disclaimer.txt guidelines)
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent))
             from components.video_processor import TrimVideoLatent
             
             # Memory before trimming
@@ -1473,7 +1475,9 @@ class WanVideoPipeline:
         print("="*80)
         
         try:
-            # Import VAEDecode from components
+            # Import VAEDecode from components (following Disclaimer.txt guidelines)
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent))
             from components.vae_decoder import VAEDecode
             
             # Use pipeline's VAE if none provided
@@ -1489,14 +1493,20 @@ class WanVideoPipeline:
             print(f"   📊 Input latent shape: {trimmed_latent.shape}")
             print(f"   📊 VAE model: {type(vae_model).__name__}")
             
-            # Create VAE decoder
+            # Create VAE decoder (following ComfyUI VAEDecode pattern)
             vae_decoder = VAEDecode()
             
             # Wrap the latent tensor in the dictionary format expected by VAEDecode
             latent_dict = {"samples": trimmed_latent}
             
-            # Perform VAE decoding
-            decoded_images = vae_decoder.decode(vae_model, latent_dict)
+            # Perform VAE decoding (following ComfyUI workflow_api pattern)
+            decoded_images_tuple = vae_decoder.decode(vae_model, latent_dict)
+            
+            # Extract images from tuple (ComfyUI returns tuple)
+            if isinstance(decoded_images_tuple, tuple):
+                decoded_images = decoded_images_tuple[0]
+            else:
+                decoded_images = decoded_images_tuple
             
             print(f"   ✅ Decoded images shape: {decoded_images.shape}")
             
@@ -1574,7 +1584,9 @@ class WanVideoPipeline:
         print("="*80)
         
         try:
-            # Import VideoExporter from components
+            # Import VideoExporter from components (following Disclaimer.txt guidelines)
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent))
             from components.video_export import VideoExporter
             
             # Memory before export
@@ -2035,9 +2047,34 @@ def main():
             }
             step_4_results = pipeline.step_4_ksampler_denoising(**step_4_params)
             
-            print(f"\n🎉 SEQUENTIAL STEPS 1, 2, 3 & 4 COMPLETED SUCCESSFULLY!")
-            print("="*60)
+            # Step 5: Trim Video Latent (following ComfyUI implementation)
+            print("\n🎬 STEP 5: TRIM VIDEO LATENT")
+            step_5_params = {
+                'denoised_latent': step_4_results['denoised_latent'],
+                'trim_amount': 0  # Default trim amount (can be adjusted)
+            }
+            step_5_results = pipeline.step_5_trim_latent(**step_5_params)
             
+            # Step 6: VAE Decode (following ComfyUI implementation)
+            print("\n🎨 STEP 6: VAE DECODE")
+            step_6_params = {
+                'trimmed_latent': step_5_results['trimmed_latent'],
+                'vae_model': None  # Use pipeline's VAE
+            }
+            step_6_results = pipeline.step_6_vae_decode(**step_6_params)
+            
+            # Step 7: Video Export (following standalone implementation)
+            print("\n🎬 STEP 7: VIDEO EXPORT")
+            step_7_params = {
+                'decoded_images': step_6_results['decoded_images'],
+                'output_path': 'output_video.mp4',
+                'fps': 24
+            }
+            step_7_results = pipeline.step_7_video_export(**step_7_params)
+            
+            print(f"\n🎉 SEQUENTIAL STEPS 1, 2, 3, 4, 5, 6 & 7 COMPLETED SUCCESSFULLY!")
+            print("="*60)
+    
             # Display comprehensive results
             print(f"\n📋 COMPREHENSIVE RESULTS SUMMARY:")
             
@@ -2133,6 +2170,70 @@ def main():
                         print(f"   Denoised Latent Shape: {denoised_latent.shape}")
                         print(f"   Denoised Latent Device: {denoised_latent.device}")
                         print(f"   Denoised Latent Range: [{denoised_latent.min().item():.3f}, {denoised_latent.max().item():.3f}]")
+                
+                # Step 5 Results
+                if step_5_results:
+                    print(f"\n🎬 STEP 5 RESULTS:")
+                    print(f"   Trim Amount: {step_5_results.get('trim_amount', 'Unknown')}")
+                    print(f"   Frames Removed: {step_5_results.get('frames_removed', 'Unknown')}")
+                    print(f"   Original Shape: {step_5_results.get('original_shape', 'Unknown')}")
+                    print(f"   Trimmed Shape: {step_5_results.get('trimmed_shape', 'Unknown')}")
+                    
+                    processing_info = step_5_results.get('timing', {})
+                    print(f"   Trimming Time: {processing_info.get('trimming_time', 0.0):.2f}s")
+                    print(f"   Total Step Time: {processing_info.get('total_step_time', 0.0):.2f}s")
+                    
+                    # Verify trimmed latent
+                    trimmed_latent = step_5_results.get('trimmed_latent')
+                    print(f"   Trimmed Latent Status: {'✅ Generated' if trimmed_latent is not None else '❌ Failed'}")
+                    if trimmed_latent is not None:
+                        print(f"   Trimmed Latent Shape: {trimmed_latent.shape}")
+                        print(f"   Trimmed Latent Device: {trimmed_latent.device}")
+                        print(f"   Trimmed Latent Range: [{trimmed_latent.min().item():.3f}, {trimmed_latent.max().item():.3f}]")
+                
+                # Step 6 Results
+                if step_6_results:
+                    print(f"\n🎨 STEP 6 RESULTS:")
+                    print(f"   VAE Model: {step_6_results.get('vae_model', 'Unknown')}")
+                    print(f"   Original Latent Shape: {step_6_results.get('original_shape', 'Unknown')}")
+                    print(f"   Decoded Images Shape: {step_6_results.get('decoded_shape', 'Unknown')}")
+                    print(f"   Original Frames: {step_6_results.get('original_frames', 'Unknown')}")
+                    print(f"   Decoded Frames: {step_6_results.get('decoded_frames', 'Unknown')}")
+                    print(f"   Image Dimensions: {step_6_results.get('image_dimensions', 'Unknown')}")
+                    
+                    processing_info = step_6_results.get('timing', {})
+                    print(f"   Decoding Time: {processing_info.get('decoding_time', 0.0):.2f}s")
+                    print(f"   Total Step Time: {processing_info.get('total_step_time', 0.0):.2f}s")
+                    
+                    # Verify decoded images
+                    decoded_images = step_6_results.get('decoded_images')
+                    print(f"   Decoded Images Status: {'✅ Generated' if decoded_images is not None else '❌ Failed'}")
+                    if decoded_images is not None:
+                        print(f"   Decoded Images Shape: {decoded_images.shape}")
+                        print(f"   Decoded Images Device: {decoded_images.device}")
+                        print(f"   Decoded Images Range: [{decoded_images.min().item():.3f}, {decoded_images.max().item():.3f}]")
+                
+                # Step 7 Results
+                if step_7_results:
+                    print(f"\n🎬 STEP 7 RESULTS:")
+                    print(f"   Output Path: {step_7_results.get('output_path', 'Unknown')}")
+                    print(f"   Exported Path: {step_7_results.get('exported_path', 'Unknown')}")
+                    print(f"   FPS: {step_7_results.get('fps', 'Unknown')}")
+                    print(f"   Total Frames: {step_7_results.get('total_frames', 'Unknown')}")
+                    print(f"   Video Dimensions: {step_7_results.get('video_dimensions', 'Unknown')}")
+                    print(f"   Duration: {step_7_results.get('duration_seconds', 'Unknown'):.2f} seconds")
+                    print(f"   File Size: {step_7_results.get('file_size_mb', 'Unknown'):.2f} MB")
+                    
+                    processing_info = step_7_results.get('timing', {})
+                    print(f"   Export Time: {processing_info.get('export_time', 0.0):.2f}s")
+                    print(f"   Total Step Time: {processing_info.get('total_step_time', 0.0):.2f}s")
+                    
+                    # Verify video export
+                    exported_path = step_7_results.get('exported_path')
+                    print(f"   Video Export Status: {'✅ Generated' if exported_path and os.path.exists(exported_path) else '❌ Failed'}")
+                    if exported_path and os.path.exists(exported_path):
+                        print(f"   Video File: {exported_path}")
+                        print(f"   File Size: {os.path.getsize(exported_path) / (1024 * 1024):.2f} MB")
             
         elif can_run_step1 and can_run_step2 and can_run_step3:
             # Run Steps 1, 2, and 3 only
