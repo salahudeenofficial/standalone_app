@@ -1028,13 +1028,17 @@ class ModelPatcher:
         # Simplified hook system - can be extended as needed
         pass
 
-    def cleanup(self):
-        """Clean up all resources"""
-        self.unpatch_hooks()
-        if hasattr(self.model, "current_patcher"):
-            self.model.current_patcher = None
-        for callback in self.get_all_callbacks("ON_CLEANUP"):
-            callback(self)
+    def pre_run(self):
+        """Prepare model for inference - load weights to device"""
+        if hasattr(self, 'load_device'):
+            self.patch_model(device_to=self.load_device, lowvram_model_memory=0, load_weights=True)
+        return self.model
+    
+    def unload(self):
+        """Unload model from device to free memory"""
+        if hasattr(self, 'offload_device'):
+            self.unpatch_model(device_to=self.offload_device, unpatch_weights=True)
+        return self.model
 
     def __del__(self):
         """Destructor"""

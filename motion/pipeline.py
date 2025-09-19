@@ -18,6 +18,8 @@ from typing import Dict, Any, Tuple, Optional, Union
 # Add motion directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
+# NOTE: No external dependencies - motion pipeline is fully standalone
+
 # Set memory optimization
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
@@ -1081,14 +1083,9 @@ class WanVideoPipeline:
             print(f"   📊 Initial latent dtype: {initial_latent.dtype}")
             
             # Prepare noise using ComfyUI's prepare_noise (more robust)
-            try:
-                from comfy.sample import prepare_noise as comfy_prepare_noise
-                noise = comfy_prepare_noise(initial_latent, seed, noise_inds)
-                print("   🔧 Used ComfyUI's prepare_noise function")
-            except ImportError:
-                # Fallback to our prepare_noise
-                noise = prepare_noise(initial_latent, seed, noise_inds)
-                print("   🔧 Used standalone prepare_noise function")
+            # Use motion pipeline's internal prepare_noise
+            print("   🔧 Using motion pipeline's internal prepare_noise function...")
+            noise = prepare_noise(initial_latent, seed, noise_inds)
             
             noise_time = time.time() - noise_start
             print(f"✅ Noise prepared in {noise_time:.3f}s")
@@ -1148,10 +1145,32 @@ class WanVideoPipeline:
             # CRITICAL: Let ComfyUI handle model loading/unloading properly
             print("🔧 Using ComfyUI's proper model loading/unloading...")
             
-            # Check if UNet is a ComfyUI-style ModelPatcher
-            if hasattr(self.unet, 'load') and hasattr(self.unet, 'unload'):
-                print("   📊 UNet is ComfyUI-style ModelPatcher - ComfyUI will handle loading")
+            # CRITICAL: Check if UNet is a ComfyUI-style ModelPatcher
+            print("   🔍 Analyzing UNet type for proper detection...")
+            print(f"   📊 UNet type: {type(self.unet).__name__}")
+            print(f"   📊 UNet attributes: {[attr for attr in dir(self.unet) if not attr.startswith('_')]}")
+            
+            # Check for ModelPatcher attributes
+            has_load = hasattr(self.unet, 'load')
+            has_unload = hasattr(self.unet, 'unload')
+            has_model = hasattr(self.unet, 'model')
+            has_pre_run = hasattr(self.unet, 'pre_run')
+            has_cleanup = hasattr(self.unet, 'cleanup')
+            has_load_device = hasattr(self.unet, 'load_device')
+            
+            print(f"   📊 ModelPatcher attributes:")
+            print(f"      - load: {has_load}")
+            print(f"      - unload: {has_unload}")
+            print(f"      - model: {has_model}")
+            print(f"      - pre_run: {has_pre_run}")
+            print(f"      - cleanup: {has_cleanup}")
+            print(f"      - load_device: {has_load_device}")
+            
+            if has_load and has_unload and has_model:
+                print("   ✅ UNet is ComfyUI-style ModelPatcher - ComfyUI will handle loading")
                 print("   🔧 ComfyUI's CFGGuider will call model_patcher.pre_run() and cleanup()")
+                print(f"   📊 ModelPatcher load_device: {getattr(self.unet, 'load_device', 'unknown')}")
+                print(f"   📊 ModelPatcher offload_device: {getattr(self.unet, 'offload_device', 'unknown')}")
                 
             else:
                 print("   ⚠️  UNet is not ComfyUI-style ModelPatcher - using fallback")
@@ -1179,9 +1198,38 @@ class WanVideoPipeline:
                 
                 # Try ComfyUI integration first
                 try:
-                    from comfy.samplers import CFGGuider, sample as comfy_sample
-                    from comfy.samplers import sampler_object
-                    from comfy.sample import prepare_noise as comfy_prepare_noise
+                    print("   🔍 Attempting ComfyUI imports...")
+                    print(f"   📊 Python path: {sys.path[:3]}...")
+                    print(f"   📊 Motion pipeline path: {Path(__file__).parent}")
+                    
+                    # Test ComfyUI imports step by step
+                    try:
+                        import comfy
+                        print("   ✅ comfy module imported successfully")
+                    except ImportError as e:
+                        print(f"   ❌ comfy module import failed: {e}")
+                        raise
+                    
+                    try:
+                        from comfy.samplers import CFGGuider, sample as comfy_sample
+                        print("   ✅ comfy.samplers imported successfully")
+                    except ImportError as e:
+                        print(f"   ❌ comfy.samplers import failed: {e}")
+                        raise
+                    
+                    try:
+                        from comfy.samplers import sampler_object
+                        print("   ✅ sampler_object imported successfully")
+                    except ImportError as e:
+                        print(f"   ❌ sampler_object import failed: {e}")
+                        raise
+                    
+                    try:
+                        from comfy.sample import prepare_noise as comfy_prepare_noise
+                        print("   ✅ comfy.sample imported successfully")
+                    except ImportError as e:
+                        print(f"   ❌ comfy.sample import failed: {e}")
+                        raise
                     
                     print("   🔧 Using ComfyUI CFGGuider for sampling...")
                     
@@ -1298,6 +1346,14 @@ class WanVideoPipeline:
             
             # CRITICAL: Verify that proper sampling took place
             print(f"\n🔍 SAMPLING VERIFICATION:")
+            
+            # Ensure both tensors are on the same device for comparison
+            if initial_latent.device != denoised_latent.device:
+                print(f"   🔄 Device mismatch detected: {initial_latent.device} vs {denoised_latent.device}")
+                print(f"   🔄 Moving denoised latent to {initial_latent.device} for comparison...")
+                denoised_latent = denoised_latent.to(initial_latent.device)
+                print(f"   ✅ Denoised latent moved to {denoised_latent.device}")
+            
             print(f"   📊 Initial latent range: [{initial_latent.min().item():.3f}, {initial_latent.max().item():.3f}]")
             print(f"   📊 Denoised latent range: [{denoised_latent.min().item():.3f}, {denoised_latent.max().item():.3f}]")
             
@@ -2072,7 +2128,7 @@ def main():
             
             print(f"\n🎉 SEQUENTIAL STEPS 1, 2, 3 & 4 COMPLETED SUCCESSFULLY!")
             print("="*60)
-            
+    
             # Display comprehensive results
             print(f"\n📋 COMPREHENSIVE RESULTS SUMMARY:")
             
@@ -2173,7 +2229,7 @@ def main():
             # Run Steps 1, 2, and 3 only
             print(f"\n🚀 RUNNING STEPS 1, 2 & 3 ONLY (Step 4 requires all)")
             print("="*60)
-            
+        
             # Step 1: VAE Loading and Latent Creation
             print("🎬 STEP 1: VAE LOADING AND LATENT CREATION")
             step_1_results = pipeline.step_1_vae_and_latent_creation(**step_1_params)
@@ -2185,15 +2241,15 @@ def main():
             print(f"\n🎉 STEPS 1 & 2 COMPLETED SUCCESSFULLY!")
             print("="*60)
             
-            if step_1_results:
-                print(f"\n📋 STEP 1 RESULTS SUMMARY:")
-                vae_info = step_1_results.get('vae_info', {})
-                print(f"   VAE Type: {vae_info.get('vae_type', 'Unknown')}")
-                print(f"   Latent Channels: {vae_info.get('latent_channels', 'Unknown')}")
-                print(f"   VAE Device: {vae_info.get('device', 'Unknown')}")
-                
-                processing_info = step_1_results.get('processing_info', {})
-                print(f"   Total Step Time: {processing_info.get('total_step_time', 0.0):.2f}s")
+        if step_1_results:
+            print(f"\n📋 STEP 1 RESULTS SUMMARY:")
+            vae_info = step_1_results.get('vae_info', {})
+            print(f"   VAE Type: {vae_info.get('vae_type', 'Unknown')}")
+            print(f"   Latent Channels: {vae_info.get('latent_channels', 'Unknown')}")
+            print(f"   VAE Device: {vae_info.get('device', 'Unknown')}")
+            
+            processing_info = step_1_results.get('processing_info', {})
+            print(f"   Total Step Time: {processing_info.get('total_step_time', 0.0):.2f}s")
             
             if step_2_results:
                 print(f"\n📋 STEP 2 RESULTS SUMMARY:")

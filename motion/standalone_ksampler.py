@@ -181,18 +181,24 @@ class StandaloneCFGGuider:
         else:
             model = self.model_patcher
         
-        # Get model device and ensure inputs match
+        # Get model device and dtype, ensure inputs match
         model_device = next(model.parameters()).device if hasattr(model, 'parameters') else torch.device('cpu')
+        model_dtype = next(model.parameters()).dtype if hasattr(model, 'parameters') else torch.float32
         original_device = x.device  # Store original device to move result back
+        original_dtype = x.dtype  # Store original dtype to move result back
         
-        # Move inputs to model device if they don't match
-        if x.device != model_device:
-            logger.debug(f"Moving input from {x.device} to model device {model_device}")
-            x = x.to(model_device)
-        if timestep.device != model_device:
-            timestep = timestep.to(model_device)
-        if conditioning is not None and hasattr(conditioning, 'device') and conditioning.device != model_device:
-            conditioning = conditioning.to(model_device)
+        logger.debug(f"Model device: {model_device}, dtype: {model_dtype}")
+        logger.debug(f"Input device: {x.device}, dtype: {x.dtype}")
+        
+        # Move inputs to model device and dtype if they don't match
+        if x.device != model_device or x.dtype != model_dtype:
+            logger.debug(f"Moving input from {x.device}/{x.dtype} to model device {model_device}/{model_dtype}")
+            x = x.to(device=model_device, dtype=model_dtype)
+        if timestep.device != model_device or timestep.dtype != model_dtype:
+            timestep = timestep.to(device=model_device, dtype=model_dtype)
+        if conditioning is not None and hasattr(conditioning, 'device'):
+            if conditioning.device != model_device or conditioning.dtype != model_dtype:
+                conditioning = conditioning.to(device=model_device, dtype=model_dtype)
             
         # Try different model call strategies
         try:
@@ -201,6 +207,7 @@ class StandaloneCFGGuider:
                 # Check if this is a VaceWanModel that needs context parameter
                 if hasattr(model, '__class__') and 'Vace' in model.__class__.__name__:
                     # For VaceWanModel, we need to pass context parameter
+                    # The signature is: forward(x, t, context, vace_context=None, vace_strength=None, ...)
                     result = model.forward(x, timestep, conditioning)
                 else:
                     # For other models, try the original call
@@ -216,9 +223,9 @@ class StandaloneCFGGuider:
                 else:
                     final_result = result
                 
-                # Ensure result is on the original device
+                # Ensure result is on the original device and dtype
                 if isinstance(final_result, torch.Tensor):
-                    final_result = final_result.to(original_device)
+                    final_result = final_result.to(device=original_device, dtype=original_dtype)
                 
                 return final_result
             
@@ -241,9 +248,9 @@ class StandaloneCFGGuider:
                 else:
                     final_result = result
                 
-                # Ensure result is on the original device
+                # Ensure result is on the original device and dtype
                 if isinstance(final_result, torch.Tensor):
-                    final_result = final_result.to(original_device)
+                    final_result = final_result.to(device=original_device, dtype=original_dtype)
                 
                 return final_result
                     
@@ -260,9 +267,9 @@ class StandaloneCFGGuider:
                 else:
                     final_result = result
                 
-                # Ensure result is on the original device
+                # Ensure result is on the original device and dtype
                 if isinstance(final_result, torch.Tensor):
-                    final_result = final_result.to(original_device)
+                    final_result = final_result.to(device=original_device, dtype=original_dtype)
                 
                 return final_result
             else:
