@@ -102,6 +102,47 @@ class WanVideoPipeline:
         
         print(f"📁 Model directories verified: {models_dir}")
 
+    def _manage_memory_between_steps(self, step_name: str, required_memory_gb: float = 2.0):
+        """
+        Manage memory between pipeline steps to prevent OOM errors
+        
+        Args:
+            step_name: Name of the step for logging
+            required_memory_gb: Minimum required memory in GB
+        """
+        if not torch.cuda.is_available():
+            return
+            
+        print(f"\n🧹 MEMORY MANAGEMENT: Preparing for {step_name}...")
+        
+        total_memory = torch.cuda.get_device_properties(0).total_memory
+        allocated_memory = torch.cuda.memory_allocated()
+        free_memory = total_memory - allocated_memory
+        free_memory_gb = free_memory / (1024**3)
+        
+        print(f"   📊 Available GPU Memory: {free_memory_gb:.2f} GB")
+        print(f"   📊 Required Memory: {required_memory_gb:.2f} GB")
+        
+        if free_memory_gb < required_memory_gb:
+            print(f"   ⚠️  Low memory detected, performing cleanup...")
+            
+            # Clear CUDA cache
+            torch.cuda.empty_cache()
+            
+            # Check memory again
+            allocated_memory = torch.cuda.memory_allocated()
+            free_memory = total_memory - allocated_memory
+            free_memory_gb = free_memory / (1024**3)
+            
+            print(f"   📊 Memory after cleanup: {free_memory_gb:.2f} GB")
+            
+            if free_memory_gb < required_memory_gb:
+                print(f"   🚨 CRITICAL: Insufficient memory for {step_name}!")
+                print(f"   💡 Consider reducing batch size or using CPU offloading")
+                raise RuntimeError(f"Insufficient GPU memory for {step_name}: {free_memory_gb:.2f} GB available, {required_memory_gb:.2f} GB required")
+        else:
+            print(f"   ✅ Sufficient memory available for {step_name}")
+
     def step_1_vae_and_latent_creation(self,
                                      vae_model_path: str,
                                      positive_prompt: str = "",
@@ -1323,6 +1364,21 @@ class WanVideoPipeline:
             # Log memory after KSampler step
             log_memory_usage("After Step 4 KSampler")
             
+            # CRITICAL: Unload UNet to free memory for VAE decode
+            print(f"\n🧹 MEMORY MANAGEMENT: Unloading UNet after denoising...")
+            if hasattr(self.unet, 'cleanup'):
+                self.unet.cleanup()
+                print(f"   ✅ UNet cleanup completed")
+            elif hasattr(self.unet, 'unload'):
+                self.unet.unload()
+                print(f"   ✅ UNet unload completed")
+            else:
+                print(f"   ⚠️  UNet cleanup method not available")
+            
+            # Clear CUDA cache to free fragmented memory
+            torch.cuda.empty_cache()
+            log_memory_usage("After UNet Cleanup")
+            
             # Create results
             step_4_results = {
                 'denoised_latent': denoised_latent,
@@ -1489,6 +1545,9 @@ class WanVideoPipeline:
             # Memory before decoding
             log_memory_usage("Before VAE Decoding")
             
+            # CRITICAL: Ensure sufficient memory for VAE decode
+            self._manage_memory_between_steps("VAE Decode", required_memory_gb=2.0)
+            
             print(f"6.1 Decoding latent to pixel space...")
             print(f"   📊 Input latent shape: {trimmed_latent.shape}")
             print(f"   📊 VAE model: {type(vae_model).__name__}")
@@ -1500,7 +1559,25 @@ class WanVideoPipeline:
             latent_dict = {"samples": trimmed_latent}
             
             # Perform VAE decoding (following ComfyUI workflow_api pattern)
-            decoded_images_tuple = vae_decoder.decode(vae_model, latent_dict)
+            try:
+                decoded_images_tuple = vae_decoder.decode(vae_model, latent_dict)
+            except torch.cuda.OutOfMemoryError as e:
+                print(f"   ⚠️  GPU OOM during VAE decode, attempting CPU fallback...")
+                
+                # Move VAE to CPU and try again
+                vae_model_cpu = vae_model.to('cpu')
+                latent_dict_cpu = {"samples": trimmed_latent.cpu()}
+                
+                print(f"   🔄 Retrying VAE decode on CPU...")
+                decoded_images_tuple = vae_decoder.decode(vae_model_cpu, latent_dict_cpu)
+                
+                # Move result back to GPU if needed
+                if isinstance(decoded_images_tuple, tuple):
+                    decoded_images_tuple = (decoded_images_tuple[0].to(trimmed_latent.device),)
+                else:
+                    decoded_images_tuple = decoded_images_tuple.to(trimmed_latent.device)
+                
+                print(f"   ✅ CPU fallback successful")
             
             # Extract images from tuple (ComfyUI returns tuple)
             if isinstance(decoded_images_tuple, tuple):
@@ -1530,6 +1607,16 @@ class WanVideoPipeline:
             
             # Memory after decoding
             log_memory_usage("After VAE Decoding")
+            
+            # CRITICAL: Free VAE memory for video export
+            print(f"\n🧹 MEMORY MANAGEMENT: Freeing VAE memory after decode...")
+            if hasattr(vae_model, 'to'):
+                vae_model.to('cpu')
+                print(f"   ✅ VAE moved to CPU")
+            
+            # Clear CUDA cache to free fragmented memory
+            torch.cuda.empty_cache()
+            log_memory_usage("After VAE Memory Cleanup")
             
             # Prepare results
             step_6_results = {
