@@ -1062,7 +1062,7 @@ class WanVideoPipeline:
                                 positive_conditioning: Any,
                                 negative_conditioning: Any,
                                 seed: int = 42,
-                                steps: int = 20,
+                                steps: int = 4,
                                 cfg: float = 7.0,
                                 sampler_name: str = "euler",
                                 scheduler: str = "normal",
@@ -1326,7 +1326,7 @@ class WanVideoPipeline:
             else:
                 print(f"   🚨 WARNING: Denoised latent contains NaN/Inf values!")
             
-            # Check execution time (should be reasonable for 20 steps)
+            # Check execution time (should be reasonable for 4 steps)
             if denoising_time < 1.0:
                 print(f"   🚨 WARNING: Sampling completed too quickly ({denoising_time:.2f}s) - may indicate dummy data!")
             else:
@@ -1559,25 +1559,7 @@ class WanVideoPipeline:
             latent_dict = {"samples": trimmed_latent}
             
             # Perform VAE decoding (following ComfyUI workflow_api pattern)
-            try:
-                decoded_images_tuple = vae_decoder.decode(vae_model, latent_dict)
-            except torch.cuda.OutOfMemoryError as e:
-                print(f"   ⚠️  GPU OOM during VAE decode, attempting CPU fallback...")
-                
-                # Move VAE to CPU and try again
-                vae_model_cpu = vae_model.to('cpu')
-                latent_dict_cpu = {"samples": trimmed_latent.cpu()}
-                
-                print(f"   🔄 Retrying VAE decode on CPU...")
-                decoded_images_tuple = vae_decoder.decode(vae_model_cpu, latent_dict_cpu)
-                
-                # Move result back to GPU if needed
-                if isinstance(decoded_images_tuple, tuple):
-                    decoded_images_tuple = (decoded_images_tuple[0].to(trimmed_latent.device),)
-                else:
-                    decoded_images_tuple = decoded_images_tuple.to(trimmed_latent.device)
-                
-                print(f"   ✅ CPU fallback successful")
+            decoded_images_tuple = vae_decoder.decode(vae_model, latent_dict)
             
             # Extract images from tuple (ComfyUI returns tuple)
             if isinstance(decoded_images_tuple, tuple):
@@ -2125,7 +2107,7 @@ def main():
                 'positive_conditioning': step_3_results['positive_conditioning'],
                 'negative_conditioning': step_3_results['negative_conditioning'],
                 'seed': 42,
-                'steps': 20,
+                'steps': 4,
                 'cfg': 7.0,
                 'sampler_name': 'euler',
                 'scheduler': 'normal',

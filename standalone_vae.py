@@ -899,22 +899,58 @@ class VAE:
         
         return samples
     
-    def decode(self, z):
-        """Decode latent to output space"""
-        if self.first_stage_model is None:
-            raise RuntimeError("VAE not initialized")
+    def decode(self, samples_in, vae_options={}):
+        """Decode latent to output space with OOM-free memory management (following encode method pattern)"""
+        self.throw_exception_if_invalid()
+        pixel_samples = None
         
-        # Decode
-        if hasattr(self.first_stage_model, 'decode'):
-            x = self.first_stage_model.decode(z, dtype=self.vae_dtype)
-        else:
-            # Fallback for models without decode method
-            x = self.first_stage_model.decoder(z)
+        try:
+            # Calculate memory usage (following encode method pattern)
+            memory_used = self.memory_used_decode(samples_in.shape, self.vae_dtype)
+            
+            # Simple batch processing (following encode method pattern)
+            batch_number = max(1, min(4, samples_in.shape[0]))  # Process in small batches
+            
+            for x in range(0, samples_in.shape[0], batch_number):
+                # Process samples and move to device (following encode method pattern)
+                samples = samples_in[x:x+batch_number].to(self.vae_dtype).to(self.device)
+                
+                # Decode
+                if hasattr(self.first_stage_model, 'decode'):
+                    out = self.first_stage_model.decode(samples, **vae_options)
+                else:
+                    # Fallback for models without decode method
+                    out = self.first_stage_model.decoder(samples)
+                
+                # Process output and move to output device (following encode method pattern)
+                out = self.process_output(out.to(self.output_device).float())
+                
+                # Initialize output tensor if needed (following encode method pattern)
+                if pixel_samples is None:
+                    pixel_samples = torch.empty((samples_in.shape[0],) + tuple(out.shape[1:]), device=self.output_device)
+                
+                pixel_samples[x:x+batch_number] = out
+                
+        except Exception as e:
+            # OOM fallback to tiled decoding (following ComfyUI pattern)
+            logging.warning(f"Warning: Ran out of memory when regular VAE decoding, retrying with tiled VAE decoding.")
+            dims = samples_in.ndim - 2
+            if dims == 1 or self.extra_1d_channel is not None:
+                pixel_samples = self.decode_tiled_1d(samples_in)
+            elif dims == 2:
+                pixel_samples = self._simple_tiled_decode_2d(samples_in, 
+                    lambda a: self.first_stage_model.decode(a.to(self.vae_dtype).to(self.device)).float(),
+                    64, 64, 16)
+            elif dims == 3:
+                # Use conservative tile sizes for video (following ComfyUI pattern)
+                tile = 32  # Conservative for video
+                overlap = 8
+                pixel_samples = self.decode_tiled_3d(samples_in, tile_x=tile, tile_y=tile, 
+                    tile_t=2, overlap=(1, overlap, overlap))
         
-        # Process output
-        x = self.process_output(x)
-        
-        return x
+        # Move channel dimension to correct position (following ComfyUI pattern)
+        pixel_samples = pixel_samples.to(self.output_device).movedim(1, -1)
+        return pixel_samples
     
     def forward(self, x):
         """Forward pass through VAE"""
@@ -949,11 +985,128 @@ class VAE:
             self.first_stage_model.eval()
         return self
     
-    def train(self):
-        """Set VAE to training mode"""
-        if self.first_stage_model is not None:
-            self.first_stage_model.train()
-        return self
+    def decode_tiled_1d(self, samples, tile_x=128, overlap=32):
+        """1D tiled decoding"""
+        if samples.ndim == 3:
+            decode_fn = lambda a: self.first_stage_model.decode(a.to(self.vae_dtype).to(self.device)).float()
+        else:
+            og_shape = samples.shape
+            samples = samples.reshape((og_shape[0], og_shape[1] * og_shape[2], -1))
+            decode_fn = lambda a: self.first_stage_model.decode(a.reshape((-1, og_shape[1], og_shape[2], a.shape[-1])).to(self.vae_dtype).to(self.device)).float()
+
+        # Use simple tiled processing for 1D
+        return self._simple_tiled_decode(samples, decode_fn, tile_x, overlap)
+    
+    def decode_tiled_3d(self, samples, tile_t=999, tile_x=32, tile_y=32, overlap=(1, 8, 8)):
+        """3D tiled decoding for video"""
+        decode_fn = lambda a: self.first_stage_model.decode(a.to(self.vae_dtype).to(self.device)).float()
+        
+        # Use simple tiled processing for 3D
+        return self._simple_tiled_decode_3d(samples, decode_fn, tile_t, tile_x, tile_y, overlap)
+    
+    def decode_tiled(self, samples, tile_x=None, tile_y=None, overlap=None, tile_t=None, overlap_t=None):
+        """Main tiled decoding method following ComfyUI pattern"""
+        if self.first_stage_model is None:
+            raise RuntimeError("VAE not initialized")
+        
+        dims = samples.ndim - 2
+        args = {}
+        if tile_x is not None:
+            args["tile_x"] = tile_x
+        if tile_y is not None:
+            args["tile_y"] = tile_y
+        if overlap is not None:
+            args["overlap"] = overlap
+
+        if dims == 1:
+            args.pop("tile_y", None)
+            output = self.decode_tiled_1d(samples, **args)
+        elif dims == 2:
+            # For 2D, use simple tiled processing
+            decode_fn = lambda a: self.first_stage_model.decode(a.to(self.vae_dtype).to(self.device)).float()
+            output = self._simple_tiled_decode_2d(samples, decode_fn, tile_x or 64, tile_y or 64, overlap or 16)
+        elif dims == 3:
+            if overlap_t is None:
+                args["overlap"] = (1, overlap, overlap)
+            else:
+                args["overlap"] = (max(1, overlap_t), overlap, overlap)
+            if tile_t is not None:
+                args["tile_t"] = max(2, tile_t)
+
+            output = self.decode_tiled_3d(samples, **args)
+        return output.movedim(1, -1)
+    
+    def _simple_tiled_decode(self, samples, decode_fn, tile_x, overlap):
+        """Simple tiled decoding implementation"""
+        batch_size, channels, height, width = samples.shape
+        output_height = height * self.upscale_ratio
+        output_width = width * self.upscale_ratio
+        
+        # Create output tensor
+        output = torch.zeros((batch_size, self.output_channels, output_height, output_width), 
+                           device=samples.device, dtype=samples.dtype)
+        
+        # Process in tiles
+        for y in range(0, height, tile_x - overlap):
+            for x in range(0, width, tile_x - overlap):
+                # Calculate tile boundaries
+                y_end = min(y + tile_x, height)
+                x_end = min(x + tile_x, width)
+                
+                # Extract tile
+                tile = samples[:, :, y:y_end, x:x_end]
+                
+                # Decode tile
+                decoded_tile = decode_fn(tile)
+                
+                # Place in output
+                out_y_start = y * self.upscale_ratio
+                out_y_end = y_end * self.upscale_ratio
+                out_x_start = x * self.upscale_ratio
+                out_x_end = x_end * self.upscale_ratio
+                
+                output[:, :, out_y_start:out_y_end, out_x_start:out_x_end] = decoded_tile
+        
+        return output
+    
+    def _simple_tiled_decode_2d(self, samples, decode_fn, tile_x, tile_y, overlap):
+        """Simple 2D tiled decoding"""
+        return self._simple_tiled_decode(samples, decode_fn, tile_x, overlap)
+    
+    def _simple_tiled_decode_3d(self, samples, decode_fn, tile_t, tile_x, tile_y, overlap):
+        """Simple 3D tiled decoding for video"""
+        batch_size, channels, frames, height, width = samples.shape
+        output_height = height * self.upscale_ratio
+        output_width = width * self.upscale_ratio
+        
+        # Create output tensor
+        output = torch.zeros((batch_size, self.output_channels, frames, output_height, output_width), 
+                           device=samples.device, dtype=samples.dtype)
+        
+        # Process in tiles
+        for t in range(0, frames, tile_t - overlap[0]):
+            for y in range(0, height, tile_y - overlap[1]):
+                for x in range(0, width, tile_x - overlap[2]):
+                    # Calculate tile boundaries
+                    t_end = min(t + tile_t, frames)
+                    y_end = min(y + tile_y, height)
+                    x_end = min(x + tile_x, width)
+                    
+                    # Extract tile
+                    tile = samples[:, :, t:t_end, y:y_end, x:x_end]
+                    
+                    # Decode tile
+                    decoded_tile = decode_fn(tile)
+                    
+                    # Place in output
+                    out_y_start = y * self.upscale_ratio
+                    out_y_end = y_end * self.upscale_ratio
+                    out_x_start = x * self.upscale_ratio
+                    out_x_end = x_end * self.upscale_ratio
+                    
+                    output[:, :, t:t_end, out_y_start:out_y_end, out_x_start:out_x_end] = decoded_tile
+        
+        return output
 
 
 # ============================================================================

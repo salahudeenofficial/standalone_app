@@ -117,7 +117,7 @@ def main():
                 'positive_conditioning': step_3_results['positive_conditioning'],
                 'negative_conditioning': step_3_results['negative_conditioning'],
                 'seed': 42,
-                'steps': 20,
+                'steps': 4,
                 'cfg': 7.0,
                 'sampler_name': 'euler',
                 'scheduler': 'normal',
