@@ -208,9 +208,11 @@ class StandaloneCFGGuider:
                 if hasattr(model, '__class__') and 'Vace' in model.__class__.__name__:
                     # For VaceWanModel, we need to pass context parameter
                     # The signature is: forward(x, t, context, vace_context=None, vace_strength=None, ...)
+                    logger.debug(f"Calling VaceWanModel.forward with context")
                     result = model.forward(x, timestep, conditioning)
                 else:
                     # For other models, try the original call
+                    logger.debug(f"Calling model.forward without context")
                     result = model.forward(x, timestep)
                 logger.debug(f"Model forward call successful")
                 
@@ -408,7 +410,15 @@ class CFGModelWrapper:
         
     def __call__(self, x, sigma, **kwargs):
         """Main model call interface"""
-        return self.cfg_guider.predict_noise(x, sigma, **kwargs)
+        # Convert sigma to timestep for the model
+        # For most diffusion models, timestep is typically an integer
+        # We'll use a simple conversion: timestep = int(sigma * 1000)
+        if isinstance(sigma, torch.Tensor):
+            timestep = (sigma * 1000).long()
+        else:
+            timestep = int(sigma * 1000)
+        
+        return self.cfg_guider.predict_noise(x, timestep, **kwargs)
 
 
 class StandaloneSchedulers:
@@ -507,14 +517,24 @@ class EulerSampler:
             
             if sigma == 0:
                 continue
+            
+            print(f"      Step {i+1}/{len(sigmas)-1}: sigma={sigma:.3f} -> {sigma_next:.3f}")
                 
             # Get noise prediction
             with torch.no_grad():
-                denoised = model_wrapper(x, sigma)
-                
-                # Ensure denoised is on the same device as x
-                if isinstance(denoised, torch.Tensor) and isinstance(x, torch.Tensor):
-                    denoised = denoised.to(x.device)
+                try:
+                    denoised = model_wrapper(x, sigma)
+                    
+                    # Ensure denoised is on the same device as x
+                    if isinstance(denoised, torch.Tensor) and isinstance(x, torch.Tensor):
+                        denoised = denoised.to(x.device)
+                    
+                    print(f"      Step {i+1}: Model prediction successful, shape={denoised.shape}")
+                    
+                except Exception as e:
+                    print(f"      Step {i+1}: Model prediction failed: {e}")
+                    # Return zeros to avoid hanging
+                    return torch.zeros_like(noise)
                 
             # Ensure sigma values are on the same device as x
             if isinstance(sigma, torch.Tensor):

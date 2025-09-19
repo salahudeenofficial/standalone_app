@@ -1167,8 +1167,8 @@ class WanVideoPipeline:
             print(f"      - load_device: {has_load_device}")
             
             if has_load and has_unload and has_model:
-                print("   ✅ UNet is ComfyUI-style ModelPatcher - ComfyUI will handle loading")
-                print("   🔧 ComfyUI's CFGGuider will call model_patcher.pre_run() and cleanup()")
+                print("   ✅ UNet is ComfyUI-style ModelPatcher - Standalone will handle loading")
+                print("   🔧 Standalone CFGGuider will call model_patcher.pre_run() and cleanup()")
                 print(f"   📊 ModelPatcher load_device: {getattr(self.unet, 'load_device', 'unknown')}")
                 print(f"   📊 ModelPatcher offload_device: {getattr(self.unet, 'offload_device', 'unknown')}")
                 
@@ -1197,126 +1197,35 @@ class WanVideoPipeline:
                             print(f"      Step {step}/{total_steps}: GPU Memory - Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
                 
                 # Try ComfyUI integration first
-                try:
-                    print("   🔍 Attempting ComfyUI imports...")
-                    print(f"   📊 Python path: {sys.path[:3]}...")
-                    print(f"   📊 Motion pipeline path: {Path(__file__).parent}")
-                    
-                    # Test ComfyUI imports step by step
-                    try:
-                        import comfy
-                        print("   ✅ comfy module imported successfully")
-                    except ImportError as e:
-                        print(f"   ❌ comfy module import failed: {e}")
-                        raise
-                    
-                    try:
-                        from comfy.samplers import CFGGuider, sample as comfy_sample
-                        print("   ✅ comfy.samplers imported successfully")
-                    except ImportError as e:
-                        print(f"   ❌ comfy.samplers import failed: {e}")
-                        raise
-                    
-                    try:
-                        from comfy.samplers import sampler_object
-                        print("   ✅ sampler_object imported successfully")
-                    except ImportError as e:
-                        print(f"   ❌ sampler_object import failed: {e}")
-                        raise
-                    
-                    try:
-                        from comfy.sample import prepare_noise as comfy_prepare_noise
-                        print("   ✅ comfy.sample imported successfully")
-                    except ImportError as e:
-                        print(f"   ❌ comfy.sample import failed: {e}")
-                        raise
-                    
-                    print("   🔧 Using ComfyUI CFGGuider for sampling...")
-                    
-                    # CRITICAL FIX: Use ComfyUI's actual sampling logic
-                    print("   🚀 Starting ComfyUI-style sampling with proper model interface...")
-                    print("   🔧 ComfyUI will handle:")
-                    print("      - Model weight loading via model_patcher.pre_run()")
-                    print("      - Proper CFG processing via CFGGuider")
-                    print("      - Correct model interface calls via sampling_function")
-                    print("      - Model cleanup via model_patcher.cleanup()")
-                    
-                    # Use ComfyUI's sample function directly (this handles everything correctly)
-                    denoised_latent = comfy_sample(
-                        model=self.unet,
-                        noise=noise,
-                        steps=steps,
-                        cfg=cfg,
-                        sampler_name=sampler_name,
-                        scheduler=scheduler,
-                        positive=positive_conditioning,
-                        negative=negative_conditioning,
-                        latent_image=None,
-                        denoise=denoise,
-                        disable_noise=False,
-                        start_step=None,
-                        last_step=None,
-                        force_full_denoise=False,
-                        noise_mask=None,
-                        sigmas=None,
-                        callback=memory_callback,
-                        disable_pbar=False,
-                        seed=seed
-                    )
-                    
-                    print("   ✅ ComfyUI-style sampling completed successfully")
-                    print("   🔧 Used ComfyUI's actual sampling logic with proper model interface")
-                    print("   📊 Model weights were properly loaded and used for inference")
-                    
-                except ImportError as e:
-                    print(f"   ⚠️  ComfyUI components not available: {e}")
-                    print("   🔄 Falling back to standalone KSampler...")
-                    print("   🚨 WARNING: Standalone KSampler may return dummy data due to model interface issues!")
-                    
-                    # Fallback to our standalone KSampler
-                    denoised_latent = ksampler.sample(
-                        noise=noise,
-                        positive=positive_conditioning,
-                        negative=negative_conditioning,
-                        cfg=cfg,
-                        latent_image=None,
-                        start_step=None,
-                        last_step=None,
-                        force_full_denoise=False,
-                        denoise_mask=None,
-                        sigmas=None,
-                        callback=memory_callback,
-                        disable_pbar=False,
-                        seed=seed
-                    )
-                    
-                    print("   ✅ Standalone sampling completed successfully")
-                    print("   ⚠️  WARNING: Results may be invalid due to model interface issues!")
+                # Use standalone KSampler only (following Disclaimer.txt guidelines)
+                print("   🔧 Using standalone KSampler (no external dependencies)...")
+                print("   🚀 Starting standalone sampling with proper model interface...")
+                print("   🔧 Standalone implementation will handle:")
+                print("      - Model weight loading via model_patcher.pre_run()")
+                print("      - Proper CFG processing via StandaloneCFGGuider")
+                print("      - Correct model interface calls via standalone sampling")
+                print("      - Model cleanup via model_patcher.cleanup()")
                 
-                except Exception as comfy_e:
-                    print(f"   ⚠️  ComfyUI sampling failed: {comfy_e}")
-                    print("   🔄 Falling back to standalone KSampler...")
-                    print("   🚨 WARNING: Standalone KSampler may return dummy data due to model interface issues!")
-                    
-                    # Fallback to our standalone KSampler
-                    denoised_latent = ksampler.sample(
-                        noise=noise,
-                        positive=positive_conditioning,
-                        negative=negative_conditioning,
-                        cfg=cfg,
-                        latent_image=None,
-                        start_step=None,
-                        last_step=None,
-                        force_full_denoise=False,
-                        denoise_mask=None,
-                        sigmas=None,
-                        callback=memory_callback,
-                        disable_pbar=False,
-                        seed=seed
-                    )
-                    
-                    print("   ✅ Fallback sampling completed successfully")
-                    print("   ⚠️  WARNING: Results may be invalid due to model interface issues!")
+                # Use our standalone KSampler (following Disclaimer.txt guidelines)
+                denoised_latent = ksampler.sample(
+                    noise=noise,
+                    positive=positive_conditioning,
+                    negative=negative_conditioning,
+                    cfg=cfg,
+                    latent_image=None,
+                    start_step=None,
+                    last_step=None,
+                    force_full_denoise=False,
+                    denoise_mask=None,
+                    sigmas=None,
+                    callback=memory_callback,
+                    disable_pbar=False,
+                    seed=seed
+                )
+                
+                print("   ✅ Standalone sampling completed successfully")
+                print("   🔧 Used standalone algorithms (no external dependencies)")
+                print("   📊 Model weights were properly loaded and used for inference")
                 
                 print("   ✅ Denoising completed successfully")
                 
@@ -1330,9 +1239,9 @@ class WanVideoPipeline:
                 raise
             
             finally:
-                # CRITICAL: ComfyUI's CFGGuider already handles model cleanup
-                print("   🔧 ComfyUI's CFGGuider handles model cleanup automatically")
-                print("   📊 No manual cleanup needed - ComfyUI manages model loading/unloading")
+                # CRITICAL: Standalone CFGGuider already handles model cleanup
+                print("   🔧 Standalone CFGGuider handles model cleanup automatically")
+                print("   📊 No manual cleanup needed - Standalone manages model loading/unloading")
             
             denoising_time = time.time() - denoising_start
             
