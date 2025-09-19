@@ -1040,6 +1040,17 @@ class ModelPatcher:
             self.unpatch_model(device_to=self.offload_device, unpatch_weights=True)
         return self.model
 
+    def cleanup(self):
+        """Cleanup after inference - unload weights and clear patches"""
+        if hasattr(self, 'offload_device'):
+            self.unpatch_model(device_to=self.offload_device, unpatch_weights=True)
+        # Clear patches to free memory
+        self.patches.clear()
+        self.backup.clear()
+        self.object_patches.clear()
+        self.object_patches_backup.clear()
+        return self.model
+
     def __del__(self):
         """Destructor"""
         self.detach(unpatch_all=False)

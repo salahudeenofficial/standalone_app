@@ -266,16 +266,18 @@ def test_real_modelpatcher_pipeline():
             
             # Use the CLIP text encoder
             clip_encoder = CLIPTextEncode()
-            encoded = clip_encoder.encode(clip, test_prompt)
+            encoded_result = clip_encoder.encode(clip, test_prompt)
             
-            if encoded is not None:
+            # CLIPTextEncode.encode() returns a tuple (conditioning,)
+            if isinstance(encoded_result, tuple) and len(encoded_result) > 0:
+                encoded = encoded_result[0]  # Extract the actual tensor
                 print(f"✅ CLIP text encoding successful!")
                 print(f"   Encoded shape: {encoded.shape}")
                 print(f"   Encoded dtype: {encoded.dtype}")
                 print(f"   Encoded device: {encoded.device}")
                 print(f"   🎉 T5-XXL CLIP model is working correctly!")
             else:
-                print(f"❌ CLIP text encoding returned None")
+                print(f"❌ CLIP text encoding returned unexpected format: {type(encoded_result)}")
                 return False
             
         except Exception as e:

@@ -2128,7 +2128,7 @@ def main():
             
             print(f"\n🎉 SEQUENTIAL STEPS 1, 2, 3 & 4 COMPLETED SUCCESSFULLY!")
             print("="*60)
-    
+            
             # Display comprehensive results
             print(f"\n📋 COMPREHENSIVE RESULTS SUMMARY:")
             
@@ -2228,18 +2228,18 @@ def main():
         elif can_run_step1 and can_run_step2 and can_run_step3:
             # Run Steps 1, 2, and 3 only
             print(f"\n🚀 RUNNING STEPS 1, 2 & 3 ONLY (Step 4 requires all)")
-            print("="*60)
+        print("="*60)
         
-            # Step 1: VAE Loading and Latent Creation
-            print("🎬 STEP 1: VAE LOADING AND LATENT CREATION")
-            step_1_results = pipeline.step_1_vae_and_latent_creation(**step_1_params)
-            
-            # Step 2: UNet + CLIP Loading
-            print("\n🧠 STEP 2: UNET + CLIP LOADING")
-            step_2_results = pipeline.step_2_unet_clip_lora_loading(**step_2_params)
-            
-            print(f"\n🎉 STEPS 1 & 2 COMPLETED SUCCESSFULLY!")
-            print("="*60)
+        # Step 1: VAE Loading and Latent Creation
+        print("🎬 STEP 1: VAE LOADING AND LATENT CREATION")
+        step_1_results = pipeline.step_1_vae_and_latent_creation(**step_1_params)
+        
+        # Step 2: UNet + CLIP Loading
+        print("\n🧠 STEP 2: UNET + CLIP LOADING")
+        step_2_results = pipeline.step_2_unet_clip_lora_loading(**step_2_params)
+        
+        print(f"\n🎉 STEPS 1 & 2 COMPLETED SUCCESSFULLY!")
+        print("="*60)
             
         if step_1_results:
             print(f"\n📋 STEP 1 RESULTS SUMMARY:")
