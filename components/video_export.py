@@ -27,11 +27,26 @@ class VideoExporter:
         # CRITICAL FIX: Handle different frame formats
         print(f"🔍 VideoExporter: Input frames shape: {frames.shape}")
         
-        # Remove batch dimension if present
-        if len(frames.shape) == 5:  # (batch, frames, height, width, channels)
-            print(f"🔧 Removing batch dimension: {frames.shape[0]} -> {frames.shape[1]} frames")
-            frames = frames.squeeze(0)  # Remove batch dimension
-            print(f"✅ Fixed frames shape: {frames.shape}")
+        # Handle different tensor formats
+        if len(frames.shape) == 5:  # (batch, channels, frames, height, width)
+            print(f"🔧 Reshaping from (batch, channels, frames, height, width) to (frames, height, width, channels)")
+            batch_size, channels, num_frames, height, width = frames.shape
+            # Reshape: (batch, channels, frames, height, width) -> (frames, height, width, channels)
+            frames = frames.squeeze(0)  # Remove batch dimension: (channels, frames, height, width)
+            frames = frames.permute(1, 2, 3, 0)  # (frames, height, width, channels)
+            print(f"✅ Reshaped frames: {frames.shape}")
+        elif len(frames.shape) == 4:  # Already in correct format
+            if frames.shape[1] == 3:  # (batch, channels, height, width) - single frame
+                print(f"🔧 Single frame detected, reshaping to (1, height, width, channels)")
+                batch_size, channels, height, width = frames.shape
+                frames = frames.squeeze(0)  # Remove batch: (channels, height, width)
+                frames = frames.permute(1, 2, 0)  # (height, width, channels)
+                frames = frames.unsqueeze(0)  # Add frame dimension: (1, height, width, channels)
+                print(f"✅ Single frame reshaped: {frames.shape}")
+            else:  # Assume (frames, height, width, channels)
+                print(f"✅ Frames already in correct format: {frames.shape}")
+        else:
+            raise ValueError(f"Unsupported frame shape: {frames.shape}, expected 4D or 5D tensor")
         
         # Ensure frames are in correct format (frames, height, width, channels)
         if len(frames.shape) != 4:
