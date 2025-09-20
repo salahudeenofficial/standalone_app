@@ -20,33 +20,55 @@ class VideoExporter:
         if frames is None or len(frames) == 0:
             raise ValueError("No frames to export")
             
-        # Convert frames to numpy arrays
-        if isinstance(frames, torch.Tensor):
-            frames = frames.cpu().numpy()
-            
         # CRITICAL FIX: Handle different frame formats
         print(f"🔍 VideoExporter: Input frames shape: {frames.shape}")
         
-        # Handle different tensor formats
-        if len(frames.shape) == 5:  # (batch, channels, frames, height, width)
-            print(f"🔧 Reshaping from (batch, channels, frames, height, width) to (frames, height, width, channels)")
-            batch_size, channels, num_frames, height, width = frames.shape
-            # Reshape: (batch, channels, frames, height, width) -> (frames, height, width, channels)
-            frames = frames.squeeze(0)  # Remove batch dimension: (channels, frames, height, width)
-            frames = frames.permute(1, 2, 3, 0)  # (frames, height, width, channels)
-            print(f"✅ Reshaped frames: {frames.shape}")
-        elif len(frames.shape) == 4:  # Already in correct format
-            if frames.shape[1] == 3:  # (batch, channels, height, width) - single frame
-                print(f"🔧 Single frame detected, reshaping to (1, height, width, channels)")
-                batch_size, channels, height, width = frames.shape
-                frames = frames.squeeze(0)  # Remove batch: (channels, height, width)
-                frames = frames.permute(1, 2, 0)  # (height, width, channels)
-                frames = frames.unsqueeze(0)  # Add frame dimension: (1, height, width, channels)
-                print(f"✅ Single frame reshaped: {frames.shape}")
-            else:  # Assume (frames, height, width, channels)
-                print(f"✅ Frames already in correct format: {frames.shape}")
+        # Handle tensor reshaping BEFORE converting to numpy
+        if isinstance(frames, torch.Tensor):
+            # Handle different tensor formats
+            if len(frames.shape) == 5:  # (batch, channels, frames, height, width)
+                print(f"🔧 Reshaping from (batch, channels, frames, height, width) to (frames, height, width, channels)")
+                batch_size, channels, num_frames, height, width = frames.shape
+                # Reshape: (batch, channels, frames, height, width) -> (frames, height, width, channels)
+                frames = frames.squeeze(0)  # Remove batch dimension: (channels, frames, height, width)
+                frames = frames.permute(1, 2, 3, 0)  # (frames, height, width, channels)
+                print(f"✅ Reshaped frames: {frames.shape}")
+            elif len(frames.shape) == 4:  # Already in correct format
+                if frames.shape[1] == 3:  # (batch, channels, height, width) - single frame
+                    print(f"🔧 Single frame detected, reshaping to (1, height, width, channels)")
+                    batch_size, channels, height, width = frames.shape
+                    frames = frames.squeeze(0)  # Remove batch: (channels, height, width)
+                    frames = frames.permute(1, 2, 0)  # (height, width, channels)
+                    frames = frames.unsqueeze(0)  # Add frame dimension: (1, height, width, channels)
+                    print(f"✅ Single frame reshaped: {frames.shape}")
+                else:  # Assume (frames, height, width, channels)
+                    print(f"✅ Frames already in correct format: {frames.shape}")
+            else:
+                raise ValueError(f"Unsupported tensor shape: {frames.shape}, expected 4D or 5D tensor")
+            
+            # Convert to numpy AFTER reshaping
+            frames = frames.cpu().numpy()
         else:
-            raise ValueError(f"Unsupported frame shape: {frames.shape}, expected 4D or 5D tensor")
+            # Already numpy array - handle reshaping with numpy operations
+            if len(frames.shape) == 5:  # (batch, channels, frames, height, width)
+                print(f"🔧 Reshaping numpy array from (batch, channels, frames, height, width) to (frames, height, width, channels)")
+                batch_size, channels, num_frames, height, width = frames.shape
+                # Reshape: (batch, channels, frames, height, width) -> (frames, height, width, channels)
+                frames = frames.squeeze(0)  # Remove batch dimension: (channels, frames, height, width)
+                frames = np.transpose(frames, (1, 2, 3, 0))  # (frames, height, width, channels)
+                print(f"✅ Reshaped frames: {frames.shape}")
+            elif len(frames.shape) == 4:  # Already in correct format
+                if frames.shape[1] == 3:  # (batch, channels, height, width) - single frame
+                    print(f"🔧 Single frame detected, reshaping to (1, height, width, channels)")
+                    batch_size, channels, height, width = frames.shape
+                    frames = frames.squeeze(0)  # Remove batch: (channels, height, width)
+                    frames = np.transpose(frames, (1, 2, 0))  # (height, width, channels)
+                    frames = np.expand_dims(frames, 0)  # Add frame dimension: (1, height, width, channels)
+                    print(f"✅ Single frame reshaped: {frames.shape}")
+                else:  # Assume (frames, height, width, channels)
+                    print(f"✅ Frames already in correct format: {frames.shape}")
+            else:
+                raise ValueError(f"Unsupported array shape: {frames.shape}, expected 4D or 5D array")
         
         # Ensure frames are in correct format (frames, height, width, channels)
         if len(frames.shape) != 4:
