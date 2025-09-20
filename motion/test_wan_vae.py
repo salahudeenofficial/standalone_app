@@ -15,7 +15,7 @@ import logging
 # Add motion directory to path (following Disclaimer.txt guidelines)
 sys.path.insert(0, str(Path(__file__).parent))
 
-from standalone_vae import VAE, create_vae
+from wan_vae_components.vae import WanVAE
 from components.vae_decoder import VAEDecode
 
 # Configure logging
@@ -127,29 +127,40 @@ def test_vae_decode_specific_shape():
     state_dict = verify_vae_model_weights(vae_path)
     
     if state_dict is None:
-        print("\n⚠️  Using mock VAE for testing...")
-        return test_with_mock_vae(latent_tensor)
+        print("\n❌ VAE model not found - cannot proceed with testing")
+        return False
     
-    # Test 2: Create VAE with loaded weights
-    print(f"\n🔧 CREATING VAE WITH LOADED WEIGHTS")
+    # Test 2: Create WanVAE with loaded weights
+    print(f"\n🔧 CREATING WANVAE WITH LOADED WEIGHTS")
     print("-" * 40)
     
     try:
-        vae = create_vae(state_dict=state_dict, device=device)
-        print(f"✅ VAE created successfully")
-        print(f"   Type: {type(vae).__name__}")
-        print(f"   First stage model: {type(vae.first_stage_model).__name__ if vae.first_stage_model else 'None'}")
-        print(f"   Latent channels: {vae.latent_channels}")
-        print(f"   Latent dim: {vae.latent_dim}")
-        print(f"   Upscale ratio: {vae.upscale_ratio}")
+        # Create WanVAE instance directly (following Disclaimer.txt guidelines)
+        vae = WanVAE(
+            dim=96,
+            z_dim=16,
+            dim_mult=[1, 2, 4, 4],
+            num_res_blocks=2,
+            attn_scales=[],
+            temperal_downsample=[False, True, True],
+            dropout=0.0
+        )
         
-        # Validate VAE
-        try:
-            vae.throw_exception_if_invalid()
-            print(f"   ✅ VAE validation passed")
-        except Exception as e:
-            print(f"   ❌ VAE validation failed: {e}")
-            return test_with_mock_vae(latent_tensor)
+        # Load state dict into WanVAE
+        vae.load_state_dict(state_dict, strict=False)
+        vae = vae.to(device).eval()
+        
+        print(f"✅ WanVAE created successfully")
+        print(f"   Type: {type(vae).__name__}")
+        print(f"   Device: {next(vae.parameters()).device}")
+        print(f"   Dtype: {next(vae.parameters()).dtype}")
+        
+        # Check if VAE has decode method
+        if hasattr(vae, 'decode'):
+            print(f"   ✅ WanVAE has decode method")
+        else:
+            print(f"   ❌ WanVAE missing decode method")
+            return False
         
         # Test 3: Direct decode test
         print(f"\n🎯 TESTING DIRECT DECODE")
@@ -180,11 +191,13 @@ def test_vae_decode_specific_shape():
         
     except Exception as e:
         print(f"❌ Failed to create VAE: {e}")
-        return test_with_mock_vae(latent_tensor)
+        import traceback
+        traceback.print_exc()
+        return False
 
 
 def test_with_vae_decoder(vae, latent_tensor):
-    """Test using VAE decoder component"""
+    """Test using VAE decoder component with WanVAE"""
     try:
         vae_decoder = VAEDecode()
         latent_dict = {"samples": latent_tensor}
@@ -211,53 +224,12 @@ def test_with_vae_decoder(vae, latent_tensor):
             
     except Exception as e:
         print(f"❌ VAE decoder decode failed: {e}")
+        print(f"   Error type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
-def test_with_mock_vae(latent_tensor):
-    """Test with mock VAE when real VAE fails"""
-    print(f"\n🔧 TESTING WITH MOCK VAE")
-    print("-" * 40)
-    
-    class MockVAE:
-        def __init__(self):
-            self.device = latent_tensor.device
-            self.vae_dtype = torch.float32
-            self.output_channels = 3
-            self.upscale_ratio = 8
-            self.output_device = self.device
-            self.first_stage_model = "mock_model"
-            
-        def throw_exception_if_invalid(self):
-            pass
-            
-        def decode(self, samples_in, vae_options={}):
-            print(f"   🔧 Mock decode called with shape: {samples_in.shape}")
-            
-            # Simulate OOM for large tensors
-            if samples_in.numel() > 1000000:
-                raise torch.cuda.OutOfMemoryError("Simulated OOM for large tensor")
-            
-            # Mock decode: latent -> images
-            batch_size, channels, frames, height, width = samples_in.shape
-            output_height = height * self.upscale_ratio
-            output_width = width * self.upscale_ratio
-            
-            # Create mock decoded output
-            decoded = torch.randn(batch_size, self.output_channels, frames, output_height, output_width, 
-                                device=samples_in.device, dtype=samples_in.dtype)
-            return decoded.movedim(1, -1)
-        
-        def decode_tiled(self, samples, tile_x=None, tile_y=None, overlap=None, tile_t=None, overlap_t=None):
-            print(f"   🔧 Mock tiled decode called with shape: {samples.shape}")
-            return self.decode(samples)  # Use regular decode for simplicity
-        
-        def to(self, device):
-            self.device = device
-            return self
-    
-    mock_vae = MockVAE()
-    return test_with_vae_decoder(mock_vae, latent_tensor)
 
 
 def main():
