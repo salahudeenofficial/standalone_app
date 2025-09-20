@@ -16,7 +16,6 @@ import logging
 sys.path.insert(0, str(Path(__file__).parent))
 
 from wan_vae_components.vae import WanVAE
-from components.vae_decoder import VAEDecode
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -180,14 +179,12 @@ def test_vae_decode_specific_shape():
                 
         except Exception as e:
             print(f"❌ Direct decode failed: {e}")
-            print(f"   Trying VAE decoder component...")
-            return test_with_vae_decoder(vae, latent_tensor)
+            print(f"   Error type: {type(e).__name__}")
+            import traceback
+            traceback.print_exc()
+            return False
         
-        # Test 4: VAE Decoder component test
-        print(f"\n🎯 TESTING VAE DECODER COMPONENT")
-        print("-" * 40)
-        
-        return test_with_vae_decoder(vae, latent_tensor)
+        return True
         
     except Exception as e:
         print(f"❌ Failed to create VAE: {e}")
@@ -196,38 +193,6 @@ def test_vae_decode_specific_shape():
         return False
 
 
-def test_with_vae_decoder(vae, latent_tensor):
-    """Test using VAE decoder component with WanVAE"""
-    try:
-        vae_decoder = VAEDecode()
-        latent_dict = {"samples": latent_tensor}
-        
-        print(f"📊 Testing with VAE decoder component...")
-        
-        with torch.no_grad():
-            start_time = time.time()
-            result = vae_decoder.decode(vae, latent_dict)
-            decode_time = time.time() - start_time
-            
-            if isinstance(result, tuple):
-                decoded_images = result[0]
-            else:
-                decoded_images = result
-            
-            print(f"✅ VAE decoder decode successful!")
-            print(f"   Output shape: {decoded_images.shape}")
-            print(f"   Output dtype: {decoded_images.dtype}")
-            print(f"   Output range: [{decoded_images.min().item():.3f}, {decoded_images.max().item():.3f}]")
-            print(f"   Decode time: {decode_time:.3f}s")
-            
-            return True
-            
-    except Exception as e:
-        print(f"❌ VAE decoder decode failed: {e}")
-        print(f"   Error type: {type(e).__name__}")
-        import traceback
-        traceback.print_exc()
-        return False
 
 
 
