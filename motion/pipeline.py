@@ -1547,9 +1547,60 @@ class WanVideoPipeline:
             print(f"   📊 Input latent shape: {trimmed_latent.shape}")
             print(f"   📊 VAE model: {type(vae_model).__name__}")
             
-            # Perform VAE decoding using direct WanVAE decode method (following successful test pattern)
-            with torch.no_grad():
-                decoded_images = vae_model.decode(trimmed_latent)
+            # Perform VAE decoding using ComfyUI-style memory management and OOM handling
+            decoded_images = None
+            try:
+                # Calculate memory usage for decode operation
+                memory_used = vae_model.memory_used_decode(trimmed_latent.shape, vae_model.vae_dtype)
+                print(f"   📊 Memory required for decode: {memory_used / (1024**3):.2f} GB")
+                
+                # Get available free memory
+                if torch.cuda.is_available():
+                    free_memory = torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated()
+                    free_memory = free_memory / (1024**3)  # Convert to GB
+                else:
+                    free_memory = 8.0  # Assume 8GB for CPU
+                
+                # Calculate optimal batch size based on available memory
+                batch_number = int(free_memory * 1024**3 / max(1, memory_used))
+                batch_number = max(1, min(4, batch_number))  # Limit to reasonable batch size
+                print(f"   📊 Available memory: {free_memory:.2f} GB")
+                print(f"   📊 Batch size: {batch_number}")
+                
+                # Process in batches to avoid OOM
+                with torch.no_grad():
+                    for x in range(0, trimmed_latent.shape[0], batch_number):
+                        batch_latent = trimmed_latent[x:x+batch_number].to(vae_model.vae_dtype).to(vae_model.device)
+                        
+                        # Use first_stage_model.decode() to access actual WanVAE (following ComfyUI pattern)
+                        batch_output = vae_model.first_stage_model.decode(batch_latent).to(vae_model.output_device).float()
+                        
+                        if decoded_images is None:
+                            decoded_images = torch.empty((trimmed_latent.shape[0],) + tuple(batch_output.shape[1:]), 
+                                                       device=vae_model.output_device)
+                        decoded_images[x:x+batch_number] = batch_output
+                        
+            except torch.cuda.OutOfMemoryError:
+                print(f"   ⚠️ GPU OOM during regular decode, retrying with tiled decode...")
+                
+                # Fallback to tiled decoding (following ComfyUI OOM handling)
+                dims = trimmed_latent.ndim - 2
+                if dims == 3:  # 3D tensor (B, C, T, H, W)
+                    tile = 256 // vae_model.spacial_compression_decode() if hasattr(vae_model, 'spacial_compression_decode') else 32
+                    overlap = tile // 4
+                    print(f"   🔧 Using 3D tiled decode with tile={tile}, overlap={overlap}")
+                    decoded_images = vae_model.decode_tiled_3d(trimmed_latent, tile_x=tile, tile_y=tile, overlap=(1, overlap, overlap))
+                elif dims == 2:  # 2D tensor
+                    print(f"   🔧 Using 2D tiled decode")
+                    decoded_images = vae_model.decode_tiled_(trimmed_latent)
+                elif dims == 1:  # 1D tensor
+                    print(f"   🔧 Using 1D tiled decode")
+                    decoded_images = vae_model.decode_tiled_1d(trimmed_latent)
+                else:
+                    raise RuntimeError(f"Unsupported tensor dimensions: {trimmed_latent.ndim}")
+                
+                # Apply output processing (following ComfyUI pattern)
+                decoded_images = vae_model.process_output(decoded_images)
             
             print(f"   ✅ Decoded images shape: {decoded_images.shape}")
             
