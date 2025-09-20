@@ -1531,11 +1531,6 @@ class WanVideoPipeline:
         print("="*80)
         
         try:
-            # Import VAEDecode from components (following Disclaimer.txt guidelines)
-            import sys
-            sys.path.insert(0, str(Path(__file__).parent.parent))
-            from components.vae_decoder import VAEDecode
-            
             # Use pipeline's VAE if none provided
             if vae_model is None:
                 vae_model = self.vae
@@ -1552,20 +1547,9 @@ class WanVideoPipeline:
             print(f"   📊 Input latent shape: {trimmed_latent.shape}")
             print(f"   📊 VAE model: {type(vae_model).__name__}")
             
-            # Create VAE decoder (following ComfyUI VAEDecode pattern)
-            vae_decoder = VAEDecode()
-            
-            # Wrap the latent tensor in the dictionary format expected by VAEDecode
-            latent_dict = {"samples": trimmed_latent}
-            
-            # Perform VAE decoding (following ComfyUI workflow_api pattern)
-            decoded_images_tuple = vae_decoder.decode(vae_model, latent_dict)
-            
-            # Extract images from tuple (ComfyUI returns tuple)
-            if isinstance(decoded_images_tuple, tuple):
-                decoded_images = decoded_images_tuple[0]
-            else:
-                decoded_images = decoded_images_tuple
+            # Perform VAE decoding using direct WanVAE decode method (following successful test pattern)
+            with torch.no_grad():
+                decoded_images = vae_model.decode(trimmed_latent)
             
             print(f"   ✅ Decoded images shape: {decoded_images.shape}")
             
