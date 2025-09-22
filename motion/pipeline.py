@@ -1596,8 +1596,8 @@ class WanVideoPipeline:
                 elif dims == 1:  # 1D tensor
                     print(f"   🔧 Using 1D tiled decode")
                     decoded_images = vae_model.decode_tiled_1d(trimmed_latent)
-            else:
-                raise RuntimeError(f"Unsupported tensor dimensions: {trimmed_latent.ndim}")
+                else:
+                    raise RuntimeError(f"Unsupported tensor dimensions: {trimmed_latent.ndim}")
             
             # Apply output processing (following ComfyUI pattern)
             decoded_images = vae_model.process_output(decoded_images)
