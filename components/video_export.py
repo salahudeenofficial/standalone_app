@@ -91,18 +91,34 @@ class VideoExporter:
         print(f"🔍 Video dimensions: {width}x{height}, {len(frames)} frames")
         
         # Create video writer with better codec support
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, self.fps, (width, height))
+        # Try multiple codecs in order of preference
+        codecs_to_try = [
+            ('mp4v', 'mp4v'),
+            ('XVID', 'XVID'), 
+            ('MJPG', 'MJPG'),
+            ('H264', 'H264'),
+            ('avc1', 'avc1')
+        ]
         
-        # Check if video writer was initialized properly
-        if not out.isOpened():
-            print(f"❌ Failed to initialize video writer for {output_path}")
-            print(f"   Trying alternative codec...")
-            # Try alternative codec
-            fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        out = None
+        successful_codec = None
+        
+        for codec_name, fourcc_str in codecs_to_try:
+            print(f"🔧 Trying codec: {codec_name}")
+            fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
             out = cv2.VideoWriter(output_path, fourcc, self.fps, (width, height))
-            if not out.isOpened():
-                raise RuntimeError(f"Failed to initialize video writer with both mp4v and XVID codecs")
+            
+            if out.isOpened():
+                print(f"✅ Successfully initialized video writer with {codec_name} codec")
+                successful_codec = codec_name
+                break
+            else:
+                print(f"❌ Failed to initialize with {codec_name} codec")
+                out.release()
+                out = None
+        
+        if out is None or not out.isOpened():
+            raise RuntimeError(f"Failed to initialize video writer with any codec. Tried: {[c[0] for c in codecs_to_try]}")
         
         try:
             # Write frames
@@ -124,16 +140,41 @@ class VideoExporter:
                 else:
                     frame_bgr = frame
                 
+                # Additional validation and debugging
+                if i < 3:  # Debug first few frames
+                    print(f"   🔍 Frame {i+1} debug:")
+                    print(f"      Original frame shape: {frame.shape}, dtype: {frame.dtype}")
+                    print(f"      BGR frame shape: {frame_bgr.shape}, dtype: {frame_bgr.dtype}")
+                    print(f"      BGR frame range: [{frame_bgr.min()}, {frame_bgr.max()}]")
+                    print(f"      Video writer dimensions: {out.get(cv2.CAP_PROP_FRAME_WIDTH)}x{out.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+                    print(f"      Video writer FPS: {out.get(cv2.CAP_PROP_FPS)}")
+                
+                # Try to enhance frame if it's too dark
+                if frame_bgr.max() < 50:  # Very dark frame
+                    print(f"   🔧 Frame {i+1} is very dark (max={frame_bgr.max()}), enhancing...")
+                    # Enhance contrast
+                    frame_bgr = cv2.convertScaleAbs(frame_bgr, alpha=2.0, beta=50)
+                    print(f"   🔧 Enhanced frame range: [{frame_bgr.min()}, {frame_bgr.max()}]")
+                
                 # Write frame
                 success = out.write(frame_bgr)
                 if success:
                     frames_written += 1
+                    if i < 3:  # Log success for first few frames
+                        print(f"   ✅ Frame {i+1} written successfully")
                 else:
                     print(f"⚠️  Warning: Failed to write frame {i+1}")
                     # Additional debugging for failed frames
                     print(f"   Frame shape: {frame_bgr.shape}, dtype: {frame_bgr.dtype}")
                     print(f"   Frame range: [{frame_bgr.min()}, {frame_bgr.max()}]")
                     print(f"   Video writer status: isOpened={out.isOpened()}")
+                    
+                    # Try writing a test frame
+                    if i == 0:  # Only for first frame
+                        print(f"   🔧 Trying to write a test white frame...")
+                        test_frame = np.full((height, width, 3), 255, dtype=np.uint8)
+                        test_success = out.write(test_frame)
+                        print(f"   🔧 Test frame result: {test_success}")
                 
         except Exception as e:
             print(f"❌ Error during video export: {e}")
@@ -143,7 +184,25 @@ class VideoExporter:
             
         # Verify video was created and has content
         if frames_written == 0:
-            raise RuntimeError("No frames were written to video")
+            print(f"❌ No frames were written to video")
+            print(f"🔧 Attempting fallback: saving frames as individual images...")
+            
+            # Fallback: save frames as individual images
+            import os
+            frames_dir = output_path.replace('.mp4', '_frames')
+            os.makedirs(frames_dir, exist_ok=True)
+            
+            for i, frame in enumerate(frames):
+                frame_path = os.path.join(frames_dir, f"frame_{i:04d}.png")
+                # Convert RGB to BGR for OpenCV
+                if frame.shape[2] == 3:
+                    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                else:
+                    frame_bgr = frame
+                cv2.imwrite(frame_path, frame_bgr)
+            
+            print(f"✅ Fallback successful: saved {len(frames)} frames to {frames_dir}")
+            return frames_dir
         
         # Check if file exists and has reasonable size
         if not os.path.exists(output_path):
