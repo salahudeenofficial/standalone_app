@@ -2043,11 +2043,9 @@ class WanVideoPipeline:
 # ============================================================================
 
 def main():
-    """Complete WAN Video Pipeline - All 7 Steps: VAE → UNet+CLIP → Sampling+Encoding → Denoising → Trimming → Decoding → Export"""
-    print("🚀 WAN Video Pipeline - COMPLETE 7-STEP PIPELINE")
-    print("="*80)
-    print("🎯 Complete Pipeline: Step 1 (VAE) → Step 2 (UNet+CLIP) → Step 3 (Sampling+Encoding) → Step 4 (Denoising) → Step 5 (Trimming) → Step 6 (Decoding) → Step 7 (Export)")
-    print("="*80)
+    """Simple complete WAN Video Pipeline - All 7 Steps"""
+    print("🚀 WAN Video Pipeline - Complete 7-Step Pipeline")
+    print("="*60)
     
     # Initialize pipeline
     pipeline = WanVideoPipeline(models_dir="models")
@@ -2057,132 +2055,95 @@ def main():
     unet_model_path = "models/diffusion_models/wan_2.1_diffusion_model.safetensors"
     clip_model_path = "models/text_encoders/wan_clip_model.safetensors"
     
-    # Check available model files
-    available_models = []
-    missing_models = []
+    # Check if models exist
+    if not os.path.exists(vae_model_path):
+        print(f"❌ VAE model not found: {vae_model_path}")
+        return
+    if not os.path.exists(unet_model_path):
+        print(f"❌ UNet model not found: {unet_model_path}")
+        return
+    if not os.path.exists(clip_model_path):
+        print(f"❌ CLIP model not found: {clip_model_path}")
+        return
     
-    if os.path.exists(vae_model_path):
-        available_models.append("VAE")
-    else:
-        missing_models.append(f"VAE: {vae_model_path}")
+    print("✅ All models found - running complete pipeline")
+    print("="*60)
     
-    if os.path.exists(unet_model_path):
-        available_models.append("UNet")
-    else:
-        missing_models.append(f"UNet: {unet_model_path}")
-    
-    if os.path.exists(clip_model_path):
-        available_models.append("CLIP")
-    else:
-        missing_models.append(f"CLIP: {clip_model_path}")
-    
-    print(f"\n📊 MODEL AVAILABILITY:")
-    print(f"   Available: {', '.join(available_models) if available_models else 'None'}")
-    if missing_models:
-        print(f"   Missing: {', '.join(missing_models)}")
-    
-    # Prepare parameters for both steps
-    step_1_params = {
-        'vae_model_path': vae_model_path,
-        'positive_prompt': "very cinematic video",
-        'negative_prompt': "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量",
-        'control_video_path': "safu.mp4" if os.path.exists("safu.mp4") else None,
-        'reference_image_path': "safu.jpg" if os.path.exists("safu.jpg") else None,
-        'width': 480,
-        'height': 832,
-        'length': 37,
-        'batch_size': 1,
-        'strength': 1.0
-    }
-    
-    step_2_params = {
-        'unet_model_path': unet_model_path,
-        'clip_model_path': clip_model_path,
-        'lora_model_path': None,  # No LoRA for this test
-        'strength_model': 1.0,
-        'strength_clip': 0.0
-    }
-    
-    step_3_params = {
-        'positive_prompt': "very cinematic video",
-        'negative_prompt': "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量",
-        'shift': 8.0,
-        'multiplier': 1000
-    }
-    
-    # Sequential execution: Step 1 → Step 2 → Step 3
     try:
-        # Check if we can run all four steps
-        can_run_step1 = "VAE" in available_models
-        can_run_step2 = "UNet" in available_models and "CLIP" in available_models
-        can_run_step3 = can_run_step2  # Step 3 depends on Step 2
-        can_run_step4 = can_run_step2  # Step 4 depends on Step 2 (UNet + CLIP)
+        # Step 1: VAE Loading and Latent Creation
+        print("🎬 STEP 1: VAE LOADING AND LATENT CREATION")
+        step_1_results = pipeline.step_1_vae_and_latent_creation(
+            vae_model_path=vae_model_path,
+            positive_prompt="very cinematic video",
+            negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量",
+            control_video_path="safu.mp4" if os.path.exists("safu.mp4") else None,
+            reference_image_path="safu.jpg" if os.path.exists("safu.jpg") else None,
+            width=480, height=832, length=37, batch_size=1, strength=1.0
+        )
         
-        if can_run_step1 and can_run_step2 and can_run_step3 and can_run_step4:
-            # Run ALL 7 STEPS sequentially
-            print(f"\n🚀 RUNNING COMPLETE 7-STEP PIPELINE")
-            print("="*60)
-            
-            # Step 1: VAE Loading and Latent Creation
-            print("🎬 STEP 1: VAE LOADING AND LATENT CREATION")
-            step_1_results = pipeline.step_1_vae_and_latent_creation(**step_1_params)
-            
-            # Step 2: UNet + CLIP Loading
-            print("\n🧠 STEP 2: UNET + CLIP LOADING")
-            step_2_results = pipeline.step_2_unet_clip_lora_loading(**step_2_params)
-            
-            # Step 3: Model Sampling + Text Encoding
-            print("\n📝 STEP 3: MODEL SAMPLING + TEXT ENCODING")
-            step_3_results = pipeline.step_3_model_sampling_and_text_encoding(**step_3_params)
-            
-            # Step 4: KSampler Denoising
-            print("\n🎯 STEP 4: KSAMPLER DENOISING")
-            step_4_params = {
-                'initial_latent': step_1_results['out_latent']['samples'],
-                'positive_conditioning': step_3_results['positive_conditioning'],
-                'negative_conditioning': step_3_results['negative_conditioning'],
-                'seed': 42,
-                'steps': 4,
-                'cfg': 7.0,
-                'sampler_name': 'euler',
-                'scheduler': 'normal',
-                'denoise': 1.0,
-                'noise_inds': None
-            }
-            step_4_results = pipeline.step_4_ksampler_denoising(**step_4_params)
-            
-            # Step 5: Trim Video Latent (following ComfyUI implementation)
-            print("\n🎬 STEP 5: TRIM VIDEO LATENT")
-            step_5_params = {
-                'denoised_latent': step_4_results['denoised_latent'],
-                'trim_amount': 0  # Default trim amount (can be adjusted)
-            }
-            step_5_results = pipeline.step_5_trim_latent(**step_5_params)
-            
-            # Step 6: VAE Decode (following ComfyUI implementation)
-            print("\n🎨 STEP 6: VAE DECODE")
-            step_6_params = {
-                'trimmed_latent': step_5_results['trimmed_latent'],
-                'vae_model': None  # Use pipeline's VAE
-            }
-            step_6_results = pipeline.step_6_vae_decode(**step_6_params)
-            
-            # Step 7: Video Export (following standalone implementation)
-            print("\n🎬 STEP 7: VIDEO EXPORT")
-            step_7_params = {
-                'decoded_images': step_6_results['decoded_images'],
-                'output_path': 'output_video.mp4',
-                'fps': 24
-            }
-            step_7_results = pipeline.step_7_video_export(**step_7_params)
-            
-            print(f"\n🎉 SEQUENTIAL STEPS 1, 2, 3, 4, 5, 6 & 7 COMPLETED SUCCESSFULLY!")
-            print("="*60)
-    
-            # Display comprehensive results
-            print(f"\n📋 COMPREHENSIVE RESULTS SUMMARY:")
-            
-            # Step 1 Results
+        # Step 2: UNet + CLIP Loading
+        print("\n🧠 STEP 2: UNET + CLIP LOADING")
+        step_2_results = pipeline.step_2_unet_clip_lora_loading(
+            unet_model_path=unet_model_path,
+            clip_model_path=clip_model_path,
+            lora_model_path=None,
+            strength_model=1.0, strength_clip=0.0
+        )
+        
+        # Step 3: Model Sampling + Text Encoding
+        print("\n📝 STEP 3: MODEL SAMPLING + TEXT ENCODING")
+        step_3_results = pipeline.step_3_model_sampling_and_text_encoding(
+            positive_prompt="very cinematic video",
+            negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量",
+            shift=8.0, multiplier=1000
+        )
+        
+        # Step 4: KSampler Denoising
+        print("\n🎯 STEP 4: KSAMPLER DENOISING")
+        step_4_results = pipeline.step_4_ksampler_denoising(
+            initial_latent=step_1_results['out_latent']['samples'],
+            positive_conditioning=step_3_results['positive_conditioning'],
+            negative_conditioning=step_3_results['negative_conditioning'],
+            seed=42, steps=4, cfg=7.0, sampler_name='euler',
+            scheduler='normal', denoise=1.0, noise_inds=None
+        )
+        
+        # Step 5: Trim Video Latent
+        print("\n🎬 STEP 5: TRIM VIDEO LATENT")
+        step_5_results = pipeline.step_5_trim_latent(
+            denoised_latent=step_4_results['denoised_latent'],
+            trim_amount=0
+        )
+        
+        # Step 6: VAE Decode
+        print("\n🎨 STEP 6: VAE DECODE")
+        step_6_results = pipeline.step_6_vae_decode(
+            trimmed_latent=step_5_results['trimmed_latent'],
+            vae_model=None
+        )
+        
+        # Step 7: Video Export
+        print("\n🎬 STEP 7: VIDEO EXPORT")
+        step_7_results = pipeline.step_7_video_export(
+            decoded_images=step_6_results['decoded_images'],
+            output_path='output_video.mp4', fps=24
+        )
+        
+        print(f"\n🎉 COMPLETE PIPELINE SUCCESS!")
+        print("="*60)
+        print(f"✅ Video exported to: {step_7_results['exported_path']}")
+        print(f"📊 Video duration: {step_7_results.get('duration_seconds', 0):.2f} seconds")
+        print(f"📊 File size: {step_7_results.get('file_size_mb', 0):.2f} MB")
+        
+    except Exception as e:
+        print(f"\n❌ PIPELINE FAILED: {str(e)}")
+        print(f"   Error Type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
+
+
+if __name__ == "__main__":
+    main()
             if step_1_results:
                 print(f"\n🎬 STEP 1 RESULTS:")
                 vae_info = step_1_results.get('vae_info', {})
