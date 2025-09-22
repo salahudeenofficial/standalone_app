@@ -1,27 +1,27 @@
 """
-Video export component for the standalone pipeline
-Converts decoded frames to MP4 video format
+Video export component for the motion pipeline
+Following ComfyUI's approach for video export without external dependencies
 """
 
 import torch
 import numpy as np
 import cv2
+import os
 from pathlib import Path
 
-class VideoExporter:
-    """Export video frames to MP4 format"""
+class MotionVideoExporter:
+    """Export video frames to MP4 format following ComfyUI approach"""
     
     def __init__(self, fps=24):
         """Initialize with desired FPS"""
         self.fps = fps
         
     def export_video(self, frames, output_path):
-        """Export frames to MP4 video"""
+        """Export frames to MP4 video following ComfyUI's approach"""
         if frames is None or len(frames) == 0:
             raise ValueError("No frames to export")
             
-        # CRITICAL FIX: Handle different frame formats
-        print(f"🔍 VideoExporter: Input frames shape: {frames.shape}")
+        print(f"🔍 MotionVideoExporter: Input frames shape: {frames.shape}")
         
         # Handle tensor reshaping BEFORE converting to numpy
         if isinstance(frames, torch.Tensor):
@@ -147,7 +147,6 @@ class VideoExporter:
             print(f"🔧 Attempting fallback: saving frames as individual images...")
             
             # Fallback: save frames as individual images
-            import os
             frames_dir = output_path.replace('.mp4', '_frames')
             os.makedirs(frames_dir, exist_ok=True)
             
@@ -174,4 +173,4 @@ class VideoExporter:
         print(f"✅ Video exported successfully to: {output_path}")
         print(f"   📊 Frames written: {frames_written}/{len(frames)}")
         print(f"   📊 File size: {file_size / (1024*1024):.2f} MB")
-        return output_path 
+        return output_path
