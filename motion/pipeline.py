@@ -2043,10 +2043,10 @@ class WanVideoPipeline:
 # ============================================================================
 
 def main():
-    """Test Steps 1, 2, 3, and 4: Sequential VAE Loading + UNet + CLIP Loading + Model Sampling + Text Encoding + KSampler Denoising"""
-    print("🚀 WAN Video Pipeline - Sequential Steps 1, 2, 3 & 4 Test")
+    """Complete WAN Video Pipeline - All 7 Steps: VAE → UNet+CLIP → Sampling+Encoding → Denoising → Trimming → Decoding → Export"""
+    print("🚀 WAN Video Pipeline - COMPLETE 7-STEP PIPELINE")
     print("="*80)
-    print("🎯 Testing Step 1 (VAE) → Step 2 (UNet + CLIP) → Step 3 (Model Sampling + Text Encoding) → Step 4 (KSampler Denoising)")
+    print("🎯 Complete Pipeline: Step 1 (VAE) → Step 2 (UNet+CLIP) → Step 3 (Sampling+Encoding) → Step 4 (Denoising) → Step 5 (Trimming) → Step 6 (Decoding) → Step 7 (Export)")
     print("="*80)
     
     # Initialize pipeline
@@ -2119,8 +2119,8 @@ def main():
         can_run_step4 = can_run_step2  # Step 4 depends on Step 2 (UNet + CLIP)
         
         if can_run_step1 and can_run_step2 and can_run_step3 and can_run_step4:
-            # Run Steps 1, 2, 3, and 4 sequentially
-            print(f"\n🚀 RUNNING STEPS 1, 2, 3 & 4 SEQUENTIALLY")
+            # Run ALL 7 STEPS sequentially
+            print(f"\n🚀 RUNNING COMPLETE 7-STEP PIPELINE")
             print("="*60)
             
             # Step 1: VAE Loading and Latent Creation
