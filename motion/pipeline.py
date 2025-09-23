@@ -2042,9 +2042,12 @@ class WanVideoPipeline:
 # EXAMPLE USAGE AND TESTING
 # ============================================================================
 
-def main():
-    """Simple complete WAN Video Pipeline - All 7 Steps"""
-    print("🚀 WAN Video Pipeline - Complete 7-Step Pipeline")
+def main(debug_mode=False):
+    """Simple complete WAN Video Pipeline - All 7 Steps or Debug Mode (Steps 1-4)"""
+    if debug_mode:
+        print("🚀 WAN Video Pipeline - DEBUG MODE (Steps 1-4)")
+    else:
+        print("🚀 WAN Video Pipeline - Complete 7-Step Pipeline")
     print("="*60)
     
     # Initialize pipeline
@@ -2066,13 +2069,16 @@ def main():
         print(f"❌ CLIP model not found: {clip_model_path}")
         return
     
-    print("✅ All models found - running complete pipeline")
+    if debug_mode:
+        print("✅ All models found - running debug mode (Steps 1-4)")
+    else:
+        print("✅ All models found - running complete pipeline")
     print("="*60)
             
     try:
-            # Step 1: VAE Loading and Latent Creation
-            print("🎬 STEP 1: VAE LOADING AND LATENT CREATION")
-            step_1_results = pipeline.step_1_vae_and_latent_creation(
+        # Step 1: VAE Loading and Latent Creation
+        print("🎬 STEP 1: VAE LOADING AND LATENT CREATION")
+        step_1_results = pipeline.step_1_vae_and_latent_creation(
             vae_model_path=vae_model_path,
             positive_prompt="very cinematic video",
             negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量",
@@ -2081,26 +2087,26 @@ def main():
             width=480, height=832, length=37, batch_size=1, strength=1.0
         )
             
-            # Step 2: UNet + CLIP Loading
-            print("\n🧠 STEP 2: UNET + CLIP LOADING")
-            step_2_results = pipeline.step_2_unet_clip_lora_loading(
+        # Step 2: UNet + CLIP Loading
+        print("\n🧠 STEP 2: UNET + CLIP LOADING")
+        step_2_results = pipeline.step_2_unet_clip_lora_loading(
             unet_model_path=unet_model_path,
             clip_model_path=clip_model_path,
             lora_model_path=None,
             strength_model=1.0, strength_clip=0.0
         )
             
-            # Step 3: Model Sampling + Text Encoding
-            print("\n📝 STEP 3: MODEL SAMPLING + TEXT ENCODING")
-            step_3_results = pipeline.step_3_model_sampling_and_text_encoding(
+        # Step 3: Model Sampling + Text Encoding
+        print("\n📝 STEP 3: MODEL SAMPLING + TEXT ENCODING")
+        step_3_results = pipeline.step_3_model_sampling_and_text_encoding(
             positive_prompt="very cinematic video",
             negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量",
             shift=8.0, multiplier=1000
         )
             
-            # Step 4: KSampler Denoising
-            print("\n🎯 STEP 4: KSAMPLER DENOISING")
-            step_4_results = pipeline.step_4_ksampler_denoising(
+        # Step 4: KSampler Denoising
+        print("\n🎯 STEP 4: KSAMPLER DENOISING")
+        step_4_results = pipeline.step_4_ksampler_denoising(
             initial_latent=step_1_results['out_latent']['samples'],
             positive_conditioning=step_3_results['positive_conditioning'],
             negative_conditioning=step_3_results['negative_conditioning'],
@@ -2108,32 +2114,67 @@ def main():
             scheduler='normal', denoise=1.0, noise_inds=None
         )
         
+        # Debug mode: Save Step 4 output and exit
+        if debug_mode:
+            print("\n🔍 DEBUG MODE: Saving Step 4 output...")
+            denoised_latent = step_4_results['denoised_latent']
+            
+            # Print tensor shape
+            print(f"📊 Step 4 Output Tensor Shape: {denoised_latent.shape}")
+            print(f"📊 Step 4 Output Tensor Dtype: {denoised_latent.dtype}")
+            print(f"📊 Step 4 Output Tensor Device: {denoised_latent.device}")
+            
+            # Save as .npy file
+            output_path = "debug_step4_output.npy"
+            import numpy as np
+            
+            # Convert to CPU and numpy if needed
+            if denoised_latent.is_cuda:
+                denoised_latent_cpu = denoised_latent.cpu()
+            else:
+                denoised_latent_cpu = denoised_latent
+            
+            # Convert to numpy
+            denoised_latent_np = denoised_latent_cpu.numpy()
+            
+            # Save as .npy file
+            np.save(output_path, denoised_latent_np)
+            print(f"✅ Step 4 output saved to: {output_path}")
+            print(f"📊 File size: {os.path.getsize(output_path) / (1024*1024):.2f} MB")
+            
+            print(f"\n🎉 DEBUG MODE COMPLETED SUCCESSFULLY!")
+            print("="*60)
+            print(f"✅ Steps 1-4 completed")
+            print(f"✅ Step 4 output saved to: {output_path}")
+            print(f"📊 Tensor shape: {denoised_latent.shape}")
+            return
+        
         # Step 5: Trim Video Latent
-            print("\n🎬 STEP 5: TRIM VIDEO LATENT")
-            step_5_results = pipeline.step_5_trim_latent(
+        print("\n🎬 STEP 5: TRIM VIDEO LATENT")
+        step_5_results = pipeline.step_5_trim_latent(
             denoised_latent=step_4_results['denoised_latent'],
             trim_amount=0
         )
         
         # Step 6: VAE Decode
-            print("\n🎨 STEP 6: VAE DECODE")
-            step_6_results = pipeline.step_6_vae_decode(
+        print("\n🎨 STEP 6: VAE DECODE")
+        step_6_results = pipeline.step_6_vae_decode(
             trimmed_latent=step_5_results['trimmed_latent'],
             vae_model=None
         )
         
         # Step 7: Video Export
-            print("\n🎬 STEP 7: VIDEO EXPORT")
-            step_7_results = pipeline.step_7_video_export(
+        print("\n🎬 STEP 7: VIDEO EXPORT")
+        step_7_results = pipeline.step_7_video_export(
             decoded_images=step_6_results['decoded_images'],
             output_path='output_video.mp4', fps=24
         )
         
-            print(f"\n🎉 COMPLETE PIPELINE SUCCESS!")
-            print("="*60)
-            print(f"✅ Video exported to: {step_7_results['exported_path']}")
-            print(f"📊 Video duration: {step_7_results.get('duration_seconds', 0):.2f} seconds")
-            print(f"📊 File size: {step_7_results.get('file_size_mb', 0):.2f} MB")
+        print(f"\n🎉 COMPLETE PIPELINE SUCCESS!")
+        print("="*60)
+        print(f"✅ Video exported to: {step_7_results['exported_path']}")
+        print(f"📊 Video duration: {step_7_results.get('duration_seconds', 0):.2f} seconds")
+        print(f"📊 File size: {step_7_results.get('file_size_mb', 0):.2f} MB")
         
     except Exception as e:
         print(f"\n❌ PIPELINE FAILED: {str(e)}")
@@ -2143,4 +2184,12 @@ def main():
     
 
 if __name__ == "__main__":
-    main()
+    import sys
+    
+    # Check for debug mode argument
+    if len(sys.argv) > 1 and sys.argv[1] == "--debug":
+        print("🔍 Running in DEBUG MODE (Steps 1-4 only)")
+        main(debug_mode=True)
+    else:
+        print("🚀 Running COMPLETE PIPELINE (All 7 steps)")
+        main(debug_mode=False)
