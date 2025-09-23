@@ -57,8 +57,8 @@ echo "This may take several minutes for a 16B parameter model..."
 echo ""
 
 REPORT_FILE="wan21_vace_verification_$(date +%Y%m%d_%H%M%S).json"
-
-if python test_wan21_vace_16b_complete.py "$MODEL_PATH" --output-report "$REPORT_FILE"; then
+ 
+if python test_wan21_vace_16b_complete.py"$MODEL_PATH" --output-report "$REPORT_FILE"; then
     echo ""
     echo "🎉 SUCCESS! Model verification completed successfully."
     echo "📄 Detailed report saved to: $REPORT_FILE"
