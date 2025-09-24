@@ -1576,7 +1576,7 @@ class WanVideoPipeline:
             raise
 
     def load_video(self, video_path: str) -> Optional[torch.Tensor]:
-        """Load control video from path as float tensor (T, H, W, 3) in [0,1]"""
+        """Load control video from path as float tensor (T, H, W, 3) in [0,1] - ComfyUI compatible"""
         if not video_path or not os.path.exists(video_path):
             print(f"Warning: Video file not found: {video_path}")
             return None
@@ -1585,7 +1585,8 @@ class WanVideoPipeline:
             from torchvision.io import read_video
             print(f"   📹 Loading video from: {video_path}")
             
-            video, audio, info = read_video(video_path, pts_unit='sec')
+            # Use ComfyUI-compatible PTS unit (exact match to ComfyUI workflow)
+            video, audio, info = read_video(video_path, pts_unit='pts')
             if video is None or video.numel() == 0:
                 print(f"Warning: Empty video: {video_path}")
                 return None
@@ -1593,13 +1594,17 @@ class WanVideoPipeline:
             # Convert from (T, H, W, C) uint8 to float32 [0,1]
             video = video.float() / 255.0
             
+            # Apply ComfyUI-compatible frame limiting (exact match to ComfyUI workflow)
+            max_frames = min(37, video.shape[0])  # Limit to first 37 frames like ComfyUI
+            video = video[:max_frames]
+            
             # Ensure 3 channels
             if video.shape[-1] > 3:
                 video = video[..., :3]
             elif video.shape[-1] == 1:
                 video = video.repeat(1, 1, 1, 3)
             
-            print(f"   📊 Loaded video tensor: {tuple(video.shape)} (T,H,W,C)")
+            print(f"   📊 Loaded video tensor: {tuple(video.shape)} (T,H,W,C) - limited to {max_frames} frames")
             return video
             
         except Exception as e:
@@ -1607,22 +1612,36 @@ class WanVideoPipeline:
             return None
 
     def load_image(self, image_path: str) -> Optional[torch.Tensor]:
-        """Load reference image from path as float tensor (1, H, W, 3) in [0,1]"""
+        """Load reference image from path as float tensor (1, H, W, 3) in [0,1] - ComfyUI compatible"""
         if not image_path or not os.path.exists(image_path):
             print(f"Warning: Image file not found: {image_path}")
             return None
         
         try:
-            from PIL import Image
+            from PIL import Image, ImageOps
             import numpy as np
             print(f"   🖼️  Loading image from: {image_path}")
             
-            img = Image.open(image_path).convert('RGB')
-            arr = np.asarray(img).astype('float32') / 255.0
+            # Load image using ComfyUI-compatible method (exact match to ComfyUI LoadImage)
+            img = Image.open(image_path)
             
-            # Add time dimension: (H,W,3) -> (1,H,W,3)
-            tensor = torch.from_numpy(arr).unsqueeze(0)
-            print(f"   📊 Loaded image tensor: {tuple(tensor.shape)} (1,H,W,3)")
+            # Apply EXIF handling like ComfyUI LoadImage (exact match)
+            img = ImageOps.exif_transpose(img)
+            
+            # Handle special image modes like ComfyUI LoadImage (exact match)
+            if img.mode == 'I':
+                img = img.point(lambda i: i * (1 / 255))
+            
+            # Convert to RGB
+            img = img.convert('RGB')
+            
+            # Convert to numpy array and normalize
+            arr = np.array(img).astype(np.float32) / 255.0
+            
+            # Add batch dimension using ComfyUI-compatible method (exact match)
+            tensor = torch.from_numpy(arr)[None,]  # Use [None,] like ComfyUI LoadImage
+            
+            print(f"   📊 Loaded image tensor: {tuple(tensor.shape)} (1,H,W,3) - ComfyUI compatible")
             return tensor
             
         except Exception as e:
