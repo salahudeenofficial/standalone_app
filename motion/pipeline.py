@@ -205,6 +205,41 @@ def _get_tensor_memory(tensor):
     else:
         return 0
 
+def common_upscale(samples, width, height, upscale_method, crop):
+    """
+    ComfyUI-compatible common_upscale function
+    Borrowed from ComfyUI comfy/utils.py to ensure identical processing
+    """
+    orig_shape = tuple(samples.shape)
+    if len(orig_shape) > 4:
+        samples = samples.reshape(samples.shape[0], samples.shape[1], -1, samples.shape[-2], samples.shape[-1])
+        samples = samples.movedim(2, 1)
+        samples = samples.reshape(-1, orig_shape[1], orig_shape[-2], orig_shape[-1])
+    
+    if crop == "center":
+        old_width = samples.shape[-1]
+        old_height = samples.shape[-2]
+        old_aspect = old_width / old_height
+        new_aspect = width / height
+        x = 0
+        y = 0
+        if old_aspect > new_aspect:
+            x = round((old_width - old_width * (new_aspect / old_aspect)) / 2)
+        elif old_aspect < new_aspect:
+            y = round((old_height - old_height * (old_aspect / new_aspect)) / 2)
+        s = samples.narrow(-2, y, old_height - y * 2).narrow(-1, x, old_width - x * 2)
+    else:
+        s = samples
+
+    # Use torch.nn.functional.interpolate for bilinear (ComfyUI default)
+    out = torch.nn.functional.interpolate(s, size=(height, width), mode=upscale_method)
+
+    if len(orig_shape) == 4:
+        return out
+
+    out = out.reshape((orig_shape[0], -1, orig_shape[1]) + (height, width))
+    return out.movedim(2, 1).reshape(orig_shape[:-2] + (height, width))
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
@@ -383,20 +418,22 @@ class WanVideoPipeline:
             if reference_image_path and os.path.exists(reference_image_path):
                 reference_image = self.load_image(reference_image_path)
             
-            # Prepare control video for encoding
-            if control_video.shape[0] < length:
-                padding = torch.full((length - control_video.shape[0], height, width, 3), 0.5)
-                control_video = torch.cat([control_video, padding], dim=0)
-            elif control_video.shape[0] > length:
-                control_video = control_video[:length]
-            
-            # Resize to target dimensions
-            if control_video.shape[1] != height or control_video.shape[2] != width:
-                control_video = control_video.permute(0, 3, 1, 2)
-                control_video = torch.nn.functional.interpolate(
-                    control_video, size=(height, width), mode='bilinear', align_corners=False
-                )
-                control_video = control_video.permute(0, 2, 3, 1)
+            # Process control video using ComfyUI-compatible method
+            if control_video is not None:
+                # Use ComfyUI's common_upscale with movedim (exact match to WanVaceToVideo)
+                control_video = common_upscale(
+                    control_video[:length].movedim(-1, 1), 
+                    width, height, "bilinear", "center"
+                ).movedim(1, -1)
+                
+                # Use ComfyUI's padding method (exact match to WanVaceToVideo)
+                if control_video.shape[0] < length:
+                    control_video = torch.nn.functional.pad(
+                        control_video, (0, 0, 0, 0, 0, 0, 0, length - control_video.shape[0]), 
+                        value=0.5
+                    )
+            else:
+                control_video = torch.ones((length, height, width, 3)) * 0.5
             
             # Continue with encoding
             return self._step_1_continue_encoding(control_video, reference_image, 
@@ -412,7 +449,7 @@ class WanVideoPipeline:
     def _step_1_continue_encoding(self, control_video, reference_image, width, height, length, batch_size, start_time, positive_prompt, negative_prompt, strength):
         """Continue Step 1 VAE encoding process"""
         
-        # Create control mask (full mask by default)
+        # Create control mask using ComfyUI-compatible method (exact match to WanVaceToVideo)
         mask = torch.ones((length, height, width, 1), device=control_video.device)
         
         # Split control video by mask
@@ -426,22 +463,20 @@ class WanVideoPipeline:
             reactive_latent = self.vae.encode(reactive[:, :, :, :3])
             control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
         
-        # Process reference image
+        # Process reference image using ComfyUI-compatible method
         reference_image_latent = None
         if reference_image is not None:
-            # Resize reference image to target dimensions
-            if reference_image.shape[1] != height or reference_image.shape[2] != width:
-                reference_image = reference_image.permute(0, 3, 1, 2)
-                reference_image = torch.nn.functional.interpolate(
-                    reference_image, size=(height, width), mode='bilinear', align_corners=False
-                )
-                reference_image = reference_image.permute(0, 2, 3, 1)
+            # Use ComfyUI's common_upscale with movedim (exact match to WanVaceToVideo)
+            reference_image = common_upscale(
+                reference_image[:1].movedim(-1, 1), 
+                width, height, "bilinear", "center"
+            ).movedim(1, -1)
             
             # Encode reference image
             with torch.no_grad():
                 reference_image_latent = self.vae.encode(reference_image[:, :, :, :3])
             
-            # Add motion latent channels (WAN format)
+            # Add motion latent channels (WAN format) - exact match to ComfyUI
             try:
                 from wan_latent_format import Wan21_LatentFormat
                 wan21_format = Wan21_LatentFormat()
@@ -450,7 +485,7 @@ class WanVideoPipeline:
             except ImportError:
                 pass  # Use standard format
         
-        # Create final initial latent
+        # Create final initial latent using ComfyUI-compatible method (exact match to WanVaceToVideo)
         vae_stride = 8
         latent_height = height // vae_stride
         latent_width = width // vae_stride
@@ -459,12 +494,11 @@ class WanVideoPipeline:
         # Start with control video latent
         initial_latent = control_video_latent
         
-        # Add reference image if provided
+        # Add reference image if provided (exact match to ComfyUI)
         if reference_image_latent is not None:
             initial_latent = torch.cat((reference_image_latent, control_video_latent), dim=2)
-            latent_length += reference_image_latent.shape[2]
         
-        # Create control mask in latent space
+        # Create control mask in latent space using ComfyUI-compatible method (exact match to WanVaceToVideo)
         height_mask = height // vae_stride
         width_mask = width // vae_stride
         
@@ -472,28 +506,26 @@ class WanVideoPipeline:
         mask_latent = mask_latent.permute(2, 4, 0, 1, 3)
         mask_latent = mask_latent.reshape(vae_stride * vae_stride, length, height_mask, width_mask)
         
-        # Interpolate mask to latent temporal resolution
+        # Interpolate mask to latent temporal resolution using ComfyUI method
         mask_latent = torch.nn.functional.interpolate(
             mask_latent.unsqueeze(0), 
             size=(latent_length, height_mask, width_mask), 
             mode='nearest-exact'
         ).squeeze(0)
         
-        # Handle reference image mask padding
+        # Handle reference image mask padding using ComfyUI method
         if reference_image_latent is not None:
-            ref_frames = reference_image_latent.shape[2]
-            mask_pad = torch.zeros_like(mask_latent[:, :ref_frames, :, :])
+            mask_pad = torch.zeros_like(mask_latent[:, :reference_image_latent.shape[2], :, :])
             mask_latent = torch.cat((mask_pad, mask_latent), dim=1)
+            latent_length += reference_image_latent.shape[2]
         
         mask_latent = mask_latent.unsqueeze(0)  # Add batch dimension
         
-        # Setup VACE Conditioning (ComfyUI-style structure)
-        
-        # Create ComfyUI-style conditioning structure directly
-        # Format: [text_tensor, {"pooled_output": None, "vace_frames": [...], "vace_mask": [...], "vace_strength": [...]}]
-        # For now, we'll create empty text tensor placeholders that will be replaced in Step 3
+        # Setup VACE Conditioning using ComfyUI-compatible method (exact match to WanVaceToVideo)
+        # Create empty conditioning structures that will be populated with VACE data
         empty_text_tensor = torch.zeros([1, 77, 4096], device=self.device, dtype=torch.float32)
         
+        # Use ComfyUI's conditioning_set_values equivalent structure
         positive = [
             empty_text_tensor,  # Placeholder - will be replaced with actual text encoding in Step 3
             {
@@ -517,17 +549,12 @@ class WanVideoPipeline:
         # Mark step complete and return results
         self.step_completed[1] = True
         
-        # Create WAN-format output latent
-        if hasattr(self.vae, 'latent_channels'):
-            output_channels = self.vae.latent_channels
-        else:
-            output_channels = 16  # Default for WAN VAE
-        
-        output_latent = torch.zeros([batch_size, output_channels, latent_length, latent_height, latent_width], 
+        # Create WAN-format output latent using ComfyUI-compatible method (exact match to WanVaceToVideo)
+        output_latent = torch.zeros([batch_size, 16, latent_length, latent_height, latent_width], 
                                    device=self.device, dtype=self.vae.vae_dtype)
         out_latent = {"samples": output_latent}
         
-        # Calculate trim_latent
+        # Calculate trim_latent using ComfyUI method (exact match to WanVaceToVideo)
         trim_latent = reference_image_latent.shape[2] if reference_image_latent is not None else 0
         
         # Return results
@@ -548,7 +575,7 @@ class WanVideoPipeline:
             },
             'latent_dimensions': {
                 'batch_size': batch_size,
-                'channels': output_channels,
+                'channels': 16,  # Fixed to match ComfyUI WanVaceToVideo
                 'length': latent_length,
                 'height': latent_height,
                 'width': latent_width
