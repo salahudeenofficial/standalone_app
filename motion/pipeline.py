@@ -487,37 +487,32 @@ class WanVideoPipeline:
         
         mask_latent = mask_latent.unsqueeze(0)  # Add batch dimension
         
-        # Setup VACE Conditioning
+        # Setup VACE Conditioning (ComfyUI-style structure)
         
-        try:
-            from conditioning_utils import create_empty_conditioning, conditioning_set_values
-            
-            positive = create_empty_conditioning(device=self.device)
-            negative = create_empty_conditioning(device=self.device)
-            
-            vace_conditioning_values = {
+        # Create ComfyUI-style conditioning structure directly
+        # Format: [text_tensor, {"pooled_output": None, "vace_frames": [...], "vace_mask": [...], "vace_strength": [...]}]
+        # For now, we'll create empty text tensor placeholders that will be replaced in Step 3
+        empty_text_tensor = torch.zeros([1, 77, 4096], device=self.device, dtype=torch.float32)
+        
+        positive = [
+            empty_text_tensor,  # Placeholder - will be replaced with actual text encoding in Step 3
+            {
+                "pooled_output": None,
                 "vace_frames": [initial_latent],
                 "vace_mask": [mask_latent], 
                 "vace_strength": [strength]
             }
-            
-            positive = conditioning_set_values(positive, vace_conditioning_values, append=True)
-            negative = conditioning_set_values(negative, vace_conditioning_values, append=True)
-            
-        except ImportError:
-            # Fallback: Create simplified conditioning structure
-            positive = {
-                "prompt": positive_prompt,
-                "vace_frames": initial_latent,
-                "vace_mask": mask_latent,
-                "vace_strength": strength
+        ]
+        
+        negative = [
+            empty_text_tensor,  # Placeholder - will be replaced with actual text encoding in Step 3
+            {
+                "pooled_output": None,
+                "vace_frames": [initial_latent],
+                "vace_mask": [mask_latent], 
+                "vace_strength": [strength]
             }
-            negative = {
-                "prompt": negative_prompt,
-                "vace_frames": initial_latent,
-                "vace_mask": mask_latent,
-                "vace_strength": strength
-            }
+        ]
         
         # Mark step complete and return results
         self.step_completed[1] = True
@@ -949,30 +944,17 @@ class WanVideoPipeline:
                 else:
                     text_negative_tensor = text_negative_cond
                 
-                # Create combined conditioning by copying VACE structure and replacing text tensor
-                positive_cond = []
-                for item in vace_positive_conditioning:
-                    if isinstance(item, dict):
-                        # Copy the VACE conditioning dict and update with text tensor
-                        combined_item = item.copy()
-                        combined_item[0] = text_positive_tensor  # Replace text tensor
-                        positive_cond.append(combined_item)
-                    else:
-                        # Direct tensor replacement
-                        positive_cond.append(text_positive_tensor)
+                # VACE conditioning should already be in ComfyUI-style list format from Step 1
+                # Just replace the text tensor (first element) with the actual encoded text
+                positive_cond = vace_positive_conditioning.copy()
+                positive_cond[0] = text_positive_tensor
                 
-                negative_cond = []
-                for item in vace_negative_conditioning:
-                    if isinstance(item, dict):
-                        # Copy the VACE conditioning dict and update with text tensor
-                        combined_item = item.copy()
-                        combined_item[0] = text_negative_tensor  # Replace text tensor
-                        negative_cond.append(combined_item)
-                    else:
-                        # Direct tensor replacement
-                        negative_cond.append(text_negative_tensor)
+                negative_cond = vace_negative_conditioning.copy()
+                negative_cond[0] = text_negative_tensor
                 
                 print("   ✅ VACE conditioning preserved and combined with text encoding")
+                print(f"   📊 Positive conditioning structure: {len(positive_cond)} items")
+                print(f"   📊 Negative conditioning structure: {len(negative_cond)} items")
             else:
                 # No VACE conditioning provided, use text-only conditioning
                 print("   ⚠️  No VACE conditioning provided, using text-only conditioning")
