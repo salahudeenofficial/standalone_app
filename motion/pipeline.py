@@ -34,6 +34,177 @@ from text_encoder import CLIPTextEncode
 from standalone_ksampler import StandaloneKSampler, prepare_noise
 from memory_utils import safe_model_to_device, log_memory_usage, clear_cuda_memory, get_memory_info, safe_model_to_device_advanced
 
+def analyze_ksampler_inputs(positive_conditioning, negative_conditioning, initial_latent):
+    """
+    Analyze K-Sampler inputs in detail
+    
+    Args:
+        positive_conditioning: Positive conditioning with VACE
+        negative_conditioning: Negative conditioning with VACE  
+        initial_latent: Initial latent tensor or dict with 'samples'
+    """
+    print("\n🎯 K-SAMPLER INPUT ANALYSIS:")
+    print("   📋 Analyzing inputs that will be used by K-Sampler:")
+    print()
+    
+    total_tensors = 0
+    total_memory = 0
+    
+    # Analyze positive conditioning
+    print("   📋 Positive Conditioning (K-Sampler input):")
+    pos_tensors, pos_memory = _analyze_conditioning(positive_conditioning, "positive")
+    total_tensors += pos_tensors
+    total_memory += pos_memory
+    print()
+    
+    # Analyze negative conditioning  
+    print("   📋 Negative Conditioning (K-Sampler input):")
+    neg_tensors, neg_memory = _analyze_conditioning(negative_conditioning, "negative")
+    total_tensors += neg_tensors
+    total_memory += neg_memory
+    print()
+    
+    # Analyze latent image
+    print("   📋 Latent Image (K-Sampler input):")
+    lat_tensors, lat_memory = _analyze_latent_image(initial_latent)
+    total_tensors += lat_tensors
+    total_memory += lat_memory
+    print()
+    
+    print(f"   ✅ K-Sampler inputs analyzed successfully")
+
+def _analyze_conditioning(conditioning, name):
+    """Analyze conditioning structure in detail"""
+    tensor_count = 0
+    total_memory = 0
+    
+    if isinstance(conditioning, list):
+        print(f"      Type: list")
+        print(f"      List length: {len(conditioning)}")
+        
+        for i, item in enumerate(conditioning):
+            if hasattr(item, 'shape'):
+                # This is a tensor
+                tensor_count += 1
+                memory = _get_tensor_memory(item)
+                total_memory += memory
+                
+                print(f"          Tensor {tensor_count}:")
+                _print_tensor_info(item, memory, indent="            ")
+                
+            elif isinstance(item, dict):
+                # This is a dictionary, analyze each key
+                for key, value in item.items():
+                    print(f"          Key '{key}': {type(value).__name__}")
+                    if hasattr(value, 'shape'):
+                        # Direct tensor
+                        tensor_count += 1
+                        memory = _get_tensor_memory(value)
+                        total_memory += memory
+                        
+                        print(f"            -> Tensor with shape {value.shape}")
+                        print(f"                Tensor {tensor_count}:")
+                        _print_tensor_info(value, memory, indent="                  ")
+                        
+                    elif isinstance(value, list):
+                        print(f"            -> Contains {len(value)} items")
+                        for j, list_item in enumerate(value):
+                            if hasattr(list_item, 'shape'):
+                                tensor_count += 1
+                                memory = _get_tensor_memory(list_item)
+                                total_memory += memory
+                                
+                                print(f"              Item {j}: Tensor with shape {list_item.shape}")
+                                print(f"                Tensor {tensor_count}:")
+                                _print_tensor_info(list_item, memory, indent="                  ")
+                            elif isinstance(list_item, (int, float, str)):
+                                print(f"              Item {j}: {type(list_item).__name__} = {list_item}")
+                                if j >= 2:  # Limit output for long lists
+                                    print(f"              ... (and {len(value) - j - 1} more items)")
+                                    break
+                    elif value is None:
+                        print(f"            -> None")
+                    else:
+                        print(f"            -> {type(value).__name__}")
+            else:
+                print(f"          Item {i}: {type(item).__name__}")
+    
+    elif isinstance(conditioning, dict):
+        print(f"      Type: dict")
+        print(f"      Dict keys: {list(conditioning.keys())}")
+        # Similar analysis for dict case...
+    
+    else:
+        print(f"      Type: {type(conditioning).__name__}")
+    
+    print(f"      Total tensors found: {tensor_count}")
+    print(f"      Total memory: {total_memory / (1024**2):.2f} MB")
+    
+    if tensor_count == 3:  # Expected: text + VACE frames + VACE mask
+        print(f"      ✅ VERIFIED: 3 tensors found (text + VACE frames + VACE mask)")
+    else:
+        print(f"      ⚠️  Expected 3 tensors, found {tensor_count}")
+    
+    return tensor_count, total_memory
+
+def _analyze_latent_image(latent_image):
+    """Analyze latent image structure"""
+    tensor_count = 0
+    total_memory = 0
+    
+    if isinstance(latent_image, dict):
+        print(f"      Type: dict")
+        print(f"      Dict keys: {list(latent_image.keys())}")
+        
+        if 'samples' in latent_image:
+            samples = latent_image['samples']
+            print(f"      Samples type: {type(samples).__name__}")
+            
+            if hasattr(samples, 'shape'):
+                tensor_count = 1
+                memory = _get_tensor_memory(samples)
+                total_memory = memory
+                
+                _print_tensor_info(samples, memory, indent="      ")
+    
+    elif hasattr(latent_image, 'shape'):
+        print(f"      Type: Tensor")
+        tensor_count = 1
+        memory = _get_tensor_memory(latent_image)
+        total_memory = memory
+        
+        _print_tensor_info(latent_image, memory, indent="      ")
+    
+    else:
+        print(f"      Type: {type(latent_image).__name__}")
+    
+    return tensor_count, total_memory
+
+def _print_tensor_info(tensor, memory, indent=""):
+    """Print detailed tensor information"""
+    print(f"{indent}Shape: {tensor.shape}")
+    print(f"{indent}Dtype: {tensor.dtype}")
+    print(f"{indent}Device: {tensor.device}")
+    print(f"{indent}Memory: {memory / (1024**2):.2f} MB")
+    
+    # Get value range and mean
+    min_val = tensor.min().item()
+    max_val = tensor.max().item()
+    mean_val = tensor.mean().item()
+    print(f"{indent}Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
+    
+    # Get first 5 values (flattened)
+    flat_tensor = tensor.flatten()
+    first_values = [f"{flat_tensor[i].item():.4f}" for i in range(min(5, len(flat_tensor)))]
+    print(f"{indent}First 5 values: {first_values}")
+
+def _get_tensor_memory(tensor):
+    """Calculate tensor memory usage in bytes"""
+    if hasattr(tensor, 'numel') and hasattr(tensor, 'element_size'):
+        return tensor.numel() * tensor.element_size()
+    else:
+        return 0
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
@@ -190,105 +361,46 @@ class WanVideoPipeline:
         print("="*80)
         
         try:
-            # ========================================================================
-            # 1.1: Load WAN VAE Model (ComfyUI-style)
-            # ========================================================================
-            print("1.1 Loading WAN VAE model with ComfyUI-style implementation...")
-            start_time = time.time()
-            
             # Load VAE state dict
             vae_state_dict = load_torch_file(vae_model_path)
-            print(f"   📊 Loaded VAE state dict with {len(vae_state_dict)} keys")
             
             # Create VAE instance using ComfyUI-style implementation
-            # This follows the exact same pattern as ComfyUI's VAE class initialization
             self.vae = create_vae(state_dict=vae_state_dict, device=self.device)
             
-            load_time = time.time() - start_time
-            print(f"✅ VAE loaded successfully in {load_time:.2f}s")
-            print(f"   Type: {type(self.vae.first_stage_model).__name__}")
-            print(f"   Latent channels: {self.vae.latent_channels}")
-            print(f"   Latent dimension: {self.vae.latent_dim}")
-            print(f"   Downscale ratio: {self.vae.downscale_ratio}")
-            print(f"   Upscale ratio: {self.vae.upscale_ratio}")
-            print(f"   Device: {self.vae.device}")
-            print(f"   VAE dtype: {self.vae.vae_dtype}")
-            print(f"   Working dtypes: {self.vae.working_dtypes}")
-            
-            # Calculate VAE model size
-            if hasattr(self.vae.first_stage_model, 'parameters'):
-                vae_params = calculate_parameters(dict(self.vae.first_stage_model.named_parameters()))
-                print(f"   Parameters: {vae_params:,}")
-                print(f"   Size: {vae_params * 4 / (1024*1024):.1f} MB")
-            
-            # Verify VAE is properly initialized (ComfyUI-style validation)
+            # Verify VAE is properly initialized
             self.vae.throw_exception_if_invalid()
-            print(f"   ✅ VAE validation passed")
             
-            # ========================================================================
-            # 1.2: Load Control Video
-            # ========================================================================
-            print("\n1.2 Loading control video...")
+            # Load control video
             control_video = None
             if control_video_path and os.path.exists(control_video_path):
                 control_video = self.load_video(control_video_path)
-                if control_video is not None:
-                    print(f"   ✅ Control video loaded: {control_video.shape}")
-                    print(f"   Range: [{control_video.min():.3f}, {control_video.max():.3f}]")
-                else:
-                    print("   ❌ Failed to load control video")
             else:
-                print("   ⚠️  No control video path specified or file not found")
-                # For testing, create dummy control video
-                print("   🎯 Creating dummy control video for testing...")
+                # Create dummy control video for testing
                 control_video = torch.rand(length, height, width, 3)
-                print(f"   📊 Dummy control video shape: {control_video.shape}")
             
-            # ========================================================================
-            # 1.3: Load Reference Image  
-            # ========================================================================
-            print("\n1.3 Loading reference image...")
+            # Load reference image
             reference_image = None
             if reference_image_path and os.path.exists(reference_image_path):
                 reference_image = self.load_image(reference_image_path)
-                if reference_image is not None:
-                    print(f"   ✅ Reference image loaded: {reference_image.shape}")
-                    print(f"   Range: [{reference_image.min():.3f}, {reference_image.max():.3f}]")
-                else:
-                    print("   ❌ Failed to load reference image")
-            else:
-                print("   ⚠️  No reference image path specified - will proceed without reference")
             
-            # ========================================================================
-            # 1.4: Prepare Control Video for Encoding
-            # ========================================================================
-            print("\n1.4 Preparing control video for VAE encoding...")
-            
-            # Ensure control video has correct dimensions
+            # Prepare control video for encoding
             if control_video.shape[0] < length:
-                print(f"   📏 Padding control video from {control_video.shape[0]} to {length} frames")
                 padding = torch.full((length - control_video.shape[0], height, width, 3), 0.5)
                 control_video = torch.cat([control_video, padding], dim=0)
             elif control_video.shape[0] > length:
-                print(f"   ✂️  Trimming control video from {control_video.shape[0]} to {length} frames")
                 control_video = control_video[:length]
             
-            # Resize to target dimensions using simple interpolation
+            # Resize to target dimensions
             if control_video.shape[1] != height or control_video.shape[2] != width:
-                print(f"   🔄 Resizing control video from {control_video.shape[1]}x{control_video.shape[2]} to {height}x{width}")
-                # Reshape for interpolation: (T,H,W,C) -> (T,C,H,W)
                 control_video = control_video.permute(0, 3, 1, 2)
                 control_video = torch.nn.functional.interpolate(
                     control_video, size=(height, width), mode='bilinear', align_corners=False
                 )
-                # Reshape back: (T,C,H,W) -> (T,H,W,C)
                 control_video = control_video.permute(0, 2, 3, 1)
             
-            print(f"   📊 Final control video shape: {control_video.shape}")
-            
-            # Continue in next part...
+            # Continue with encoding
             return self._step_1_continue_encoding(control_video, reference_image, 
-                                                width, height, length, batch_size, start_time,
+                                                width, height, length, batch_size, time.time(),
                                                 positive_prompt, negative_prompt, strength)
             
         except Exception as e:
@@ -300,154 +412,62 @@ class WanVideoPipeline:
     def _step_1_continue_encoding(self, control_video, reference_image, width, height, length, batch_size, start_time, positive_prompt, negative_prompt, strength):
         """Continue Step 1 VAE encoding process"""
         
-        # ========================================================================
-        # 1.5: Create Control Mask (Full mask by default)
-        # ========================================================================
-        print("\n1.5 Creating control mask...")
-        
-        # Create full mask (all pixels controlled)
+        # Create control mask (full mask by default)
         mask = torch.ones((length, height, width, 1), device=control_video.device)
-        print(f"   📊 Control mask shape: {mask.shape}")
         
-        # Split control video by mask (following WAN VAE-to-Video logic)
+        # Split control video by mask
         control_video = control_video - 0.5  # Center around 0
         inactive = (control_video * (1 - mask)) + 0.5  # Inactive regions
         reactive = (control_video * mask) + 0.5        # Active/controlled regions
         
-        print(f"   📊 Split into inactive: {inactive.shape}, reactive: {reactive.shape}")
-        
-        # ========================================================================
-        # 1.6: VAE Encoding of Control Video (ComfyUI-style)
-        # ========================================================================
-        print("\n1.6 Encoding control video with ComfyUI-style VAE...")
-        encoding_start = time.time()
-        
-        # ComfyUI-style VAE encoding with proper memory management
+        # VAE encoding of control video
         with torch.no_grad():
-            # Encode inactive and reactive parts separately (following ComfyUI pattern)
-            print("   🔄 Encoding inactive part with ComfyUI-style VAE...")
-            
-            # Prepare inactive frames for encoding (ComfyUI format: [F,H,W,C])
-            inactive_frames = inactive[:, :, :, :3]  # Remove alpha channel if present
-            print(f"   📊 Inactive frames shape: {inactive_frames.shape}")
-            
-            # ComfyUI-style encoding with automatic memory management
-            inactive_latent = self.vae.encode(inactive_frames)
-            print(f"   📊 Inactive latent shape: {inactive_latent.shape}")
-            
-            print("   🔄 Encoding reactive part...")
+            inactive_latent = self.vae.encode(inactive[:, :, :, :3])
             reactive_latent = self.vae.encode(reactive[:, :, :, :3])
-            print(f"   📊 Reactive latent shape: {reactive_latent.shape}")
-            print(f"   📊 Reactive latent device: {reactive_latent.device}")
-            print(f"   📊 Reactive latent dtype: {reactive_latent.dtype}")
-            
-            # Combine latents (ComfyUI-style concatenation)
             control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
-            print(f"   📊 Combined control latent shape: {control_video_latent.shape}")
-            print(f"   📊 Combined latent device: {control_video_latent.device}")
-            print(f"   📊 Combined latent dtype: {control_video_latent.dtype}")
         
-        encoding_time = time.time() - encoding_start
-        print(f"✅ Control video encoded in {encoding_time:.2f}s")
-        print(f"   🎯 ComfyUI-style VAE encoding completed successfully")
-        
-        # ========================================================================
-        # 1.7: Process Reference Image (ComfyUI-style)
-        # ========================================================================
+        # Process reference image
         reference_image_latent = None
         if reference_image is not None:
-            print("\n1.7 Processing reference image with ComfyUI-style VAE...")
-            
-            # Resize reference image to target dimensions (ComfyUI-style preprocessing)
+            # Resize reference image to target dimensions
             if reference_image.shape[1] != height or reference_image.shape[2] != width:
-                print(f"   🔄 Resizing reference image to {height}x{width}")
-                # Reshape for interpolation: (1,H,W,C) -> (1,C,H,W)
                 reference_image = reference_image.permute(0, 3, 1, 2)
                 reference_image = torch.nn.functional.interpolate(
                     reference_image, size=(height, width), mode='bilinear', align_corners=False
                 )
-                # Reshape back: (1,C,H,W) -> (1,H,W,C)
                 reference_image = reference_image.permute(0, 2, 3, 1)
             
-            # ComfyUI-style reference image encoding
+            # Encode reference image
             with torch.no_grad():
-                print("   🔄 Encoding reference image with ComfyUI-style VAE...")
-                
-                # Prepare reference image for encoding (ComfyUI format: [F,H,W,C])
-                reference_frames = reference_image[:, :, :, :3]  # Remove alpha channel if present
-                print(f"   📊 Reference frames shape: {reference_frames.shape}")
-                
-                # ComfyUI-style encoding with automatic memory management
-                reference_image_latent = self.vae.encode(reference_frames)
-                print(f"   📊 Reference image latent shape: {reference_image_latent.shape}")
-                print(f"   📊 Reference latent device: {reference_image_latent.device}")
-                print(f"   📊 Reference latent dtype: {reference_image_latent.dtype}")
+                reference_image_latent = self.vae.encode(reference_image[:, :, :, :3])
             
-            # Add motion latent channels (WAN format) - like WanVaceToVideo node
+            # Add motion latent channels (WAN format)
             try:
                 from wan_latent_format import Wan21_LatentFormat
                 wan21_format = Wan21_LatentFormat()
                 motion_channels = wan21_format.process_out(torch.zeros_like(reference_image_latent))
                 reference_image_latent = torch.cat([reference_image_latent, motion_channels], dim=1)
-                print(f"   📊 Reference with WAN motion channels: {reference_image_latent.shape}")
             except ImportError:
-                print("   ⚠️  WAN latent format not available, using standard latent format")
-                print(f"   📊 Reference image latent (standard format): {reference_image_latent.shape}")
+                pass  # Use standard format
         
-        # ========================================================================
-        # 1.8: Create Final Initial Latent and Results (ComfyUI-style)
-        # ========================================================================
-        print("\n1.8 Creating final initial latent with ComfyUI-style processing...")
+        # Create final initial latent
+        vae_stride = 8
+        latent_height = height // vae_stride
+        latent_width = width // vae_stride
+        latent_length = ((length - 1) // 4) + 1
         
-        # Calculate latent dimensions using ComfyUI-style downscale ratio
-        downscale_ratio = self.vae.spacial_compression_encode()
-        print(f"   📊 VAE downscale ratio: {downscale_ratio}")
-        
-        latent_height = height // downscale_ratio
-        latent_width = width // downscale_ratio
-        
-        # For WAN VAE, calculate temporal compression
-        if hasattr(self.vae, 'latent_dim') and self.vae.latent_dim == 3:
-            # WAN VAE uses temporal compression
-            temporal_compression = 4  # WAN VAE typically compresses by 4x temporally
-            latent_length = ((length - 1) // temporal_compression) + 1
-            print(f"   📊 WAN VAE temporal compression: {temporal_compression}x")
-        else:
-            latent_length = length
-            print(f"   📊 Standard VAE temporal compression: 1x")
-        
-        print(f"   📊 Calculated latent dimensions:")
-        print(f"      Height: {height} → {latent_height} ({downscale_ratio}x downscale)")
-        print(f"      Width: {width} → {latent_width} ({downscale_ratio}x downscale)")
-        print(f"      Length: {length} → {latent_length}")
-        
-        # Start with control video latent (ComfyUI-style)
+        # Start with control video latent
         initial_latent = control_video_latent
-        print(f"   📊 Control video latent shape: {initial_latent.shape}")
         
-        # Add reference image if provided (ComfyUI-style concatenation)
+        # Add reference image if provided
         if reference_image_latent is not None:
-            print("   🔗 Concatenating reference image to control latent (ComfyUI-style)...")
             initial_latent = torch.cat((reference_image_latent, control_video_latent), dim=2)
-            print(f"   📊 Latent with reference: {initial_latent.shape}")
-            print(f"   📊 Combined latent device: {initial_latent.device}")
-            print(f"   📊 Combined latent dtype: {initial_latent.dtype}")
+            latent_length += reference_image_latent.shape[2]
         
-        print(f"✅ Final initial latent shape: {initial_latent.shape}")
-        print(f"   🎯 ComfyUI-style latent creation completed successfully")
-        
-        # Create control mask in latent space (ComfyUI-style)
-        print("\n1.9 Creating control mask in latent space (ComfyUI-style)...")
-        
-        # Use ComfyUI-style downscale ratio for mask processing
-        vae_stride = downscale_ratio
+        # Create control mask in latent space
         height_mask = height // vae_stride
         width_mask = width // vae_stride
         
-        print(f"   📊 Mask processing with VAE stride: {vae_stride}")
-        print(f"   📊 Mask dimensions: {height}x{width} → {height_mask}x{width_mask}")
-        
-        # ComfyUI-style mask processing
         mask_latent = mask.view(length, height_mask, vae_stride, width_mask, vae_stride)
         mask_latent = mask_latent.permute(2, 4, 0, 1, 3)
         mask_latent = mask_latent.reshape(vae_stride * vae_stride, length, height_mask, width_mask)
@@ -459,62 +479,32 @@ class WanVideoPipeline:
             mode='nearest-exact'
         ).squeeze(0)
         
-        # Handle reference image mask padding (ComfyUI-style)
+        # Handle reference image mask padding
         if reference_image_latent is not None:
             ref_frames = reference_image_latent.shape[2]
             mask_pad = torch.zeros_like(mask_latent[:, :ref_frames, :, :])
             mask_latent = torch.cat((mask_pad, mask_latent), dim=1)
-            latent_length += ref_frames  # Update latent_length like WanVaceToVideo
-            print(f"   📊 Added reference mask padding: {ref_frames} frames")
         
         mask_latent = mask_latent.unsqueeze(0)  # Add batch dimension
-        print(f"   📊 Final mask latent shape: {mask_latent.shape}")
-        print(f"   📊 Mask latent device: {mask_latent.device}")
-        print(f"   📊 Mask latent dtype: {mask_latent.dtype}")
         
-        # ========================================================================
-        # 1.10: Setup VACE Conditioning (ComfyUI-style)
-        # ========================================================================
-        print("\n1.10 Setting up VACE conditioning (ComfyUI-style)...")
+        # Setup VACE Conditioning
         
-        # Import conditioning utilities (ComfyUI-style)
         try:
-            from conditioning_utils import create_empty_conditioning, conditioning_set_values, print_conditioning_info
+            from conditioning_utils import create_empty_conditioning, conditioning_set_values
             
-            # Create initial conditioning from prompts (ComfyUI-style)
             positive = create_empty_conditioning(device=self.device)
             negative = create_empty_conditioning(device=self.device)
             
-            print(f"   📝 Initial positive prompt: '{positive_prompt}'")
-            print(f"   📝 Initial negative prompt: '{negative_prompt}'")
-            
-            # Apply VACE conditioning exactly like WanVaceToVideo node (ComfyUI-style)
             vace_conditioning_values = {
                 "vace_frames": [initial_latent],
                 "vace_mask": [mask_latent], 
                 "vace_strength": [strength]
             }
             
-            print(f"   🔧 Applying VACE conditioning with strength: {strength}")
-            print(f"   📊 VACE frames shape: {initial_latent.shape}")
-            print(f"   📊 VACE mask shape: {mask_latent.shape}")
-            print(f"   📊 VACE frames device: {initial_latent.device}")
-            print(f"   📊 VACE mask device: {mask_latent.device}")
-            
-            # Set conditioning values (append=True like WanVaceToVideo)
             positive = conditioning_set_values(positive, vace_conditioning_values, append=True)
             negative = conditioning_set_values(negative, vace_conditioning_values, append=True)
             
-            # Debug conditioning info (ComfyUI-style)
-            print_conditioning_info(positive, "Positive")
-            print_conditioning_info(negative, "Negative")
-            
-            print("✅ VACE conditioning setup complete (ComfyUI-style)")
-            
-        except ImportError as e:
-            print(f"   ⚠️  Conditioning utilities not available: {e}")
-            print("   🔧 Creating simplified conditioning structure...")
-            
+        except ImportError:
             # Fallback: Create simplified conditioning structure
             positive = {
                 "prompt": positive_prompt,
@@ -528,48 +518,29 @@ class WanVideoPipeline:
                 "vace_mask": mask_latent,
                 "vace_strength": strength
             }
-            
-            print("✅ Simplified VACE conditioning setup complete")
         
         # Mark step complete and return results
         self.step_completed[1] = True
         
-        # Create WAN-format output latent (ComfyUI-style)
-        print("\n1.11 Creating final output latent (ComfyUI-style)...")
-        
-        # Determine output latent channels based on VAE configuration
+        # Create WAN-format output latent
         if hasattr(self.vae, 'latent_channels'):
             output_channels = self.vae.latent_channels
         else:
             output_channels = 16  # Default for WAN VAE
         
-        print(f"   📊 Output latent channels: {output_channels}")
-        print(f"   📊 Final latent dimensions: [{batch_size}, {output_channels}, {latent_length}, {latent_height}, {latent_width}]")
-        
-        # Create output latent tensor (ComfyUI-style)
         output_latent = torch.zeros([batch_size, output_channels, latent_length, latent_height, latent_width], 
                                    device=self.device, dtype=self.vae.vae_dtype)
         out_latent = {"samples": output_latent}
         
-        print(f"   📊 Output latent shape: {output_latent.shape}")
-        print(f"   📊 Output latent device: {output_latent.device}")
-        print(f"   📊 Output latent dtype: {output_latent.dtype}")
-        
-        # Calculate trim_latent like WanVaceToVideo node (ComfyUI-style)
+        # Calculate trim_latent
         trim_latent = reference_image_latent.shape[2] if reference_image_latent is not None else 0
-        print(f"   📊 Trim latent frames: {trim_latent}")
         
-        print("✅ ComfyUI-style output latent creation completed")
-        
-        # Return results matching WanVaceToVideo node signature (ComfyUI-style)
+        # Return results
         step_1_results = {
-            # WanVaceToVideo node outputs (ComfyUI-style):
-            'positive': positive,           # Conditioned positive prompts
-            'negative': negative,           # Conditioned negative prompts  
-            'out_latent': out_latent,      # WAN-format latent dict {"samples": tensor}
-            'trim_latent': trim_latent,    # Frame count to trim for reference
-            
-            # Additional debugging/pipeline data (ComfyUI-style):
+            'positive': positive,
+            'negative': negative,  
+            'out_latent': out_latent,
+            'trim_latent': trim_latent,
             'vae': self.vae,
             'control_video_latent': control_video_latent,
             'reference_image_latent': reference_image_latent,
@@ -582,7 +553,7 @@ class WanVideoPipeline:
             },
             'latent_dimensions': {
                 'batch_size': batch_size,
-                'channels': output_channels,  # Dynamic based on VAE configuration
+                'channels': output_channels,
                 'length': latent_length,
                 'height': latent_height,
                 'width': latent_width
@@ -598,7 +569,6 @@ class WanVideoPipeline:
                 'device': str(self.vae.device)
             },
             'processing_info': {
-                'vae_encoding_time': encoding_time,
                 'total_step_time': time.time() - start_time,
                 'comfyui_style': True,
                 'memory_management': 'comfyui_style'
@@ -606,13 +576,6 @@ class WanVideoPipeline:
         }
         
         print(f"\n✅ STEP 1 COMPLETED SUCCESSFULLY in {time.time() - start_time:.2f}s")
-        print("🎯 ComfyUI-style VAE loading and encoding completed successfully!")
-        print("📊 VAE Type:", type(self.vae.first_stage_model).__name__)
-        print("📊 Latent Channels:", self.vae.latent_channels)
-        print("📊 Latent Dimension:", self.vae.latent_dim)
-        print("📊 Downscale Ratio:", self.vae.downscale_ratio)
-        print("📊 VAE Device:", self.vae.device)
-        print("📊 VAE Dtype:", self.vae.vae_dtype)
         print("="*80)
         
         return step_1_results
@@ -1069,18 +1032,19 @@ class WanVideoPipeline:
                                 denoise: float = 1.0,
                                 noise_inds: Optional[torch.Tensor] = None) -> Dict[str, Any]:
         """
-        Step 4: KSampler Denoising
+        Step 4: KSampler Denoising (ComfyUI Compatible)
         
-        This step performs the core denoising process using the KSampler:
-        1. Prepares noise for the initial latent
-        2. Sets up the KSampler with specified parameters
-        3. Performs denoising steps to generate the final latent
-        4. Returns the denoised latent ready for VAE decoding
+        This step performs the core denoising process using ComfyUI-compatible KSampler:
+        1. Fixes empty latent channels (ComfyUI pattern)
+        2. Prepares noise for the initial latent
+        3. Sets up the KSampler with specified parameters
+        4. Performs denoising steps with zero tensor as latent_image (ComfyUI pattern)
+        5. Returns the denoised latent ready for VAE decoding
         
         Args:
-            initial_latent: Initial latent tensor from Step 1
-            positive_conditioning: Positive conditioning from Step 3
-            negative_conditioning: Negative conditioning from Step 3
+            initial_latent: Zero tensor from Step 1 (ComfyUI pattern)
+            positive_conditioning: Positive conditioning with VACE from Step 3
+            negative_conditioning: Negative conditioning with VACE from Step 3
             seed: Random seed for noise generation
             steps: Number of denoising steps
             cfg: Classifier-free guidance scale
@@ -1097,9 +1061,6 @@ class WanVideoPipeline:
         print("🚀 STEP 4: KSAMPLER DENOISING")
         print("="*80)
         
-        # Log memory before KSampler step
-        log_memory_usage("Before Step 4 KSampler")
-        
         try:
             step_4_start = time.time()
             
@@ -1113,32 +1074,17 @@ class WanVideoPipeline:
             if self.clip is None:
                 raise RuntimeError("CLIP model not loaded - Step 2 must be completed first")
             
-            # ========================================================================
-            # 4.1: Prepare Noise for Initial Latent
-            # ========================================================================
-            print("4.1 Preparing noise for initial latent...")
-            noise_start = time.time()
+            # DETAILED K-SAMPLER INPUT ANALYSIS
+            analyze_ksampler_inputs(positive_conditioning, negative_conditioning, initial_latent)
             
-            print(f"   📊 Initial latent shape: {initial_latent.shape}")
-            print(f"   📊 Initial latent device: {initial_latent.device}")
-            print(f"   📊 Initial latent dtype: {initial_latent.dtype}")
+            # Prepare noise for initial latent
+            try:
+                from comfy.sample import fix_empty_latent_channels
+                initial_latent = fix_empty_latent_channels(self.unet, initial_latent)
+            except ImportError:
+                pass  # Use original latent
             
-            # Prepare noise using ComfyUI's prepare_noise (more robust)
-            # Use motion pipeline's internal prepare_noise
-            print("   🔧 Using motion pipeline's internal prepare_noise function...")
             noise = prepare_noise(initial_latent, seed, noise_inds)
-            
-            noise_time = time.time() - noise_start
-            print(f"✅ Noise prepared in {noise_time:.3f}s")
-            print(f"   📊 Noise shape: {noise.shape}")
-            print(f"   📊 Noise device: {noise.device}")
-            print(f"   📊 Noise range: [{noise.min().item():.3f}, {noise.max().item():.3f}]")
-            
-            # ========================================================================
-            # 4.2: Setup KSampler
-            # ========================================================================
-            print("\n4.2 Setting up KSampler...")
-            sampler_start = time.time()
             
             # Create KSampler instance
             ksampler = StandaloneKSampler(
@@ -1150,234 +1096,48 @@ class WanVideoPipeline:
                 denoise=denoise
             )
             
-            print(f"   🔧 KSampler created successfully")
-            print(f"   🔧 Model: {type(self.unet).__name__}")
-            print(f"   🔧 Device: {self.device}")
-            print(f"   🔧 Offload Device: {self.offload_device}")
-            
-            # ========================================================================
-            # 4.3: Configure Sampling Parameters
-            # ========================================================================
-            print("\n4.3 Configuring sampling parameters...")
-            
-            print(f"   📋 SAMPLING CONFIGURATION:")
-            print(f"      Seed: {seed}")
-            print(f"      Steps: {steps}")
-            print(f"      CFG: {cfg}")
-            print(f"      Sampler: {sampler_name}")
-            print(f"      Scheduler: {scheduler}")
-            print(f"      Denoise: {denoise}")
-            print(f"      Noise Indices: {noise_inds is not None}")
-            
-            # ========================================================================
-            # 4.4: Perform Denoising with ComfyUI-style Memory Management
-            # ========================================================================
-            print("\n4.4 Performing denoising with advanced memory management...")
+            # Perform denoising
             denoising_start = time.time()
             
-            # Memory before denoising
-            log_memory_usage("Before Denoising")
-            
-            # Clear CUDA cache to free up any fragmented memory
+            # Clear CUDA cache
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-                print("   🧹 CUDA cache cleared")
             
-            # CRITICAL: Let ComfyUI handle model loading/unloading properly
-            print("🔧 Using ComfyUI's proper model loading/unloading...")
-            
-            # CRITICAL: Check if UNet is a ComfyUI-style ModelPatcher
-            print("   🔍 Analyzing UNet type for proper detection...")
-            print(f"   📊 UNet type: {type(self.unet).__name__}")
-            print(f"   📊 UNet attributes: {[attr for attr in dir(self.unet) if not attr.startswith('_')]}")
-            
-            # Check for ModelPatcher attributes
-            has_load = hasattr(self.unet, 'load')
-            has_unload = hasattr(self.unet, 'unload')
-            has_model = hasattr(self.unet, 'model')
-            has_pre_run = hasattr(self.unet, 'pre_run')
-            has_cleanup = hasattr(self.unet, 'cleanup')
-            has_load_device = hasattr(self.unet, 'load_device')
-            
-            print(f"   📊 ModelPatcher attributes:")
-            print(f"      - load: {has_load}")
-            print(f"      - unload: {has_unload}")
-            print(f"      - model: {has_model}")
-            print(f"      - pre_run: {has_pre_run}")
-            print(f"      - cleanup: {has_cleanup}")
-            print(f"      - load_device: {has_load_device}")
-            
-            if has_load and has_unload and has_model:
-                print("   ✅ UNet is ComfyUI-style ModelPatcher - Standalone will handle loading")
-                print("   🔧 Standalone CFGGuider will call model_patcher.pre_run() and cleanup()")
-                print(f"   📊 ModelPatcher load_device: {getattr(self.unet, 'load_device', 'unknown')}")
-                print(f"   📊 ModelPatcher offload_device: {getattr(self.unet, 'offload_device', 'unknown')}")
-                
-            else:
-                print("   ⚠️  UNet is not ComfyUI-style ModelPatcher - using fallback")
-                # Fallback to standard approach
-                unet_model = self.unet.model if hasattr(self.unet, 'model') else self.unet
-                if str(unet_model.device) == 'cpu':
-                    print("   🔄 Moving UNet to GPU...")
-                    try:
-                        unet_model.to(self.device)
-                        print("   ✅ UNet moved to GPU")
-                    except torch.cuda.OutOfMemoryError as e:
-                        print(f"   ❌ CUDA OOM: {e}")
-                        print("   🔄 Keeping UNet on CPU")
-                        unet_model.to('cpu')
-            
-            # Perform the denoising process with ComfyUI integration
-            try:
-                # Create a memory monitoring callback
-                def memory_callback(step, total_steps, current_step=None, **kwargs):
-                    if step % max(1, total_steps // 4) == 0:  # Log every 25% of steps
-                        if torch.cuda.is_available():
-                            allocated = torch.cuda.memory_allocated() / 1024**3
-                            reserved = torch.cuda.memory_reserved() / 1024**3
-                            print(f"      Step {step}/{total_steps}: GPU Memory - Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
-                
-                # Try ComfyUI integration first
-                # Use standalone KSampler only (following Disclaimer.txt guidelines)
-                print("   🔧 Using standalone KSampler (no external dependencies)...")
-                print("   🚀 Starting standalone sampling with proper model interface...")
-                print("   🔧 Standalone implementation will handle:")
-                print("      - Model weight loading via model_patcher.pre_run()")
-                print("      - Proper CFG processing via StandaloneCFGGuider")
-                print("      - Correct model interface calls via standalone sampling")
-                print("      - Model cleanup via model_patcher.cleanup()")
-                
-                # Use our standalone KSampler (following Disclaimer.txt guidelines)
-                denoised_latent = ksampler.sample(
-                    noise=noise,
-                    positive=positive_conditioning,
-                    negative=negative_conditioning,
-                    cfg=cfg,
-                    latent_image=None,
-                    start_step=None,
-                    last_step=None,
-                    force_full_denoise=False,
-                    denoise_mask=None,
-                    sigmas=None,
-                    callback=memory_callback,
-                    disable_pbar=False,
-                    seed=seed
-                )
-                
-                print("   ✅ Standalone sampling completed successfully")
-                print("   🔧 Used standalone algorithms (no external dependencies)")
-                print("   📊 Model weights were properly loaded and used for inference")
-                
-                print("   ✅ Denoising completed successfully")
-                
-                # Clear CUDA cache after inference to free intermediate tensors
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                    print("   🧹 CUDA cache cleared after inference")
-                
-            except Exception as e:
-                print(f"   ❌ Denoising failed: {e}")
-                raise
-            
-            finally:
-                # CRITICAL: Standalone CFGGuider already handles model cleanup
-                print("   🔧 Standalone CFGGuider handles model cleanup automatically")
-                print("   📊 No manual cleanup needed - Standalone manages model loading/unloading")
+            # Perform sampling
+            denoised_latent = ksampler.sample(
+                noise=noise,
+                positive=positive_conditioning,
+                negative=negative_conditioning,
+                cfg=cfg,
+                latent_image=initial_latent,
+                start_step=None,
+                last_step=None,
+                force_full_denoise=False,
+                denoise_mask=None,
+                sigmas=None,
+                callback=None,
+                disable_pbar=False,
+                seed=seed
+            )
             
             denoising_time = time.time() - denoising_start
             
-            # Memory after denoising
-            log_memory_usage("After Denoising")
-            
-            print(f"✅ Denoising completed in {denoising_time:.2f}s")
-            print(f"   📊 Denoised latent shape: {denoised_latent.shape}")
-            print(f"   📊 Denoised latent device: {denoised_latent.device}")
-            print(f"   📊 Denoised latent range: [{denoised_latent.min().item():.3f}, {denoised_latent.max().item():.3f}]")
-            
-            # CRITICAL: Verify that proper sampling took place
-            print(f"\n🔍 SAMPLING VERIFICATION:")
-            
-            # Ensure both tensors are on the same device for comparison
+            # Ensure device consistency
             if initial_latent.device != denoised_latent.device:
-                print(f"   🔄 Device mismatch detected: {initial_latent.device} vs {denoised_latent.device}")
-                print(f"   🔄 Moving denoised latent to {initial_latent.device} for comparison...")
                 denoised_latent = denoised_latent.to(initial_latent.device)
-                print(f"   ✅ Denoised latent moved to {denoised_latent.device}")
-            
-            print(f"   📊 Initial latent range: [{initial_latent.min().item():.3f}, {initial_latent.max().item():.3f}]")
-            print(f"   📊 Denoised latent range: [{denoised_latent.min().item():.3f}, {denoised_latent.max().item():.3f}]")
-            
-            # Check if denoising actually occurred
-            initial_std = initial_latent.std().item()
-            denoised_std = denoised_latent.std().item()
-            print(f"   📊 Initial latent std: {initial_std:.3f}")
-            print(f"   📊 Denoised latent std: {denoised_std:.3f}")
-            
-            # Verify the latent changed (indicating actual model inference)
-            if torch.allclose(initial_latent, denoised_latent, atol=1e-6):
-                print(f"   🚨 WARNING: Denoised latent is identical to initial latent!")
-                print(f"   🚨 This suggests the model may not have been properly loaded or used!")
-            else:
-                print(f"   ✅ Denoised latent differs from initial latent - proper sampling occurred!")
-            
-            # Check for valid values
-            if torch.isfinite(denoised_latent).all():
-                print(f"   ✅ All denoised values are finite - model inference successful!")
-            else:
-                print(f"   🚨 WARNING: Denoised latent contains NaN/Inf values!")
-            
-            # Check execution time (should be reasonable for 4 steps)
-            if denoising_time < 1.0:
-                print(f"   🚨 WARNING: Sampling completed too quickly ({denoising_time:.2f}s) - may indicate dummy data!")
-            else:
-                print(f"   ✅ Sampling took reasonable time ({denoising_time:.2f}s) - proper inference likely occurred!")
-            
-            # ========================================================================
-            # 4.5: Analyze Results
-            # ========================================================================
-            print("\n4.5 Analyzing denoising results...")
-            
-            # Compare initial vs denoised
-            initial_range = initial_latent.max().item() - initial_latent.min().item()
-            denoised_range = denoised_latent.max().item() - denoised_latent.min().item()
-            
-            print(f"   🔧 LATENT ANALYSIS:")
-            print(f"      Initial Range: {initial_range:.3f}")
-            print(f"      Denoised Range: {denoised_range:.3f}")
-            
-            # Calculate range change safely
-            if initial_range > 0:
-                range_change = ((denoised_range - initial_range) / initial_range * 100)
-                print(f"      Range Change: {range_change:+.1f}%")
-            else:
-                print(f"      Range Change: N/A (initial range was 0)")
-            
-            # Check for valid denoising
-            if torch.isfinite(denoised_latent).all():
-                print(f"      Status: ✅ Valid (all finite values)")
-            else:
-                print(f"      Status: ❌ Invalid (contains NaN/Inf)")
             
             # Mark step complete
             self.step_completed[4] = True
             
-            # Log memory after KSampler step
-            log_memory_usage("After Step 4 KSampler")
-            
-            # CRITICAL: Unload UNet to free memory for VAE decode
-            print(f"\n🧹 MEMORY MANAGEMENT: Unloading UNet after denoising...")
+            # UNet cleanup for memory management
             if hasattr(self.unet, 'cleanup'):
                 self.unet.cleanup()
-                print(f"   ✅ UNet cleanup completed")
             elif hasattr(self.unet, 'unload'):
                 self.unet.unload()
-                print(f"   ✅ UNet unload completed")
-            else:
-                print(f"   ⚠️  UNet cleanup method not available")
             
-            # Clear CUDA cache to free fragmented memory
-            torch.cuda.empty_cache()
-            log_memory_usage("After UNet Cleanup")
+            # Clear CUDA cache
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             
             # Create results
             step_4_results = {
@@ -1393,17 +1153,7 @@ class WanVideoPipeline:
                     'denoise': denoise,
                     'noise_inds_provided': noise_inds is not None
                 },
-                'latent_info': {
-                    'initial_shape': initial_latent.shape,
-                    'denoised_shape': denoised_latent.shape,
-                    'initial_device': str(initial_latent.device),
-                    'denoised_device': str(denoised_latent.device),
-                    'initial_range': initial_range,
-                    'denoised_range': denoised_range
-                },
                 'timing': {
-                    'noise_preparation': noise_time,
-                    'sampler_setup': time.time() - sampler_start,
                     'denoising': denoising_time,
                     'total_step_time': time.time() - step_4_start
                 }
