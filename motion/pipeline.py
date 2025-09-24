@@ -420,9 +420,6 @@ class WanVideoPipeline:
             
             # Process control video using ComfyUI-compatible method
             if control_video is not None:
-                # Convert from uint8 [0,255] to float32 [0,1] (ComfyUI expects this format)
-                control_video = control_video.float() / 255.0
-                
                 # Use ComfyUI's common_upscale with movedim (exact match to WanVaceToVideo)
                 control_video = common_upscale(
                     control_video[:length].movedim(-1, 1), 
@@ -459,6 +456,10 @@ class WanVideoPipeline:
         control_video = control_video - 0.5  # Center around 0
         inactive = (control_video * (1 - mask)) + 0.5  # Inactive regions
         reactive = (control_video * mask) + 0.5        # Active/controlled regions
+        
+        # Convert to float32 [0,1] for VAE encoding (VAE expects float32 format)
+        inactive = inactive.float() / 255.0
+        reactive = reactive.float() / 255.0
         
         # VAE encoding of control video
         with torch.no_grad():
