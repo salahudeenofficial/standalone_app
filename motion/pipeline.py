@@ -420,6 +420,9 @@ class WanVideoPipeline:
             
             # Process control video using ComfyUI-compatible method
             if control_video is not None:
+                # Convert from uint8 [0,255] to float32 [0,1] (ComfyUI expects this format)
+                control_video = control_video.float() / 255.0
+                
                 # Use ComfyUI's common_upscale with movedim (exact match to WanVaceToVideo)
                 control_video = common_upscale(
                     control_video[:length].movedim(-1, 1), 
@@ -1591,14 +1594,11 @@ class WanVideoPipeline:
                 print(f"Warning: Empty video: {video_path}")
                 return None
             
-            # Convert from (T, H, W, C) uint8 to float32 [0,1]
-            video = video.float() / 255.0
-            
             # Apply ComfyUI-compatible frame limiting (exact match to ComfyUI workflow)
             max_frames = min(37, video.shape[0])  # Limit to first 37 frames like ComfyUI
             video = video[:max_frames]
             
-            # Ensure 3 channels
+            # Ensure 3 channels (ComfyUI expects uint8 format from torchvision)
             if video.shape[-1] > 3:
                 video = video[..., :3]
             elif video.shape[-1] == 1:
