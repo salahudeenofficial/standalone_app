@@ -457,8 +457,10 @@ class WanVideoPipeline:
         inactive = (control_video * (1 - mask)) + 0.5  # Inactive regions
         reactive = (control_video * mask) + 0.5        # Active/controlled regions
         
-        # VAE encoding of control video (ComfyUI passes uint8 centered values directly)
+        # VAE encoding of control video (exact match to ComfyUI - pass same range)
         with torch.no_grad():
+            # ComfyUI passes [-0.5, 254.5] range directly to vae.encode()
+            # We need to pass the same range to our VAE
             inactive_latent = self.vae.encode(inactive[:, :, :, :3])
             reactive_latent = self.vae.encode(reactive[:, :, :, :3])
             control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
