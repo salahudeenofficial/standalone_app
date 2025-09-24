@@ -601,7 +601,7 @@ class VAE:
         self.latent_channels = 4
         self.latent_dim = 2
         self.output_channels = 3
-        self.process_input = lambda image: (image + 0.5) / 127.5 - 1.0  # Convert [-0.5, 254.5] to [-1, 1]
+        self.process_input = lambda image: image  # No preprocessing - pass through directly like ComfyUI
         self.process_output = lambda image: torch.clamp((image + 1.0) / 2.0, min=0.0, max=1.0)
         self.working_dtypes = [torch.bfloat16, torch.float32]
         self.disable_offload = False
