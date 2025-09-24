@@ -785,25 +785,30 @@ class WanVideoPipeline:
     def step_3_model_sampling_and_text_encoding(self,
                                                positive_prompt: str,
                                                negative_prompt: str,
+                                               vace_positive_conditioning: Any = None,
+                                               vace_negative_conditioning: Any = None,
                                                shift: float = 8.0,
                                                multiplier: int = 1000) -> Dict[str, Any]:
         """
-        Step 3: Model Sampling + Text Encoding
+        Step 3: Model Sampling + Text Encoding + VACE Conditioning Integration
         
-        This step applies SD3 model sampling and encodes text prompts:
+        This step applies SD3 model sampling and encodes text prompts while preserving VACE conditioning:
         1. Applies ModelSamplingSD3 to the UNet model with shift parameter
         2. Initializes CLIP text encoder
         3. Encodes positive and negative text prompts  
-        4. Returns conditioning tensors ready for sampling
+        4. Combines text encoding with VACE conditioning from Step 1
+        5. Returns combined conditioning tensors ready for sampling
         
         Args:
             positive_prompt: Positive text prompt for conditioning
             negative_prompt: Negative text prompt for conditioning
+            vace_positive_conditioning: VACE conditioning from Step 1 (optional)
+            vace_negative_conditioning: VACE conditioning from Step 1 (optional)
             shift: SD3 shift parameter (default 8.0)
             multiplier: SD3 multiplier parameter (default 1000)
             
         Returns:
-            Dictionary containing encoded conditioning and model information
+            Dictionary containing combined conditioning and model information
         """
         
         print("\n" + "="*80)
@@ -912,7 +917,7 @@ class WanVideoPipeline:
             # Encode positive prompt
             positive_encoding_start = time.time()
             try:
-                positive_cond = text_encoder.encode(self.clip, positive_prompt)
+                text_positive_cond = text_encoder.encode(self.clip, positive_prompt)
                 positive_encoding_time = time.time() - positive_encoding_start
                 print(f"   ✅ Positive prompt encoded in {positive_encoding_time:.3f}s")
             except Exception as e:
@@ -922,12 +927,57 @@ class WanVideoPipeline:
             # Encode negative prompt
             negative_encoding_start = time.time()
             try:
-                negative_cond = text_encoder.encode(self.clip, negative_prompt)
+                text_negative_cond = text_encoder.encode(self.clip, negative_prompt)
                 negative_encoding_time = time.time() - negative_encoding_start
                 print(f"   ✅ Negative prompt encoded in {negative_encoding_time:.3f}s")
             except Exception as e:
                 print(f"   ❌ Negative prompt encoding failed: {e}")
                 raise
+            
+            # Combine text encoding with VACE conditioning
+            if vace_positive_conditioning is not None and vace_negative_conditioning is not None:
+                print("   🔗 Combining text encoding with VACE conditioning...")
+                
+                # Extract text tensor from text conditioning
+                if isinstance(text_positive_cond, (tuple, list)) and len(text_positive_cond) > 0:
+                    text_positive_tensor = text_positive_cond[0]
+                else:
+                    text_positive_tensor = text_positive_cond
+                
+                if isinstance(text_negative_cond, (tuple, list)) and len(text_negative_cond) > 0:
+                    text_negative_tensor = text_negative_cond[0]
+                else:
+                    text_negative_tensor = text_negative_cond
+                
+                # Create combined conditioning by copying VACE structure and replacing text tensor
+                positive_cond = []
+                for item in vace_positive_conditioning:
+                    if isinstance(item, dict):
+                        # Copy the VACE conditioning dict and update with text tensor
+                        combined_item = item.copy()
+                        combined_item[0] = text_positive_tensor  # Replace text tensor
+                        positive_cond.append(combined_item)
+                    else:
+                        # Direct tensor replacement
+                        positive_cond.append(text_positive_tensor)
+                
+                negative_cond = []
+                for item in vace_negative_conditioning:
+                    if isinstance(item, dict):
+                        # Copy the VACE conditioning dict and update with text tensor
+                        combined_item = item.copy()
+                        combined_item[0] = text_negative_tensor  # Replace text tensor
+                        negative_cond.append(combined_item)
+                    else:
+                        # Direct tensor replacement
+                        negative_cond.append(text_negative_tensor)
+                
+                print("   ✅ VACE conditioning preserved and combined with text encoding")
+            else:
+                # No VACE conditioning provided, use text-only conditioning
+                print("   ⚠️  No VACE conditioning provided, using text-only conditioning")
+                positive_cond = text_positive_cond
+                negative_cond = text_negative_cond
             
             total_encoding_time = time.time() - encoding_start
             
@@ -1620,6 +1670,9 @@ class WanVideoPipeline:
             
             # Step 3: Model Sampling + Text Encoding
             print("\n📝 STEP 3: MODEL SAMPLING + TEXT ENCODING")
+            # Pass VACE conditioning from Step 1 to Step 3
+            step_3_params['vace_positive_conditioning'] = step_1_results['positive']
+            step_3_params['vace_negative_conditioning'] = step_1_results['negative']
             step_3_results = self.step_3_model_sampling_and_text_encoding(**step_3_params)
             
             # Prepare Step 4 parameters
@@ -1744,6 +1797,9 @@ class WanVideoPipeline:
         print("🚀 Running Steps 1, 2, and 3 in sequence...")
         step_1_results = self.step_1_vae_and_latent_creation(**step_1_params)
         step_2_results = self.step_2_unet_clip_lora_loading(**step_2_params)
+        # Pass VACE conditioning from Step 1 to Step 3
+        step_3_params['vace_positive_conditioning'] = step_1_results['positive']
+        step_3_params['vace_negative_conditioning'] = step_1_results['negative']
         step_3_results = self.step_3_model_sampling_and_text_encoding(**step_3_params)
         return step_1_results, step_2_results, step_3_results
     
@@ -1752,7 +1808,14 @@ class WanVideoPipeline:
         print("🚀 Running Steps 1, 2, 3, and 4 in sequence...")
         step_1_results = self.step_1_vae_and_latent_creation(**step_1_params)
         step_2_results = self.step_2_unet_clip_lora_loading(**step_2_params)
+        # Pass VACE conditioning from Step 1 to Step 3
+        step_3_params['vace_positive_conditioning'] = step_1_results['positive']
+        step_3_params['vace_negative_conditioning'] = step_1_results['negative']
         step_3_results = self.step_3_model_sampling_and_text_encoding(**step_3_params)
+        # Prepare Step 4 parameters
+        step_4_params['initial_latent'] = step_1_results['out_latent']['samples']
+        step_4_params['positive_conditioning'] = step_3_results['positive_conditioning']
+        step_4_params['negative_conditioning'] = step_3_results['negative_conditioning']
         step_4_results = self.step_4_ksampler_denoising(**step_4_params)
         return step_1_results, step_2_results, step_3_results, step_4_results
     
@@ -1851,6 +1914,8 @@ def main(debug_mode=False):
         step_3_results = pipeline.step_3_model_sampling_and_text_encoding(
             positive_prompt="very cinematic video",
             negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量",
+            vace_positive_conditioning=step_1_results['positive'],
+            vace_negative_conditioning=step_1_results['negative'],
             shift=8.0, multiplier=1000
         )
             
