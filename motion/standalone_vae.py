@@ -374,7 +374,8 @@ class AutoencoderKL(nn.Module):
         h = self.encoder(x)
         moments = self.quant_conv(h)
         z, mean, logvar = self.regularizer(moments)
-        return z, mean, logvar
+        # For ComfyUI WAN VAE compatibility: return only mean (mu) like ComfyUI
+        return mean
     
     def decode(self, z):
         z = self.post_quant_conv(z)
@@ -967,8 +968,7 @@ class VAE:
                 # Encode
                 if hasattr(self.first_stage_model, 'encode'):
                     out = self.first_stage_model.encode(pixels_in, dtype=self.vae_dtype)
-                    if isinstance(out, tuple):
-                        out = out[0]  # Take the latent tensor
+                    # ComfyUI WAN VAE returns only mean (mu) directly, not a tuple
                 else:
                     # Fallback for models without encode method
                     out = self.first_stage_model.encoder(pixels_in)
