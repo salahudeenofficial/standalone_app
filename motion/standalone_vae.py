@@ -14,6 +14,104 @@ from typing import Dict, Any, Optional, Tuple, Callable
 from standalone_model_patcher import ModelPatcher, create_model_patcher
 from wan_vae_components import WanVAE
 
+# ComfyUI-compatible Conv2d with weight/bias casting
+class ComfyUICompatibleConv2d(nn.Conv2d):
+    """Conv2d layer that mimics ComfyUI's ops.Conv2d weight/bias casting behavior"""
+    
+    def forward(self, input):
+        # Apply weight and bias casting like ComfyUI's ops.Conv2d
+        weight = self.weight.to(input.dtype).to(input.device)
+        bias = self.bias.to(input.dtype).to(input.device) if self.bias is not None else None
+        return self._conv_forward(input, weight, bias)
+
+# ComfyUI-compatible Downsample with weight/bias casting
+class ComfyUICompatibleDownsample(nn.Module):
+    """Downsample layer that mimics ComfyUI's Downsample behavior"""
+    
+    def __init__(self, in_channels, with_conv=True, stride=2):
+        super().__init__()
+        self.with_conv = with_conv
+        if self.with_conv:
+            # Use ComfyUI-compatible Conv2d with padding=0 and manual padding
+            self.conv = ComfyUICompatibleConv2d(in_channels, in_channels, kernel_size=3, stride=stride, padding=0)
+    
+    def forward(self, x):
+        if self.with_conv:
+            if x.ndim == 4:
+                pad = (0, 1, 0, 1)
+                mode = "constant"
+                x = torch.nn.functional.pad(x, pad, mode=mode, value=0)
+            elif x.ndim == 5:
+                pad = (1, 1, 1, 1, 2, 0)
+                mode = "replicate"
+                x = torch.nn.functional.pad(x, pad, mode=mode)
+            x = self.conv(x)
+        return x
+
+# ComfyUI-compatible Upsample with weight/bias casting
+class ComfyUICompatibleUpsample(nn.Module):
+    """Upsample layer that mimics ComfyUI's Upsample behavior"""
+    
+    def __init__(self, in_channels, with_conv=True, scale_factor=2.0):
+        super().__init__()
+        self.with_conv = with_conv
+        self.scale_factor = scale_factor
+        
+        if self.with_conv:
+            self.conv = ComfyUICompatibleConv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1)
+    
+    def interpolate_up(self, x, scale_factor):
+        """ComfyUI's interpolate_up function"""
+        try:
+            return torch.nn.functional.interpolate(x, scale_factor=scale_factor, mode="nearest")
+        except:  # operation not implemented for bf16
+            orig_shape = list(x.shape)
+            out_shape = orig_shape[:2]
+            for i in range(len(orig_shape) - 2):
+                out_shape.append(round(orig_shape[i + 2] * scale_factor[i]))
+            out = torch.empty(out_shape, dtype=x.dtype, layout=x.layout, device=x.device)
+            split = 8
+            l = out.shape[1] // split
+            for i in range(0, out.shape[1], l):
+                out[:,i:i+l] = torch.nn.functional.interpolate(x[:,i:i+l].to(torch.float32), scale_factor=scale_factor, mode="nearest").to(x.dtype)
+            return out
+    
+    def forward(self, x):
+        scale_factor = self.scale_factor
+        if isinstance(scale_factor, (int, float)):
+            scale_factor = (scale_factor,) * (x.ndim - 2)
+
+        if x.ndim == 5 and scale_factor[0] > 1.0:
+            t = x.shape[2]
+            if t > 1:
+                a, b = x.split((1, t - 1), dim=2)
+                del x
+                b = self.interpolate_up(b, scale_factor)
+            else:
+                a = x
+
+            a = self.interpolate_up(a.squeeze(2), scale_factor=scale_factor[1:]).unsqueeze(2)
+            if t > 1:
+                x = torch.cat((a, b), dim=2)
+            else:
+                x = a
+        else:
+            x = self.interpolate_up(x, scale_factor)
+        
+        if self.with_conv:
+            x = self.conv(x)
+        return x
+
+# ComfyUI-compatible GroupNorm with weight/bias casting
+class ComfyUICompatibleGroupNorm(nn.GroupNorm):
+    """GroupNorm layer that mimics ComfyUI's ops.GroupNorm weight/bias casting behavior"""
+    
+    def forward(self, input):
+        # Apply weight and bias casting like ComfyUI's ops.GroupNorm
+        weight = self.weight.to(input.dtype).to(input.device) if self.weight is not None else None
+        bias = self.bias.to(input.dtype).to(input.device) if self.bias is not None else None
+        return F.group_norm(input, self.num_groups, weight, bias, self.eps)
+
 
 # ============================================================================
 # UTILITY FUNCTIONS
@@ -96,21 +194,21 @@ class ResnetBlock(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         
-        self.norm1 = nn.GroupNorm(32, in_channels)
-        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, padding=1)
-        self.norm2 = nn.GroupNorm(32, out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, 3, padding=1)
-        self.dropout = nn.Dropout(dropout)
+        self.norm1 = ComfyUICompatibleGroupNorm(32, in_channels)
+        self.conv1 = ComfyUICompatibleConv2d(in_channels, out_channels, 3, padding=1)
+        self.norm2 = ComfyUICompatibleGroupNorm(32, out_channels)
+        self.conv2 = ComfyUICompatibleConv2d(out_channels, out_channels, 3, padding=1)
+        self.dropout = torch.nn.Dropout(dropout, inplace=True)
         
         if in_channels != out_channels:
-            self.nin_shortcut = nn.Conv2d(in_channels, out_channels, 1)
+            self.nin_shortcut = ComfyUICompatibleConv2d(in_channels, out_channels, 1)
         else:
             self.nin_shortcut = nn.Identity()
     
     def forward(self, x):
-        h = F.relu(self.norm1(x))
+        h = F.silu(self.norm1(x))
         h = self.conv1(h)
-        h = F.relu(self.norm2(h))
+        h = F.silu(self.norm2(h))
         h = self.dropout(h)
         h = self.conv2(h)
         
@@ -122,11 +220,11 @@ class AttnBlock(nn.Module):
     def __init__(self, channels):
         super().__init__()
         self.channels = channels
-        self.norm = nn.GroupNorm(32, channels)
-        self.q = nn.Conv2d(channels, channels, 1)
-        self.k = nn.Conv2d(channels, channels, 1)
-        self.v = nn.Conv2d(channels, channels, 1)
-        self.proj_out = nn.Conv2d(channels, channels, 1)
+        self.norm = ComfyUICompatibleGroupNorm(32, channels)
+        self.q = ComfyUICompatibleConv2d(channels, channels, 1)
+        self.k = ComfyUICompatibleConv2d(channels, channels, 1)
+        self.v = ComfyUICompatibleConv2d(channels, channels, 1)
+        self.proj_out = ComfyUICompatibleConv2d(channels, channels, 1)
     
     def forward(self, x):
         h = self.norm(x)
@@ -163,7 +261,7 @@ class Encoder(nn.Module):
         self.in_channels = config['in_channels']
         self.resolution = config['resolution']
         
-        self.conv_in = nn.Conv2d(self.in_channels, self.ch, 3, padding=1)
+        self.conv_in = ComfyUICompatibleConv2d(self.in_channels, self.ch, 3, padding=1)
         
         self.down = nn.ModuleList()
         ch = self.ch
@@ -178,7 +276,7 @@ class Encoder(nn.Module):
                     self.down.append(AttnBlock(ch))
             
             if i_level != len(self.ch_mult) - 1:
-                self.down.append(nn.Conv2d(ch, ch, 3, stride=2, padding=1))
+                self.down.append(ComfyUICompatibleDownsample(ch, with_conv=True, stride=2))
                 ds *= 2
                 resolution //= 2
         
@@ -186,8 +284,8 @@ class Encoder(nn.Module):
         self.mid_attn_1 = AttnBlock(ch)
         self.mid_block_2 = ResnetBlock(ch, ch, dropout=self.dropout)
         
-        self.norm_out = nn.GroupNorm(32, ch)
-        self.conv_out = nn.Conv2d(ch, config['z_channels'] * 2, 3, padding=1)
+        self.norm_out = ComfyUICompatibleGroupNorm(32, ch)
+        self.conv_out = ComfyUICompatibleConv2d(ch, config['z_channels'] * 2, 3, padding=1)
     
     def forward(self, x):
         h = self.conv_in(x)
@@ -199,7 +297,7 @@ class Encoder(nn.Module):
         h = self.mid_attn_1(h)
         h = self.mid_block_2(h)
         
-        h = F.relu(self.norm_out(h))
+        h = F.silu(self.norm_out(h))
         h = self.conv_out(h)
         
         return h
@@ -219,7 +317,7 @@ class Decoder(nn.Module):
         self.z_channels = config['z_channels']
         self.resolution = config['resolution']
         
-        self.conv_in = nn.Conv2d(self.z_channels, self.ch, 3, padding=1)
+        self.conv_in = ComfyUICompatibleConv2d(self.z_channels, self.ch, 3, padding=1)
         
         self.up = nn.ModuleList()
         ch = self.ch
@@ -234,7 +332,7 @@ class Decoder(nn.Module):
                     self.up.append(AttnBlock(ch))
             
             if i_level != len(self.ch_mult) - 1:
-                self.up.append(nn.ConvTranspose2d(ch, ch, 4, stride=2, padding=1))
+                self.up.append(ComfyUICompatibleUpsample(ch, with_conv=True, scale_factor=2.0))
                 ds *= 2
                 resolution *= 2
         
@@ -242,8 +340,8 @@ class Decoder(nn.Module):
         self.mid_attn_1 = AttnBlock(ch)
         self.mid_block_2 = ResnetBlock(ch, ch, dropout=self.dropout)
         
-        self.norm_out = nn.GroupNorm(32, ch)
-        self.conv_out = nn.Conv2d(ch, self.out_ch, 3, padding=1)
+        self.norm_out = ComfyUICompatibleGroupNorm(32, ch)
+        self.conv_out = ComfyUICompatibleConv2d(ch, self.out_ch, 3, padding=1)
     
     def forward(self, z):
         h = self.conv_in(z)
@@ -255,7 +353,7 @@ class Decoder(nn.Module):
         h = self.mid_attn_1(h)
         h = self.mid_block_2(h)
         
-        h = F.relu(self.norm_out(h))
+        h = F.silu(self.norm_out(h))
         h = self.conv_out(h)
         
         return h
@@ -601,7 +699,7 @@ class VAE:
         self.latent_channels = 4
         self.latent_dim = 2
         self.output_channels = 3
-        self.process_input = lambda image: image * 2.0 - 1.0
+        self.process_input = lambda image: (image + 0.5) / 255.0
         self.process_output = lambda image: torch.clamp((image + 1.0) / 2.0, min=0.0, max=1.0)
         self.working_dtypes = [torch.bfloat16, torch.float32]
         self.disable_offload = False
