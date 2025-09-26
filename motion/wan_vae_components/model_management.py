@@ -206,19 +206,11 @@ def unet_inital_load_device(parameters, unet_dtype):
         return device
 
 
-def load_models_gpu(models, memory_required=0, force_patch_weights=False, minimum_memory_required=None, force_full_load=False):
-    """Load models to GPU - ComfyUI compatible signature"""
-    # Simple implementation for standalone use
-    for model in models:
-        if hasattr(model, 'load_device') and model.load_device.type == "cuda":
+def load_models_gpu(model_patchers, force_full_load=False):
+    """Load models to GPU"""
+    for patcher in model_patchers:
+        if hasattr(patcher, 'load_device') and patcher.load_device.type == "cuda":
             logging.info("Model loaded to GPU")
-        elif hasattr(model, 'model') and hasattr(model.model, 'to'):
-            # Move model to GPU if possible
-            try:
-                model.model.to('cuda')
-                logging.info("Model moved to GPU")
-            except Exception as e:
-                logging.warning(f"Could not move model to GPU: {e}")
 
 
 def cast_to_device(tensor: torch.Tensor, device: torch.device, dtype: torch.dtype, 

@@ -985,21 +985,16 @@ class VAE:
                 print(f"   Shape: {pixels_in.shape}")
                 print(f"   Dtype: {pixels_in.dtype}")
                 print(f"   Device: {pixels_in.device}")
+                print(f"   Mean: {pixels_in.mean().item():.6f}")
+                print(f"   Min: {pixels_in.min().item():.6f}")
+                print(f"   Max: {pixels_in.max().item():.6f}")
+                print(f"   Range: [{pixels_in.min().item():.6f}, {pixels_in.max().item():.6f}]")
+                print(f"   Std: {pixels_in.std().item():.6f}")
                 
-                # Check if tensor is empty before calling min/max
-                if pixels_in.numel() > 0:
-                    print(f"   Mean: {pixels_in.mean().item():.6f}")
-                    print(f"   Min: {pixels_in.min().item():.6f}")
-                    print(f"   Max: {pixels_in.max().item():.6f}")
-                    print(f"   Range: [{pixels_in.min().item():.6f}, {pixels_in.max().item():.6f}]")
-                    print(f"   Std: {pixels_in.std().item():.6f}")
-                    
-                    # Get first 5 values for inspection
-                    flat_tensor = pixels_in.flatten()
-                    first_values = [f"{flat_tensor[i].item():.6f}" for i in range(min(5, len(flat_tensor)))]
-                    print(f"   First 5 values: {first_values}")
-                else:
-                    print(f"   ⚠️  Empty tensor detected!")
+                # Get first 5 values for inspection
+                flat_tensor = pixels_in.flatten()
+                first_values = [f"{flat_tensor[i].item():.6f}" for i in range(min(5, len(flat_tensor)))]
+                print(f"   First 5 values: {first_values}")
                 print()
                 
                 # Encode (ComfyUI style - no dtype parameter)
@@ -1015,21 +1010,16 @@ class VAE:
                 print(f"   Shape: {out.shape}")
                 print(f"   Dtype: {out.dtype}")
                 print(f"   Device: {out.device}")
+                print(f"   Mean: {out.mean().item():.6f}")
+                print(f"   Min: {out.min().item():.6f}")
+                print(f"   Max: {out.max().item():.6f}")
+                print(f"   Range: [{out.min().item():.6f}, {out.max().item():.6f}]")
+                print(f"   Std: {out.std().item():.6f}")
                 
-                # Check if tensor is empty before calling min/max
-                if out.numel() > 0:
-                    print(f"   Mean: {out.mean().item():.6f}")
-                    print(f"   Min: {out.min().item():.6f}")
-                    print(f"   Max: {out.max().item():.6f}")
-                    print(f"   Range: [{out.min().item():.6f}, {out.max().item():.6f}]")
-                    print(f"   Std: {out.std().item():.6f}")
-                    
-                    # Get first 5 values for inspection
-                    flat_output = out.flatten()
-                    first_output_values = [f"{flat_output[i].item():.6f}" for i in range(min(5, len(flat_output)))]
-                    print(f"   First 5 values: {first_output_values}")
-                else:
-                    print(f"   ⚠️  Empty output tensor detected!")
+                # Get first 5 values for inspection
+                flat_output = out.flatten()
+                first_output_values = [f"{flat_output[i].item():.6f}" for i in range(min(5, len(flat_output)))]
+                print(f"   First 5 values: {first_output_values}")
                 print()
                 
                 # Move to output device and convert to float
