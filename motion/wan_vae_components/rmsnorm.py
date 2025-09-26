@@ -40,15 +40,24 @@ class RMSNorm(nn.Module):
         Returns:
             Normalized tensor
         """
-        # Calculate RMS
-        rms = torch.sqrt(torch.mean(x ** 2, dim=-1, keepdim=True) + self.eps)
+        # Calculate RMS over the channel dimension (dim=1 for 4D tensors, dim=-1 for others)
+        if x.dim() == 4:  # 4D tensor (B, C, H, W)
+            rms = torch.sqrt(torch.mean(x ** 2, dim=1, keepdim=True) + self.eps)
+        else:  # Other dimensions, normalize over last dimension
+            rms = torch.sqrt(torch.mean(x ** 2, dim=-1, keepdim=True) + self.eps)
         
         # Normalize
         x_normalized = x / rms
         
         # Apply learnable scale if enabled
         if self.elementwise_affine:
-            x_normalized = x_normalized * self.weight
+            # Reshape weight to match input dimensions
+            if x.dim() == 4:  # 4D tensor (B, C, H, W)
+                weight_shape = [1, self.dim, 1, 1]
+            else:  # Other dimensions
+                weight_shape = [1] * (x.dim() - 1) + [self.dim]
+            weight = self.weight.view(weight_shape)
+            x_normalized = x_normalized * weight
         
         return x_normalized
 

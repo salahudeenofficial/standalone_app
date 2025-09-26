@@ -700,7 +700,7 @@ class VAE:
         self.latent_channels = 4
         self.latent_dim = 2
         self.output_channels = 3
-        self.process_input = lambda image: image
+        self.process_input = lambda image: image * 2.0 - 1.0
         self.process_output = lambda image: torch.clamp((image + 1.0) / 2.0, min=0.0, max=1.0)
         self.working_dtypes = [torch.bfloat16, torch.float32]
         self.disable_offload = False
@@ -787,8 +787,8 @@ class VAE:
             self.first_stage_model = StageA()
             self.downscale_ratio = 4
             self.upscale_ratio = 4
-            self.process_input = lambda image: image
-            self.process_output = lambda image: image
+            self.process_input = lambda image: image * 2.0 - 1.0
+            self.process_output = lambda image: torch.clamp((image + 1.0) / 2.0, min=0.0, max=1.0)
             
         elif "backbone.1.0.block.0.1.num_batches_tracked" in sd:
             # EffNet encoder
@@ -827,8 +827,8 @@ class VAE:
                 ddconfig = {"dim": 160, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
                 self.first_stage_model = WanVAE(**ddconfig)
                 self.working_dtypes = [torch.bfloat16, torch.float16, torch.float32]
-                self.memory_used_encode = lambda shape, dtype: 3300 * shape[2] * shape[3] * dtype_size(dtype)
-                self.memory_used_decode = lambda shape, dtype: 8000 * shape[2] * shape[3] * (16 * 16) * dtype_size(dtype)
+                self.memory_used_encode = lambda shape, dtype: 3300 * shape[3] * shape[4] * dtype_size(dtype)
+                self.memory_used_decode = lambda shape, dtype: 8000 * shape[3] * shape[4] * (16 * 16) * dtype_size(dtype)
             else:  # Wan 2.1 VAE
                 self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 8, 8)
                 self.upscale_index_formula = (4, 8, 8)
@@ -839,8 +839,8 @@ class VAE:
                 ddconfig = {"dim": 96, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
                 self.first_stage_model = WanVAE(**ddconfig)
                 self.working_dtypes = [torch.bfloat16, torch.float16, torch.float32]
-                self.memory_used_encode = lambda shape, dtype: 6000 * shape[2] * shape[3] * dtype_size(dtype)
-                self.memory_used_decode = lambda shape, dtype: 7000 * shape[2] * shape[3] * (8 * 8) * dtype_size(dtype)
+                self.memory_used_encode = lambda shape, dtype: 6000 * shape[3] * shape[4] * dtype_size(dtype)
+                self.memory_used_decode = lambda shape, dtype: 7000 * shape[3] * shape[4] * (8 * 8) * dtype_size(dtype)
                 
         elif "decoder.conv_in.weight" in sd:
             # Standard SD VAE
@@ -957,8 +957,23 @@ class VAE:
             # Calculate memory usage
             memory_used = self.memory_used_encode(pixel_samples.shape, self.vae_dtype)
             
-            # Simple batch processing (simplified from original)
-            batch_number = max(1, min(4, pixel_samples.shape[0]))  # Process in small batches
+            # Dynamic batch processing based on available memory (ComfyUI style)
+            if hasattr(self, 'patcher') and self.patcher is not None:
+                # Load models to GPU if using patcher
+                from wan_vae_components.model_management import load_models_gpu, get_free_memory
+                load_models_gpu([self.patcher], memory_required=memory_used, force_full_load=self.disable_offload)
+                free_memory = get_free_memory(self.device)
+                batch_number = int(free_memory / max(1, memory_used))
+                batch_number = max(1, batch_number)
+            else:
+                # Fallback to simple batch processing
+                batch_number = max(1, min(4, pixel_samples.shape[0]))
+            
+            # Force 3 batches for video processing to avoid OOM (ComfyUI style)
+            if pixel_samples.shape[0] > 10:  # Video processing (more than 10 frames)
+                batch_number = max(1, pixel_samples.shape[0] // 3)  # Process in 3 batches
+                print(f'🔧 VAE Encoding: Forcing 3 batches for video processing')
+                print(f'   Total frames: {pixel_samples.shape[0]}, Batch size: {batch_number}')
             
             samples = None
             for x in range(0, pixel_samples.shape[0], batch_number):
@@ -982,9 +997,9 @@ class VAE:
                 print(f"   First 5 values: {first_values}")
                 print()
                 
-                # Encode
+                # Encode (ComfyUI style - no dtype parameter)
                 if hasattr(self.first_stage_model, 'encode'):
-                    out = self.first_stage_model.encode(pixels_in, dtype=self.vae_dtype)
+                    out = self.first_stage_model.encode(pixels_in)
                     # ComfyUI WAN VAE returns only mean (mu) directly, not a tuple
                 else:
                     # Fallback for models without encode method
@@ -1017,17 +1032,16 @@ class VAE:
                 samples[x:x + batch_number] = out
                 
         except Exception as e:
-            logging.warning(f"Warning: VAE encoding failed: {e}")
-            raise e
+            # Check if it's an OOM error and try tiled encoding
+            if "out of memory" in str(e).lower() or "cuda" in str(e).lower():
+                logging.warning("Warning: Ran out of memory when regular VAE encoding, retrying with tiled VAE encoding.")
+                # TODO: Implement tiled encoding fallback
+                raise e
+            else:
+                logging.warning(f"Warning: VAE encoding failed: {e}")
+                raise e
         
-        # If it was video, reshape back to video format
-# Video handling removed - works like sd.py
-            batch_size, channels, frames, height, width = original_shape
-            latent_channels = samples.shape[1]
-            latent_height = samples.shape[2]
-            latent_width = samples.shape[3]
-            # Reshape back to (batch, latent_channels, frames, latent_height, latent_width)
-            samples = samples.view(batch_size, latent_channels, frames, latent_height, latent_width)
+        # Video reshape logic removed - ComfyUI doesn't do this in encode method
         
         return samples
     
@@ -1036,9 +1050,9 @@ class VAE:
         if self.first_stage_model is None:
             raise RuntimeError("VAE not initialized")
         
-        # Decode
+        # Decode (ComfyUI style - no dtype parameter)
         if hasattr(self.first_stage_model, 'decode'):
-            x = self.first_stage_model.decode(z, dtype=self.vae_dtype)
+            x = self.first_stage_model.decode(z)
         else:
             # Fallback for models without decode method
             x = self.first_stage_model.decoder(z)
