@@ -827,8 +827,8 @@ class VAE:
                 ddconfig = {"dim": 160, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
                 self.first_stage_model = WanVAE(**ddconfig)
                 self.working_dtypes = [torch.bfloat16, torch.float16, torch.float32]
-                self.memory_used_encode = lambda shape, dtype: 3300 * shape[2] * shape[3] * dtype_size(dtype)
-                self.memory_used_decode = lambda shape, dtype: 8000 * shape[2] * shape[3] * (16 * 16) * dtype_size(dtype)
+                self.memory_used_encode = lambda shape, dtype: 3300 * shape[3] * shape[4] * dtype_size(dtype)
+                self.memory_used_decode = lambda shape, dtype: 8000 * shape[3] * shape[4] * (16 * 16) * dtype_size(dtype)
             else:  # Wan 2.1 VAE
                 self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 8, 8)
                 self.upscale_index_formula = (4, 8, 8)
@@ -839,8 +839,8 @@ class VAE:
                 ddconfig = {"dim": 96, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
                 self.first_stage_model = WanVAE(**ddconfig)
                 self.working_dtypes = [torch.bfloat16, torch.float16, torch.float32]
-                self.memory_used_encode = lambda shape, dtype: 6000 * shape[2] * shape[3] * dtype_size(dtype)
-                self.memory_used_decode = lambda shape, dtype: 7000 * shape[2] * shape[3] * (8 * 8) * dtype_size(dtype)
+                self.memory_used_encode = lambda shape, dtype: 6000 * shape[3] * shape[4] * dtype_size(dtype)
+                self.memory_used_decode = lambda shape, dtype: 7000 * shape[3] * shape[4] * (8 * 8) * dtype_size(dtype)
                 
         elif "decoder.conv_in.weight" in sd:
             # Standard SD VAE
@@ -957,8 +957,23 @@ class VAE:
             # Calculate memory usage
             memory_used = self.memory_used_encode(pixel_samples.shape, self.vae_dtype)
             
-            # Simple batch processing (simplified from original)
-            batch_number = max(1, min(4, pixel_samples.shape[0]))  # Process in small batches
+            # Dynamic batch processing based on available memory (ComfyUI style)
+            if hasattr(self, 'patcher') and self.patcher is not None:
+                # Load models to GPU if using patcher
+                from wan_vae_components.model_management import load_models_gpu, get_free_memory
+                load_models_gpu([self.patcher], memory_required=memory_used, force_full_load=self.disable_offload)
+                free_memory = get_free_memory(self.device)
+                batch_number = int(free_memory / max(1, memory_used))
+                batch_number = max(1, batch_number)
+            else:
+                # Fallback to simple batch processing
+                batch_number = max(1, min(4, pixel_samples.shape[0]))
+            
+            # Force 3 batches for video processing to avoid OOM (ComfyUI style)
+            if pixel_samples.shape[0] > 10:  # Video processing (more than 10 frames)
+                batch_number = max(1, pixel_samples.shape[0] // 3)  # Process in 3 batches
+                print(f'🔧 VAE Encoding: Forcing 3 batches for video processing')
+                print(f'   Total frames: {pixel_samples.shape[0]}, Batch size: {batch_number}')
             
             samples = None
             for x in range(0, pixel_samples.shape[0], batch_number):
