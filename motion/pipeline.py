@@ -459,11 +459,72 @@ class WanVideoPipeline:
         
         # VAE encoding of control video (exact match to ComfyUI - pass same range)
         with torch.no_grad():
+            # DEBUG: Print tensor info before VAE encoding
+            print(f"🔍 CONTROL VIDEO TENSORS BEFORE VAE ENCODING:")
+            print(f"   Inactive tensor:")
+            print(f"     Shape: {inactive[:, :, :, :3].shape}")
+            print(f"     Dtype: {inactive[:, :, :, :3].dtype}")
+            print(f"     Device: {inactive[:, :, :, :3].device}")
+            print(f"     Mean: {inactive[:, :, :, :3].mean().item():.6f}")
+            print(f"     Min: {inactive[:, :, :, :3].min().item():.6f}")
+            print(f"     Max: {inactive[:, :, :, :3].max().item():.6f}")
+            print(f"     Range: [{inactive[:, :, :, :3].min().item():.6f}, {inactive[:, :, :, :3].max().item():.6f}]")
+            print(f"     Std: {inactive[:, :, :, :3].std().item():.6f}")
+            print()
+            
+            print(f"   Reactive tensor:")
+            print(f"     Shape: {reactive[:, :, :, :3].shape}")
+            print(f"     Dtype: {reactive[:, :, :, :3].dtype}")
+            print(f"     Device: {reactive[:, :, :, :3].device}")
+            print(f"     Mean: {reactive[:, :, :, :3].mean().item():.6f}")
+            print(f"     Min: {reactive[:, :, :, :3].min().item():.6f}")
+            print(f"     Max: {reactive[:, :, :, :3].max().item():.6f}")
+            print(f"     Range: [{reactive[:, :, :, :3].min().item():.6f}, {reactive[:, :, :, :3].max().item():.6f}]")
+            print(f"     Std: {reactive[:, :, :, :3].std().item():.6f}")
+            print()
+            
             # ComfyUI passes [-0.5, 254.5] range directly to vae.encode()
             # We need to pass the same range to our VAE
+            print(f"🔍 CALLING VAE.ENCODE() FOR INACTIVE TENSOR:")
             inactive_latent = self.vae.encode(inactive[:, :, :, :3])
+            print(f"🔍 CALLING VAE.ENCODE() FOR REACTIVE TENSOR:")
             reactive_latent = self.vae.encode(reactive[:, :, :, :3])
             control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
+            
+            # DEBUG: Print tensor info after VAE encoding
+            print(f"🔍 CONTROL VIDEO LATENTS AFTER VAE ENCODING:")
+            print(f"   Inactive latent:")
+            print(f"     Shape: {inactive_latent.shape}")
+            print(f"     Dtype: {inactive_latent.dtype}")
+            print(f"     Device: {inactive_latent.device}")
+            print(f"     Mean: {inactive_latent.mean().item():.6f}")
+            print(f"     Min: {inactive_latent.min().item():.6f}")
+            print(f"     Max: {inactive_latent.max().item():.6f}")
+            print(f"     Range: [{inactive_latent.min().item():.6f}, {inactive_latent.max().item():.6f}]")
+            print(f"     Std: {inactive_latent.std().item():.6f}")
+            print()
+            
+            print(f"   Reactive latent:")
+            print(f"     Shape: {reactive_latent.shape}")
+            print(f"     Dtype: {reactive_latent.dtype}")
+            print(f"     Device: {reactive_latent.device}")
+            print(f"     Mean: {reactive_latent.mean().item():.6f}")
+            print(f"     Min: {reactive_latent.min().item():.6f}")
+            print(f"     Max: {reactive_latent.max().item():.6f}")
+            print(f"     Range: [{reactive_latent.min().item():.6f}, {reactive_latent.max().item():.6f}]")
+            print(f"     Std: {reactive_latent.std().item():.6f}")
+            print()
+            
+            print(f"   Combined control video latent:")
+            print(f"     Shape: {control_video_latent.shape}")
+            print(f"     Dtype: {control_video_latent.dtype}")
+            print(f"     Device: {control_video_latent.device}")
+            print(f"     Mean: {control_video_latent.mean().item():.6f}")
+            print(f"     Min: {control_video_latent.min().item():.6f}")
+            print(f"     Max: {control_video_latent.max().item():.6f}")
+            print(f"     Range: [{control_video_latent.min().item():.6f}, {control_video_latent.max().item():.6f}]")
+            print(f"     Std: {control_video_latent.std().item():.6f}")
+            print()
         
         # Process reference image using ComfyUI-compatible method
         reference_image_latent = None
@@ -476,7 +537,32 @@ class WanVideoPipeline:
             
             # Encode reference image
             with torch.no_grad():
+                # DEBUG: Print tensor info before VAE encoding
+                print(f"🔍 REFERENCE IMAGE TENSOR BEFORE VAE ENCODING:")
+                print(f"   Shape: {reference_image[:, :, :, :3].shape}")
+                print(f"   Dtype: {reference_image[:, :, :, :3].dtype}")
+                print(f"   Device: {reference_image[:, :, :, :3].device}")
+                print(f"   Mean: {reference_image[:, :, :, :3].mean().item():.6f}")
+                print(f"   Min: {reference_image[:, :, :, :3].min().item():.6f}")
+                print(f"   Max: {reference_image[:, :, :, :3].max().item():.6f}")
+                print(f"   Range: [{reference_image[:, :, :, :3].min().item():.6f}, {reference_image[:, :, :, :3].max().item():.6f}]")
+                print(f"   Std: {reference_image[:, :, :, :3].std().item():.6f}")
+                print()
+                
+                print(f"🔍 CALLING VAE.ENCODE() FOR REFERENCE IMAGE:")
                 reference_image_latent = self.vae.encode(reference_image[:, :, :, :3])
+                
+                # DEBUG: Print tensor info after VAE encoding
+                print(f"🔍 REFERENCE IMAGE LATENT AFTER VAE ENCODING:")
+                print(f"   Shape: {reference_image_latent.shape}")
+                print(f"   Dtype: {reference_image_latent.dtype}")
+                print(f"   Device: {reference_image_latent.device}")
+                print(f"   Mean: {reference_image_latent.mean().item():.6f}")
+                print(f"   Min: {reference_image_latent.min().item():.6f}")
+                print(f"   Max: {reference_image_latent.max().item():.6f}")
+                print(f"   Range: [{reference_image_latent.min().item():.6f}, {reference_image_latent.max().item():.6f}]")
+                print(f"   Std: {reference_image_latent.std().item():.6f}")
+                print()
             
             # Add motion latent channels (WAN format) - exact match to ComfyUI
             try:

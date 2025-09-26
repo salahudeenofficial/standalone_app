@@ -965,6 +965,23 @@ class VAE:
                 # Process input and move to device
                 pixels_in = self.process_input(pixel_samples[x:x + batch_number]).to(self.vae_dtype).to(self.device)
                 
+                # DEBUG: Print tensor info before encode call
+                print(f"🔍 VAE ENCODE INPUT TENSOR ANALYSIS:")
+                print(f"   Shape: {pixels_in.shape}")
+                print(f"   Dtype: {pixels_in.dtype}")
+                print(f"   Device: {pixels_in.device}")
+                print(f"   Mean: {pixels_in.mean().item():.6f}")
+                print(f"   Min: {pixels_in.min().item():.6f}")
+                print(f"   Max: {pixels_in.max().item():.6f}")
+                print(f"   Range: [{pixels_in.min().item():.6f}, {pixels_in.max().item():.6f}]")
+                print(f"   Std: {pixels_in.std().item():.6f}")
+                
+                # Get first 5 values for inspection
+                flat_tensor = pixels_in.flatten()
+                first_values = [f"{flat_tensor[i].item():.6f}" for i in range(min(5, len(flat_tensor)))]
+                print(f"   First 5 values: {first_values}")
+                print()
+                
                 # Encode
                 if hasattr(self.first_stage_model, 'encode'):
                     out = self.first_stage_model.encode(pixels_in, dtype=self.vae_dtype)
@@ -972,6 +989,23 @@ class VAE:
                 else:
                     # Fallback for models without encode method
                     out = self.first_stage_model.encoder(pixels_in)
+                
+                # DEBUG: Print tensor info after encode call
+                print(f"🔍 VAE ENCODE OUTPUT TENSOR ANALYSIS:")
+                print(f"   Shape: {out.shape}")
+                print(f"   Dtype: {out.dtype}")
+                print(f"   Device: {out.device}")
+                print(f"   Mean: {out.mean().item():.6f}")
+                print(f"   Min: {out.min().item():.6f}")
+                print(f"   Max: {out.max().item():.6f}")
+                print(f"   Range: [{out.min().item():.6f}, {out.max().item():.6f}]")
+                print(f"   Std: {out.std().item():.6f}")
+                
+                # Get first 5 values for inspection
+                flat_output = out.flatten()
+                first_output_values = [f"{flat_output[i].item():.6f}" for i in range(min(5, len(flat_output)))]
+                print(f"   First 5 values: {first_output_values}")
+                print()
                 
                 # Move to output device and convert to float
                 out = out.to(self.output_device).float()
