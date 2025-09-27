@@ -435,6 +435,11 @@ class WanVideoPipeline:
             
             # Process control video using ComfyUI-compatible method
             if control_video is not None:
+                # Normalize video from uint8 (0-255) to float32 (0-1) range
+                if control_video.dtype == torch.uint8:
+                    control_video = control_video.float() / 255.0
+                    print(f"🔧 Normalized video from uint8 to float32: {control_video.dtype}, range: [{control_video.min().item():.3f}, {control_video.max().item():.3f}]")
+                
                 # Use ComfyUI's common_upscale with movedim (exact match to WanVaceToVideo)
                 control_video = common_upscale(
                     control_video[:length].movedim(-1, 1), 

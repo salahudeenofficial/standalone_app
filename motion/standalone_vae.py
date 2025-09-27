@@ -943,15 +943,53 @@ class VAE:
         """Encode input to latent space with proper downscaling logic"""
         self.throw_exception_if_invalid()
         
+        # DEBUG: Track tensor transformations step by step
+        print(f"🔍 VAE ENCODE TENSOR TRANSFORMATION DEBUG:")
+        print(f"   Step 0 - Original input:")
+        print(f"     Shape: {pixel_samples.shape}")
+        print(f"     Dtype: {pixel_samples.dtype}")
+        print(f"     Device: {pixel_samples.device}")
+        print(f"     Mean: {pixel_samples.mean().item():.6f}")
+        print(f"     Min: {pixel_samples.min().item():.6f}")
+        print(f"     Max: {pixel_samples.max().item():.6f}")
+        print()
+        
         # Crop pixels to be divisible by downscale ratio
         pixel_samples = self.vae_encode_crop_pixels(pixel_samples)
+        
+        print(f"   Step 1 - After crop_pixels:")
+        print(f"     Shape: {pixel_samples.shape}")
+        print(f"     Dtype: {pixel_samples.dtype}")
+        print(f"     Device: {pixel_samples.device}")
+        print(f"     Mean: {pixel_samples.mean().item():.6f}")
+        print(f"     Min: {pixel_samples.min().item():.6f}")
+        print(f"     Max: {pixel_samples.max().item():.6f}")
+        print()
         
         # Move channel dimension to correct position
         pixel_samples = pixel_samples.movedim(-1, 1)
         
+        print(f"   Step 2 - After movedim(-1, 1):")
+        print(f"     Shape: {pixel_samples.shape}")
+        print(f"     Dtype: {pixel_samples.dtype}")
+        print(f"     Device: {pixel_samples.device}")
+        print(f"     Mean: {pixel_samples.mean().item():.6f}")
+        print(f"     Min: {pixel_samples.min().item():.6f}")
+        print(f"     Max: {pixel_samples.max().item():.6f}")
+        print()
+        
         # Handle 3D latent (video) case
         if self.latent_dim == 3 and pixel_samples.ndim < 5:
             pixel_samples = pixel_samples.movedim(1, 0).unsqueeze(0)
+            
+            print(f"   Step 3 - After video transformation:")
+            print(f"     Shape: {pixel_samples.shape}")
+            print(f"     Dtype: {pixel_samples.dtype}")
+            print(f"     Device: {pixel_samples.device}")
+            print(f"     Mean: {pixel_samples.mean().item():.6f}")
+            print(f"     Min: {pixel_samples.min().item():.6f}")
+            print(f"     Max: {pixel_samples.max().item():.6f}")
+            print()
         
         try:
             # Calculate memory usage
@@ -978,7 +1016,38 @@ class VAE:
             samples = None
             for x in range(0, pixel_samples.shape[0], batch_number):
                 # Process input and move to device
-                pixels_in = self.process_input(pixel_samples[x:x + batch_number]).to(self.vae_dtype).to(self.device)
+                batch_tensor = pixel_samples[x:x + batch_number]
+                
+                print(f"   Step 4 - Batch tensor (range {x}:{x + batch_number}):")
+                print(f"     Shape: {batch_tensor.shape}")
+                print(f"     Dtype: {batch_tensor.dtype}")
+                print(f"     Device: {batch_tensor.device}")
+                print(f"     Mean: {batch_tensor.mean().item():.6f}")
+                print(f"     Min: {batch_tensor.min().item():.6f}")
+                print(f"     Max: {batch_tensor.max().item():.6f}")
+                print()
+                
+                pixels_in = self.process_input(batch_tensor)
+                
+                print(f"   Step 5 - After process_input:")
+                print(f"     Shape: {pixels_in.shape}")
+                print(f"     Dtype: {pixels_in.dtype}")
+                print(f"     Device: {pixels_in.device}")
+                print(f"     Mean: {pixels_in.mean().item():.6f}")
+                print(f"     Min: {pixels_in.min().item():.6f}")
+                print(f"     Max: {pixels_in.max().item():.6f}")
+                print()
+                
+                pixels_in = pixels_in.to(self.vae_dtype).to(self.device)
+                
+                print(f"   Step 6 - After dtype/device conversion:")
+                print(f"     Shape: {pixels_in.shape}")
+                print(f"     Dtype: {pixels_in.dtype}")
+                print(f"     Device: {pixels_in.device}")
+                print(f"     Mean: {pixels_in.mean().item():.6f}")
+                print(f"     Min: {pixels_in.min().item():.6f}")
+                print(f"     Max: {pixels_in.max().item():.6f}")
+                print()
                 
                 # DEBUG: Print tensor info before encode call
                 print(f"🔍 VAE ENCODE INPUT TENSOR ANALYSIS:")
