@@ -424,7 +424,7 @@ class WanVideoPipeline:
             control_video = None
             if control_video_path and os.path.exists(control_video_path):
                 control_video = self.load_video(control_video_path)
-            else:
+                else:
                 # Create dummy control video for testing
                 control_video = torch.rand(length, height, width, 3)
             
@@ -435,10 +435,10 @@ class WanVideoPipeline:
             
             # Process control video using ComfyUI-compatible method
             if control_video is not None:
-                # Normalize video from uint8 (0-255) to float32 (0-1) range
+                # Convert to float32 and normalize to [0, 1] range (exact match to ComfyUI VHS_LoadVideo)
                 if control_video.dtype == torch.uint8:
                     control_video = control_video.float() / 255.0
-                    print(f"🔧 Normalized video from uint8 to float32: {control_video.dtype}, range: [{control_video.min().item():.3f}, {control_video.max().item():.3f}]")
+                    print(f"🔧 Normalized video from uint8 to float32 [0,1]: {control_video.dtype}, range: [{control_video.min().item():.3f}, {control_video.max().item():.3f}]")
                 
                 # Use ComfyUI's common_upscale with movedim (exact match to WanVaceToVideo)
                 control_video = common_upscale(
@@ -1291,21 +1291,21 @@ class WanVideoPipeline:
                 torch.cuda.empty_cache()
             
             # Perform sampling
-            denoised_latent = ksampler.sample(
-                noise=noise,
-                positive=positive_conditioning,
-                negative=negative_conditioning,
-                cfg=cfg,
+                denoised_latent = ksampler.sample(
+                    noise=noise,
+                    positive=positive_conditioning,
+                    negative=negative_conditioning,
+                    cfg=cfg,
                 latent_image=initial_latent,
-                start_step=None,
-                last_step=None,
-                force_full_denoise=False,
-                denoise_mask=None,
-                sigmas=None,
+                    start_step=None,
+                    last_step=None,
+                    force_full_denoise=False,
+                    denoise_mask=None,
+                    sigmas=None,
                 callback=None,
-                disable_pbar=False,
-                seed=seed
-            )
+                    disable_pbar=False,
+                    seed=seed
+                )
             
             denoising_time = time.time() - denoising_start
             
@@ -1324,7 +1324,7 @@ class WanVideoPipeline:
             
             # Clear CUDA cache
             if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
             
             # Create results
             step_4_results = {
@@ -2070,7 +2070,7 @@ class WanVideoPipeline:
             print(f"   ❌ Some VAE parameters are on CPU: {cpu_params[:5]}...")
         
         print()
-
+    
 
 # ============================================================================
 # EXAMPLE USAGE AND TESTING

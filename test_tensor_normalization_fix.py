@@ -11,13 +11,13 @@ from pathlib import Path
 # Add motion directory to path
 sys.path.insert(0, str(Path(__file__).parent / "motion"))
 
-def test_tensor_normalization_fix():
-    """Test that video tensors are properly normalized before VAE processing"""
+def test_tensor_range_preservation():
+    """Test that video tensors are normalized to [0,1] range like ComfyUI VHS_LoadVideo"""
     print("="*60)
-    print("TESTING TENSOR NORMALIZATION FIX")
+    print("TESTING TENSOR NORMALIZATION (ComfyUI VHS_LoadVideo style)")
     print("="*60)
     
-    # Simulate the issue: uint8 video data (0-255 range)
+    # Simulate the correct behavior: uint8 video data (0-255 range)
     print("🔧 Simulating uint8 video data (0-255 range):")
     uint8_video = torch.randint(0, 256, (37, 832, 480, 3), dtype=torch.uint8)
     print(f"   Original uint8 video:")
@@ -29,8 +29,8 @@ def test_tensor_normalization_fix():
     print(f"     Range: [0, 255]")
     print()
     
-    # Apply the fix: normalize to [0,1] range
-    print("🔧 Applying normalization fix:")
+    # Apply the correct fix: normalize to [0,1] range (ComfyUI VHS_LoadVideo style)
+    print("🔧 Applying ComfyUI normalization (uint8 / 255.0):")
     if uint8_video.dtype == torch.uint8:
         normalized_video = uint8_video.float() / 255.0
         print(f"   Normalized video:")
@@ -57,17 +57,6 @@ def test_tensor_normalization_fix():
     print(f"     Range: [{processed_normalized.min().item():.6f}, {processed_normalized.max().item():.6f}]")
     print()
     
-    # Test with unnormalized data (should be wrong)
-    processed_unnormalized = process_input(uint8_video.float())
-    print(f"   Processed unnormalized video (WRONG):")
-    print(f"     Shape: {processed_unnormalized.shape}")
-    print(f"     Dtype: {processed_unnormalized.dtype}")
-    print(f"     Mean: {processed_unnormalized.mean().item():.6f}")
-    print(f"     Min: {processed_unnormalized.min().item():.6f}")
-    print(f"     Max: {processed_unnormalized.max().item():.6f}")
-    print(f"     Range: [{processed_unnormalized.min().item():.6f}, {processed_unnormalized.max().item():.6f}]")
-    print()
-    
     # Verify the fix
     print("🔧 Verifying the fix:")
     expected_range = [-1.0, 1.0]  # process_input should map [0,1] to [-1,1]
@@ -77,14 +66,14 @@ def test_tensor_normalization_fix():
     print(f"   Actual range after process_input: [{actual_range[0]:.6f}, {actual_range[1]:.6f}]")
     
     if abs(actual_range[0] - expected_range[0]) < 0.1 and abs(actual_range[1] - expected_range[1]) < 0.1:
-        print("   ✅ Normalization fix works correctly!")
+        print("   ✅ ComfyUI normalization works correctly!")
         return True
     else:
-        print("   ❌ Normalization fix failed!")
+        print("   ❌ ComfyUI normalization failed!")
         return False
 
 def test_inactive_reactive_tensor_creation():
-    """Test inactive and reactive tensor creation with proper normalization"""
+    """Test inactive and reactive tensor creation with ComfyUI normalization"""
     print("\n" + "="*60)
     print("TESTING INACTIVE/REACTIVE TENSOR CREATION")
     print("="*60)
@@ -92,9 +81,9 @@ def test_inactive_reactive_tensor_creation():
     # Simulate the pipeline tensor creation
     length, height, width = 37, 832, 480
     
-    # Create normalized control video (simulating after our fix)
+    # Create normalized control video (simulating ComfyUI VHS_LoadVideo output)
     control_video = torch.rand(length, height, width, 3)  # [0,1] range
-    print(f"🔧 Control video (normalized):")
+    print(f"🔧 Control video (normalized [0,1]):")
     print(f"   Shape: {control_video.shape}")
     print(f"   Dtype: {control_video.dtype}")
     print(f"   Mean: {control_video.mean().item():.6f}")
@@ -104,10 +93,10 @@ def test_inactive_reactive_tensor_creation():
     # Create control mask
     mask = torch.ones((length, height, width, 1), device=control_video.device)
     
-    # Split control video by mask (pipeline logic)
-    control_video_centered = control_video - 0.5  # Center around 0
-    inactive = (control_video_centered * (1 - mask)) + 0.5  # Inactive regions
-    reactive = (control_video_centered * mask) + 0.5        # Active/controlled regions
+    # Split control video by mask (ComfyUI WanVaceToVideo logic)
+    control_video = control_video - 0.5  # Center around 0
+    inactive = (control_video * (1 - mask)) + 0.5  # Inactive regions
+    reactive = (control_video * mask) + 0.5        # Active/controlled regions
     
     print(f"🔧 Inactive tensor:")
     print(f"   Shape: {inactive.shape}")
@@ -143,7 +132,7 @@ def test_inactive_reactive_tensor_creation():
     reactive_range = [reactive_processed.min().item(), reactive_processed.max().item()]
     
     # Inactive tensor should be constant 0.0 (0.5 * 2 - 1 = 0.0)
-    # Reactive tensor should be in [-1, 1] range
+    # Reactive tensor should be in [-1, 1] range (from [0, 1] * 2 - 1)
     inactive_ok = abs(inactive_range[0] - 0.0) < 0.1 and abs(inactive_range[1] - 0.0) < 0.1
     reactive_ok = abs(reactive_range[0] - (-1.0)) < 0.1 and abs(reactive_range[1] - 1.0) < 0.1
     
@@ -160,13 +149,13 @@ def test_inactive_reactive_tensor_creation():
 
 def main():
     """Run all tests"""
-    print("TENSOR NORMALIZATION FIX TEST")
+    print("COMFYUI TENSOR NORMALIZATION TEST")
     print("="*80)
     
     results = []
     
-    # Test 1: Tensor normalization fix
-    results.append(test_tensor_normalization_fix())
+    # Test 1: Tensor normalization (ComfyUI VHS_LoadVideo style)
+    results.append(test_tensor_range_preservation())
     
     # Test 2: Inactive/reactive tensor creation
     results.append(test_inactive_reactive_tensor_creation())
@@ -182,17 +171,22 @@ def main():
     print(f"Tests passed: {passed}/{total}")
     
     if passed == total:
-        print("✅ All tensor normalization fix tests passed!")
-        print("\n🎯 The tensor normalization issue has been fixed:")
-        print("   - Video data properly normalized from uint8 to [0,1]: ✅")
-        print("   - process_input works correctly on normalized data: ✅")
-        print("   - Inactive and reactive tensors processed correctly: ✅")
+        print("✅ All ComfyUI tensor normalization tests passed!")
+        print("\n🎯 The tensor normalization matches ComfyUI VHS_LoadVideo:")
+        print("   - Video data normalized from uint8 to [0,1] range: ✅")
+        print("   - process_input works correctly on [0,1] data: ✅")
+        print("   - Inactive tensor (0.5 constant) processed correctly: ✅")
+        print("   - Reactive tensor ([0,1] range) processed correctly: ✅")
         print("\n🚀 The VAE should now receive correct tensor values!")
         print("\n📝 The fix ensures:")
         print("   - uint8 video data (0-255) → float32 (0-1) → process_input → [-1,1]")
-        print("   - No more corrupted tensor values in VAE encoding")
+        print("   - Inactive tensor: 0.5 → process_input → 0.0 (constant)")
+        print("   - Reactive tensor: [0,1] → process_input → [-1,1]")
+        print("\n🎯 Expected VAE output ranges:")
+        print("   - Reactive tensor: Mean ~0.3, Range [-11, 10]")
+        print("   - Inactive tensor: Mean ~-0.58, Range [-5.4, 5.7]")
     else:
-        print("❌ Some tensor normalization fix tests failed")
+        print("❌ Some ComfyUI tensor normalization tests failed")
     
     return passed == total
 
