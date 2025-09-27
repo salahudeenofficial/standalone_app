@@ -985,6 +985,14 @@ class VAE:
                 print(f"   Shape: {pixels_in.shape}")
                 print(f"   Dtype: {pixels_in.dtype}")
                 print(f"   Device: {pixels_in.device}")
+                
+                # Check if tensor is empty
+                if pixels_in.numel() == 0:
+                    print(f"   ❌ ERROR: Empty tensor detected!")
+                    print(f"   Original shape: {pixel_samples.shape}")
+                    print(f"   Batch range: {x}:{x + batch_number}")
+                    raise ValueError("Empty tensor detected in VAE encoding")
+                
                 print(f"   Mean: {pixels_in.mean().item():.6f}")
                 print(f"   Min: {pixels_in.min().item():.6f}")
                 print(f"   Max: {pixels_in.max().item():.6f}")

@@ -411,6 +411,12 @@ class WanVideoPipeline:
             # Verify VAE is properly initialized
             self.vae.throw_exception_if_invalid()
             
+            # Force VAE to GPU if needed
+            if torch.cuda.is_available() and self.device.type == "cuda":
+                print(f"🔧 FORCING VAE TO GPU: {self.device}")
+                self.vae.first_stage_model.to(self.device)
+                print(f"✅ VAE moved to GPU: {self.device}")
+            
             # Device verification: Ensure VAE model is on GPU
             self._verify_vae_device()
             

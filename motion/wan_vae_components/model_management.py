@@ -234,11 +234,35 @@ def unet_inital_load_device(parameters, unet_dtype):
         return device
 
 
-def load_models_gpu(model_patchers, force_full_load=False):
-    """Load models to GPU"""
-    for patcher in model_patchers:
-        if hasattr(patcher, 'load_device') and patcher.load_device.type == "cuda":
-            logging.info("Model loaded to GPU")
+def load_models_gpu(models, memory_required=0, force_patch_weights=False, minimum_memory_required=None, force_full_load=False):
+    """
+    Load models to GPU (ComfyUI-compatible implementation).
+    
+    Args:
+        models: List of model patchers to load
+        memory_required: Memory required for the models
+        force_patch_weights: Whether to force patch weights
+        minimum_memory_required: Minimum memory required
+        force_full_load: Whether to force full load
+    """
+    logging.info(f"Loading {len(models)} models to GPU")
+    logging.info(f"Memory required: {memory_required / (1024*1024):.2f} MB")
+    
+    for model_patcher in models:
+        if hasattr(model_patcher, 'model') and model_patcher.model is not None:
+            # Get target device
+            target_device = get_torch_device()
+            if hasattr(model_patcher, 'load_device'):
+                target_device = model_patcher.load_device
+            
+            # Move model to target device
+            if target_device.type == "cuda":
+                model_patcher.model.to(target_device)
+                logging.info(f"Model moved to GPU: {target_device}")
+            else:
+                logging.info(f"Model kept on CPU: {target_device}")
+        else:
+            logging.warning("Model patcher has no model attribute")
 
 
 def cast_to_device(tensor: torch.Tensor, device: torch.device, dtype: torch.dtype, 
