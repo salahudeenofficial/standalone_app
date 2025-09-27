@@ -42,7 +42,8 @@ class CausalConv3d(ops.Conv3d):
 
 
 class RMS_norm(nn.Module):
-
+    """RMS normalization (borrowed from ComfyUI)."""
+    
     def __init__(self, dim, channel_first=True, images=True, bias=False):
         super().__init__()
         broadcastable_dims = (1, 1, 1) if not images else (1, 1)

@@ -130,14 +130,42 @@ def empty_cache(device: torch.device) -> None:
         torch.cuda.empty_cache()
 
 
-# Additional functions needed by model.py
-def xformers_enabled_vae() -> bool:
-    """Check if xformers is enabled for VAE."""
+# Global variables for xformers management (borrowed from ComfyUI)
+XFORMERS_VERSION = ""
+XFORMERS_ENABLED_VAE = True
+XFORMERS_IS_AVAILABLE = False
+
+# Initialize xformers availability (borrowed from ComfyUI logic)
+try:
+    import xformers
+    import xformers.ops
+    XFORMERS_IS_AVAILABLE = True
     try:
-        import xformers
-        return True
-    except ImportError:
+        XFORMERS_IS_AVAILABLE = xformers._has_cpp_library
+    except:
+        pass
+    try:
+        XFORMERS_VERSION = xformers.version.__version__
+        logging.info("xformers version: {}".format(XFORMERS_VERSION))
+        if XFORMERS_VERSION.startswith("0.0.18"):
+            logging.warning("\nWARNING: This version of xformers has a major bug where you will get black images when generating high resolution images.")
+            logging.warning("Please downgrade or upgrade xformers to a different version.\n")
+            XFORMERS_ENABLED_VAE = False
+    except:
+        pass
+except:
+    XFORMERS_IS_AVAILABLE = False
+
+def xformers_enabled() -> bool:
+    """Check if xformers is enabled (borrowed from ComfyUI)."""
+    return XFORMERS_IS_AVAILABLE
+
+def xformers_enabled_vae() -> bool:
+    """Check if xformers is enabled for VAE (borrowed from ComfyUI)."""
+    enabled = xformers_enabled()
+    if not enabled:
         return False
+    return XFORMERS_ENABLED_VAE
 
 
 def pytorch_attention_enabled_vae() -> bool:

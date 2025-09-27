@@ -399,11 +399,20 @@ class WanVideoPipeline:
             # Load VAE state dict
             vae_state_dict = load_torch_file(vae_model_path)
             
+            # GPU Monitoring: Check GPU state before VAE creation
+            self._log_gpu_state("BEFORE VAE CREATION")
+            
             # Create VAE instance using ComfyUI-style implementation
             self.vae = create_vae(state_dict=vae_state_dict, device=self.device)
             
+            # GPU Monitoring: Check GPU state after VAE creation
+            self._log_gpu_state("AFTER VAE CREATION")
+            
             # Verify VAE is properly initialized
             self.vae.throw_exception_if_invalid()
+            
+            # Device verification: Ensure VAE model is on GPU
+            self._verify_vae_device()
             
             # Load control video
             control_video = None
@@ -459,6 +468,9 @@ class WanVideoPipeline:
         
         # VAE encoding of control video (exact match to ComfyUI - pass same range)
         with torch.no_grad():
+            # GPU Monitoring: Check initial GPU state
+            self._log_gpu_state("BEFORE VAE ENCODING")
+            
             # DEBUG: Print tensor info before VAE encoding
             print(f"🔍 CONTROL VIDEO TENSORS BEFORE VAE ENCODING:")
             print(f"   Inactive tensor:")
@@ -483,12 +495,23 @@ class WanVideoPipeline:
             print(f"     Std: {reactive[:, :, :, :3].std().item():.6f}")
             print()
             
+            # Device verification: Ensure VAE model is on GPU
+            self._verify_vae_device()
+            
             # ComfyUI passes [-0.5, 254.5] range directly to vae.encode()
             # We need to pass the same range to our VAE
             print(f"🔍 CALLING VAE.ENCODE() FOR INACTIVE TENSOR:")
             inactive_latent = self.vae.encode(inactive[:, :, :, :3])
+            
+            # GPU Monitoring: Check GPU state after first encode
+            self._log_gpu_state("AFTER INACTIVE VAE ENCODE")
+            
             print(f"🔍 CALLING VAE.ENCODE() FOR REACTIVE TENSOR:")
             reactive_latent = self.vae.encode(reactive[:, :, :, :3])
+            
+            # GPU Monitoring: Check GPU state after second encode
+            self._log_gpu_state("AFTER REACTIVE VAE ENCODE")
+            
             control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
             
             # DEBUG: Print tensor info after VAE encoding
@@ -537,6 +560,9 @@ class WanVideoPipeline:
             
             # Encode reference image
             with torch.no_grad():
+                # GPU Monitoring: Check GPU state before reference image encoding
+                self._log_gpu_state("BEFORE REFERENCE IMAGE VAE ENCODING")
+                
                 # DEBUG: Print tensor info before VAE encoding
                 print(f"🔍 REFERENCE IMAGE TENSOR BEFORE VAE ENCODING:")
                 print(f"   Shape: {reference_image[:, :, :, :3].shape}")
@@ -551,6 +577,9 @@ class WanVideoPipeline:
                 
                 print(f"🔍 CALLING VAE.ENCODE() FOR REFERENCE IMAGE:")
                 reference_image_latent = self.vae.encode(reference_image[:, :, :, :3])
+                
+                # GPU Monitoring: Check GPU state after reference image encoding
+                self._log_gpu_state("AFTER REFERENCE IMAGE VAE ENCODING")
                 
                 # DEBUG: Print tensor info after VAE encoding
                 print(f"🔍 REFERENCE IMAGE LATENT AFTER VAE ENCODING:")
@@ -1963,6 +1992,74 @@ class WanVideoPipeline:
         
         return step_1_results, step_2_results
     
+    def _log_gpu_state(self, stage_name):
+        """Log comprehensive GPU state information"""
+        if not torch.cuda.is_available():
+            print(f"🖥️  GPU STATE [{stage_name}]: CUDA not available - using CPU")
+            return
+        
+        device = torch.cuda.current_device()
+        allocated = torch.cuda.memory_allocated(device)
+        reserved = torch.cuda.memory_reserved(device)
+        max_allocated = torch.cuda.max_memory_allocated(device)
+        max_reserved = torch.cuda.max_memory_reserved(device)
+        
+        # Convert bytes to MB
+        allocated_mb = allocated / (1024 * 1024)
+        reserved_mb = reserved / (1024 * 1024)
+        max_allocated_mb = max_allocated / (1024 * 1024)
+        max_reserved_mb = max_reserved / (1024 * 1024)
+        
+        # Get GPU properties
+        gpu_props = torch.cuda.get_device_properties(device)
+        total_memory_mb = gpu_props.total_memory / (1024 * 1024)
+        memory_usage_percent = (allocated_mb / total_memory_mb) * 100
+        
+        print(f"🖥️  GPU STATE [{stage_name}]:")
+        print(f"   Device: {device} ({gpu_props.name})")
+        print(f"   Memory Allocated: {allocated_mb:.2f} MB ({memory_usage_percent:.1f}%)")
+        print(f"   Memory Reserved: {reserved_mb:.2f} MB")
+        print(f"   Max Allocated: {max_allocated_mb:.2f} MB")
+        print(f"   Max Reserved: {max_reserved_mb:.2f} MB")
+        print(f"   Total Memory: {total_memory_mb:.2f} MB")
+        print(f"   Free Memory: {total_memory_mb - allocated_mb:.2f} MB")
+        print()
+    
+    def _verify_vae_device(self):
+        """Verify VAE model and all its parameters are on the correct device"""
+        if not torch.cuda.is_available():
+            print(f"🔍 VAE DEVICE VERIFICATION: CUDA not available - VAE should be on CPU")
+            return
+        
+        device = torch.cuda.current_device()
+        vae_device = next(self.vae.first_stage_model.parameters()).device
+        
+        print(f"🔍 VAE DEVICE VERIFICATION:")
+        print(f"   Expected device: cuda:{device}")
+        print(f"   VAE device: {vae_device}")
+        
+        if vae_device.type == 'cuda' and vae_device.index == device:
+            print(f"   ✅ VAE is correctly on GPU")
+        elif vae_device.type == 'cpu':
+            print(f"   ⚠️  VAE is on CPU - this may cause performance issues")
+        else:
+            print(f"   ❌ VAE device mismatch - expected cuda:{device}, got {vae_device}")
+        
+        # Check all VAE parameters
+        all_on_gpu = True
+        cpu_params = []
+        for name, param in self.vae.first_stage_model.named_parameters():
+            if param.device.type != 'cuda':
+                all_on_gpu = False
+                cpu_params.append(name)
+        
+        if all_on_gpu:
+            print(f"   ✅ All VAE parameters are on GPU")
+        else:
+            print(f"   ❌ Some VAE parameters are on CPU: {cpu_params[:5]}...")
+        
+        print()
+
 
 # ============================================================================
 # EXAMPLE USAGE AND TESTING

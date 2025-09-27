@@ -71,7 +71,7 @@ def cast_bias_weight(s: nn.Module, input_tensor: Optional[torch.Tensor] = None,
     non_blocking = device_supports_non_blocking(device)
     
     if hasattr(s, 'bias') and s.bias is not None:
-        has_function = hasattr(s, 'bias_function') and len(s.bias_function) > 0
+        has_function = len(s.bias_function) > 0
         bias = cast_to(s.bias, bias_dtype, device, non_blocking=non_blocking, 
                       copy=has_function, stream=offload_stream)
 
@@ -80,7 +80,7 @@ def cast_bias_weight(s: nn.Module, input_tensor: Optional[torch.Tensor] = None,
                 for f in s.bias_function:
                     bias = f(bias)
 
-    has_function = hasattr(s, 'weight_function') and len(s.weight_function) > 0
+    has_function = len(s.weight_function) > 0
     weight = cast_to(s.weight, dtype, device, non_blocking=non_blocking, 
                     copy=has_function, stream=offload_stream)
     if has_function:
