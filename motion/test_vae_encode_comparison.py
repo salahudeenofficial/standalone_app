@@ -169,16 +169,25 @@ def load_real_video():
     return video_tensor
 
 def process_video_into_tensors(video_tensor):
-    """Process video into reactive and inactive tensors like motion pipeline"""
-    print(f"\n🔧 Processing video into reactive/inactive tensors...")
+    """Process video into reactive and inactive tensors using EXACT pipeline preprocessing"""
+    print(f"\n🔧 Processing video into reactive/inactive tensors using PIPELINE preprocessing...")
     
-    # Create reactive tensor (actual video data)
-    reactive = video_tensor.clone()
+    # Use EXACT same preprocessing as pipeline
+    length, height, width, channels = video_tensor.shape
     
-    # Create inactive tensor (constant 0.5 values)
-    inactive = torch.full_like(video_tensor, 0.5)
+    # Create control mask using ComfyUI-compatible method (exact match to WanVaceToVideo)
+    mask = torch.ones((length, height, width, 1), device=video_tensor.device)
     
-    print(f"✅ Processed tensors:")
+    # Split control video by mask (EXACT pipeline logic)
+    control_video = video_tensor - 0.5  # Center around 0
+    inactive = (control_video * (1 - mask)) + 0.5  # Inactive regions
+    reactive = (control_video * mask) + 0.5        # Active/controlled regions
+    
+    print(f"✅ Processed tensors using PIPELINE preprocessing:")
+    print(f"   Control video (after -0.5):")
+    print(f"     Shape: {control_video.shape}")
+    print(f"     Range: [{control_video.min().item():.6f}, {control_video.max().item():.6f}]")
+    print(f"     Mean: {control_video.mean().item():.6f}")
     print(f"   Reactive tensor:")
     print(f"     Shape: {reactive.shape}")
     print(f"     Range: [{reactive.min().item():.6f}, {reactive.max().item():.6f}]")
@@ -427,10 +436,10 @@ def compare_vae_results(motion_result, comfy_result):
 
 def main():
     """Main test function"""
-    print("🚀 VAE ENCODE COMPARISON TEST - MOTION DIRECTORY")
+    print("🚀 VAE ENCODE COMPARISON TEST - PIPELINE PREPROCESSING")
     print("=" * 70)
-    print("This script loads both standalone_vae and ComfyUI vae,")
-    print("performs .encode on both, and compares the output tensors.")
+    print("This script uses EXACT pipeline preprocessing to test both VAEs")
+    print("and verify the vae_encode_crop_pixels bug.")
     print()
     
     try:
@@ -438,7 +447,7 @@ def main():
         add_paths()
         sd = load_vae_model()
         
-        # Load real video and process into tensors
+        # Load real video and process into tensors using PIPELINE preprocessing
         video_tensor = load_real_video()
         reactive, inactive = process_video_into_tensors(video_tensor)
         
@@ -446,13 +455,13 @@ def main():
         reactive_vae_input = prepare_video_for_vae(reactive)
         inactive_vae_input = prepare_video_for_vae(inactive)
         
-        # Test both VAE implementations with reactive tensor
-        print(f"\n🔧 TESTING WITH REACTIVE TENSOR (real video data)")
+        # Test both VAE implementations with reactive tensor (pipeline preprocessing)
+        print(f"\n🔧 TESTING WITH REACTIVE TENSOR (pipeline preprocessing)")
         motion_result_reactive = test_motion_pipeline_vae(sd, reactive_vae_input)
         comfy_result_reactive = test_comfyui_vae(sd, reactive_vae_input)
         
-        # Test both VAE implementations with inactive tensor
-        print(f"\n🔧 TESTING WITH INACTIVE TENSOR (constant 0.5)")
+        # Test both VAE implementations with inactive tensor (pipeline preprocessing)
+        print(f"\n🔧 TESTING WITH INACTIVE TENSOR (pipeline preprocessing)")
         motion_result_inactive = test_motion_pipeline_vae(sd, inactive_vae_input)
         comfy_result_inactive = test_comfyui_vae(sd, inactive_vae_input)
         
@@ -461,15 +470,17 @@ def main():
         comfy_result = comfy_result_reactive
         
         # Compare results
-        success, compatibility = compare_vae_results(motion_result, comfy_result)
-        
-        if success:
-            print(f"\n🎉 VAE COMPATIBILITY TEST COMPLETED!")
+        if motion_result is not None and comfy_result is not None:
+            success, compatibility = compare_vae_results(motion_result, comfy_result)
+            
+            print(f"\n🎉 PIPELINE PREPROCESSING TEST COMPLETED!")
             print(f"🎯 RESULT: {compatibility} COMPATIBILITY")
-            print(f"✅ Your motion pipeline VAE is compatible with ComfyUI!")
+            print("This test verifies if the vae_encode_crop_pixels bug is triggered")
+            print("by using the exact same preprocessing as the motion pipeline.")
         else:
-            print(f"\n❌ VAE COMPATIBILITY TEST FAILED!")
-            print(f"🔧 Check the error messages above for details.")
+            print(f"\n❌ PIPELINE PREPROCESSING TEST FAILED!")
+            print("One or both VAEs failed to encode with pipeline preprocessing.")
+            print("This likely indicates the vae_encode_crop_pixels bug is present.")
         
     except Exception as e:
         print(f"❌ Test failed with error: {e}")

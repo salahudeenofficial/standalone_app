@@ -993,9 +993,12 @@ class VAE:
         print(f"     Shape: {pixel_samples.shape}")
         print(f"     Dtype: {pixel_samples.dtype}")
         print(f"     Device: {pixel_samples.device}")
-        print(f"     Mean: {pixel_samples.mean().item():.6f}")
-        print(f"     Min: {pixel_samples.min().item():.6f}")
-        print(f"     Max: {pixel_samples.max().item():.6f}")
+        if pixel_samples.numel() > 0:
+            print(f"     Mean: {pixel_samples.mean().item():.6f}")
+            print(f"     Min: {pixel_samples.min().item():.6f}")
+            print(f"     Max: {pixel_samples.max().item():.6f}")
+        else:
+            print(f"     ERROR: Empty tensor!")
         print()
         
         # Crop pixels to be divisible by downscale ratio
@@ -1005,9 +1008,12 @@ class VAE:
         print(f"     Shape: {pixel_samples.shape}")
         print(f"     Dtype: {pixel_samples.dtype}")
         print(f"     Device: {pixel_samples.device}")
-        print(f"     Mean: {pixel_samples.mean().item():.6f}")
-        print(f"     Min: {pixel_samples.min().item():.6f}")
-        print(f"     Max: {pixel_samples.max().item():.6f}")
+        if pixel_samples.numel() > 0:
+            print(f"     Mean: {pixel_samples.mean().item():.6f}")
+            print(f"     Min: {pixel_samples.min().item():.6f}")
+            print(f"     Max: {pixel_samples.max().item():.6f}")
+        else:
+            print(f"     ERROR: Empty tensor after crop_pixels!")
         print()
         
         # Skip reshape logic - expect input to already be in correct format [1, 3, T, H, W]
@@ -1019,9 +1025,12 @@ class VAE:
             print(f"     Shape: {pixel_samples.shape}")
             print(f"     Dtype: {pixel_samples.dtype}")
             print(f"     Device: {pixel_samples.device}")
-            print(f"     Mean: {pixel_samples.mean().item():.6f}")
-            print(f"     Min: {pixel_samples.min().item():.6f}")
-            print(f"     Max: {pixel_samples.max().item():.6f}")
+            if pixel_samples.numel() > 0:
+                print(f"     Mean: {pixel_samples.mean().item():.6f}")
+                print(f"     Min: {pixel_samples.min().item():.6f}")
+                print(f"     Max: {pixel_samples.max().item():.6f}")
+            else:
+                print(f"     ERROR: Empty tensor after movedim!")
             print()
             
             # Handle 3D latent (video) case
@@ -1032,18 +1041,24 @@ class VAE:
                 print(f"     Shape: {pixel_samples.shape}")
                 print(f"     Dtype: {pixel_samples.dtype}")
                 print(f"     Device: {pixel_samples.device}")
-                print(f"     Mean: {pixel_samples.mean().item():.6f}")
-                print(f"     Min: {pixel_samples.min().item():.6f}")
-                print(f"     Max: {pixel_samples.max().item():.6f}")
+                if pixel_samples.numel() > 0:
+                    print(f"     Mean: {pixel_samples.mean().item():.6f}")
+                    print(f"     Min: {pixel_samples.min().item():.6f}")
+                    print(f"     Max: {pixel_samples.max().item():.6f}")
+                else:
+                    print(f"     ERROR: Empty tensor after video transformation!")
                 print()
         else:
             print(f"   Step 2 - Input already in correct format (5D):")
             print(f"     Shape: {pixel_samples.shape}")
             print(f"     Dtype: {pixel_samples.dtype}")
             print(f"     Device: {pixel_samples.device}")
-            print(f"     Mean: {pixel_samples.mean().item():.6f}")
-            print(f"     Min: {pixel_samples.min().item():.6f}")
-            print(f"     Max: {pixel_samples.max().item():.6f}")
+            if pixel_samples.numel() > 0:
+                print(f"     Mean: {pixel_samples.mean().item():.6f}")
+                print(f"     Min: {pixel_samples.min().item():.6f}")
+                print(f"     Max: {pixel_samples.max().item():.6f}")
+            else:
+                print(f"     ERROR: Empty tensor in 5D format!")
             print()
         
         try:

@@ -424,7 +424,7 @@ class WanVideoPipeline:
             control_video = None
             if control_video_path and os.path.exists(control_video_path):
                 control_video = self.load_video(control_video_path)
-            else:
+                else:
                 # Create dummy control video for testing
                 control_video = torch.rand(length, height, width, 3)
             
@@ -1332,7 +1332,7 @@ class WanVideoPipeline:
             
             # Clear CUDA cache
             if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
             
             # Create results
             step_4_results = {
