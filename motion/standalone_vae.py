@@ -886,6 +886,8 @@ class VAE:
         elif "decoder.head.0.gamma" in sd or "decoder.conv1.weight" in sd:
             # WAN VAE detection (matches ComfyUI logic)
             print(f"🎯 MOTION VAE: WAN VAE DETECTED! Keys: decoder.head.0.gamma={('decoder.head.0.gamma' in sd)}, decoder.conv1.weight={('decoder.conv1.weight' in sd)}")
+            print(f"🔍 DEBUG: Full key example - decoder.conv1.weight: {'decoder.conv1.weight' in sd}")
+            print(f"🔍 DEBUG: Other WAN keys present: {[k for k in sd.keys() if 'decoder.conv1' in k or 'decoder.head.0.gamma' in k]}")
             import math
             if "decoder.upsamples.0.upsamples.0.residual.2.weight" in sd:  # Wan 2.2 VAE
                 self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 16, 16)
