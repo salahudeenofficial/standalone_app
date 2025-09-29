@@ -834,6 +834,7 @@ class VAE:
                 self.latent_dim = 3  # Real WAN VAE uses 3D encoder
                 self.latent_channels = 48
                 ddconfig = {"dim": 160, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
+                from wan_vae_components.vae import WanVAE
                 self.first_stage_model = WanVAE(**ddconfig)
                 self.working_dtypes = [torch.bfloat16, torch.float16, torch.float32]
                 self.memory_used_encode = lambda shape, dtype: 3300 * shape[3] * shape[4] * dtype_size(dtype)
@@ -846,6 +847,7 @@ class VAE:
                 self.latent_dim = 3  # Real WAN VAE uses 3D encoder
                 self.latent_channels = 16
                 ddconfig = {"dim": 96, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
+                from wan_vae_components.vae import WanVAE
                 self.first_stage_model = WanVAE(**ddconfig)
                 self.working_dtypes = [torch.bfloat16, torch.float16, torch.float32]
                 self.memory_used_encode = lambda shape, dtype: 6000 * shape[3] * shape[4] * dtype_size(dtype)
