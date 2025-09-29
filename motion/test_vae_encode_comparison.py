@@ -35,17 +35,17 @@ def add_paths():
 
 def load_vae_model():
     """Load the VAE model state dict"""
-    # Check if model exists in various locations
+    # Check if model exists in various locations (prioritize actual VAE model)
     model_paths = [
-        'wan2.1_vace_14B_fp16.safetensors',
-        '../wan2.1_vace_14B_fp16.safetensors',
-        '../../wan2.1_vace_14B_fp16.safetensors',
+        'models/vaes/wan_2.1_vae.safetensors',
+        '../models/vaes/wan_2.1_vae.safetensors',
+        '../../models/vaes/wan_2.1_vae.safetensors',
         'models/vaes/wan_vae.safetensors',
         '../models/vaes/wan_vae.safetensors',
         '../../models/vaes/wan_vae.safetensors',
-        'models/vaes/wan_2.1_vae.safetensors',
-        '../models/vaes/wan_2.1_vae.safetensors',
-        '../../models/vaes/wan_2.1_vae.safetensors'
+        'wan2.1_vace_14B_fp16.safetensors',
+        '../wan2.1_vace_14B_fp16.safetensors',
+        '../../wan2.1_vace_14B_fp16.safetensors'
     ]
     
     model_path = None
@@ -55,7 +55,7 @@ def load_vae_model():
             break
     
     if model_path is None:
-        raise FileNotFoundError("WAN VAE model not found. Expected path: wan2.1_vace_14B_fp16.safetensors")
+        raise FileNotFoundError("WAN VAE model not found. Expected path: models/vaes/wan_2.1_vae.safetensors")
     
     print(f"📁 Loading VAE model: {model_path}")
     
