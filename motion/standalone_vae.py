@@ -753,6 +753,11 @@ class VAE:
             self.patcher = None
     
     def _detect_and_init_vae(self, sd, metadata):
+        print(f"🔍 _detect_and_init_vae called with {len(sd)} keys")
+        print(f"🔍 First 10 keys: {list(sd.keys())[:10]}")
+        print(f"🔍 Looking for decoder.middle.0.residual.0.gamma: {'decoder.middle.0.residual.0.gamma' in sd}")
+        print(f"🔍 Looking for decoder.head.0.gamma: {'decoder.head.0.gamma' in sd}")
+        print(f"🔍 Looking for decoder.conv1.weight: {'decoder.conv1.weight' in sd}")
         """Detect VAE type and initialize appropriate model"""
         
         # Check for diffusers format
