@@ -884,8 +884,13 @@ class VAE:
             self.disable_offload = True
             
         elif "decoder.head.0.gamma" in sd or "decoder.conv1.weight" in sd:
+            print(f"🔍 DEBUGGING: Checking WAN keys - head.gamma={'decoder.head.0.gamma' in sd}, conv1.weight={'decoder.conv1.weight' in sd}")
+            print(f"🔍 DEBUGGING: Available keys (first 20): {list(sd.keys())[:20]}")
             # WAN VAE detection (matches ComfyUI logic)
             print(f"🎯 MOTION VAE: WAN VAE DETECTED! Keys: decoder.head.0.gamma={('decoder.head.0.gamma' in sd)}, decoder.conv1.weight={('decoder.conv1.weight' in sd)}")
+            print(f"🔥 DEBUGGING: Setting process_input to x*2-1 BEFORE WanVAE creation")
+            self.process_input = lambda image: image * 2.0 - 1.0
+            print(f"🔥 DEBUGGING: process_input set = {self.process_input.__code__.co_consts}")
             print(f"🔍 DEBUG: Full key example - decoder.conv1.weight: {'decoder.conv1.weight' in sd}")
             print(f"🔍 DEBUG: Other WAN keys present: {[k for k in sd.keys() if 'decoder.conv1' in k or 'decoder.head.0.gamma' in k]}")
             import math
