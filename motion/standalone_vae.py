@@ -1010,23 +1010,34 @@ class VAE:
         print(f"     Max: {pixel_samples.max().item():.6f}")
         print()
         
-        # Move channel dimension to correct position
-        pixel_samples = pixel_samples.movedim(-1, 1)
-        
-        print(f"   Step 2 - After movedim(-1, 1):")
-        print(f"     Shape: {pixel_samples.shape}")
-        print(f"     Dtype: {pixel_samples.dtype}")
-        print(f"     Device: {pixel_samples.device}")
-        print(f"     Mean: {pixel_samples.mean().item():.6f}")
-        print(f"     Min: {pixel_samples.min().item():.6f}")
-        print(f"     Max: {pixel_samples.max().item():.6f}")
-        print()
-        
-        # Handle 3D latent (video) case
-        if self.latent_dim == 3 and pixel_samples.ndim < 5:
-            pixel_samples = pixel_samples.movedim(1, 0).unsqueeze(0)
+        # Skip reshape logic - expect input to already be in correct format [1, 3, T, H, W]
+        # Move channel dimension to correct position only if input is 4D
+        if pixel_samples.ndim == 4:
+            pixel_samples = pixel_samples.movedim(-1, 1)
             
-            print(f"   Step 3 - After video transformation:")
+            print(f"   Step 2 - After movedim(-1, 1):")
+            print(f"     Shape: {pixel_samples.shape}")
+            print(f"     Dtype: {pixel_samples.dtype}")
+            print(f"     Device: {pixel_samples.device}")
+            print(f"     Mean: {pixel_samples.mean().item():.6f}")
+            print(f"     Min: {pixel_samples.min().item():.6f}")
+            print(f"     Max: {pixel_samples.max().item():.6f}")
+            print()
+            
+            # Handle 3D latent (video) case
+            if self.latent_dim == 3 and pixel_samples.ndim < 5:
+                pixel_samples = pixel_samples.movedim(1, 0).unsqueeze(0)
+                
+                print(f"   Step 3 - After video transformation:")
+                print(f"     Shape: {pixel_samples.shape}")
+                print(f"     Dtype: {pixel_samples.dtype}")
+                print(f"     Device: {pixel_samples.device}")
+                print(f"     Mean: {pixel_samples.mean().item():.6f}")
+                print(f"     Min: {pixel_samples.min().item():.6f}")
+                print(f"     Max: {pixel_samples.max().item():.6f}")
+                print()
+        else:
+            print(f"   Step 2 - Input already in correct format (5D):")
             print(f"     Shape: {pixel_samples.shape}")
             print(f"     Dtype: {pixel_samples.dtype}")
             print(f"     Device: {pixel_samples.device}")

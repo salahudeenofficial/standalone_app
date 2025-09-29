@@ -424,7 +424,7 @@ class WanVideoPipeline:
             control_video = None
             if control_video_path and os.path.exists(control_video_path):
                 control_video = self.load_video(control_video_path)
-            else:
+                else:
                 # Create dummy control video for testing
                 control_video = torch.rand(length, height, width, 3)
             
@@ -509,16 +509,20 @@ class WanVideoPipeline:
             # Device verification: Ensure VAE model is on GPU
             self._verify_vae_device()
             
-            # ComfyUI passes [-0.5, 254.5] range directly to vae.encode()
-            # We need to pass the same range to our VAE
+            # Convert to 5D format for VAE encoding: [T, H, W, 3] -> [1, 3, T, H, W]
+            inactive_5d = inactive[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)
+            reactive_5d = reactive[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)
+            
             print(f"🔍 CALLING VAE.ENCODE() FOR INACTIVE TENSOR:")
-            inactive_latent = self.vae.encode(inactive[:, :, :, :3])
+            print(f"   Input shape: {inactive_5d.shape}")
+            inactive_latent = self.vae.encode(inactive_5d)
             
             # GPU Monitoring: Check GPU state after first encode
             self._log_gpu_state("AFTER INACTIVE VAE ENCODE")
             
             print(f"🔍 CALLING VAE.ENCODE() FOR REACTIVE TENSOR:")
-            reactive_latent = self.vae.encode(reactive[:, :, :, :3])
+            print(f"   Input shape: {reactive_5d.shape}")
+            reactive_latent = self.vae.encode(reactive_5d)
             
             # GPU Monitoring: Check GPU state after second encode
             self._log_gpu_state("AFTER REACTIVE VAE ENCODE")
@@ -586,8 +590,12 @@ class WanVideoPipeline:
                 print(f"   Std: {reference_image[:, :, :, :3].std().item():.6f}")
                 print()
                 
+                # Convert reference image to 5D format: [1, H, W, 3] -> [1, 3, 1, H, W]
+                reference_5d = reference_image[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)
+                
                 print(f"🔍 CALLING VAE.ENCODE() FOR REFERENCE IMAGE:")
-                reference_image_latent = self.vae.encode(reference_image[:, :, :, :3])
+                print(f"   Input shape: {reference_5d.shape}")
+                reference_image_latent = self.vae.encode(reference_5d)
                 
                 # GPU Monitoring: Check GPU state after reference image encoding
                 self._log_gpu_state("AFTER REFERENCE IMAGE VAE ENCODING")
@@ -1324,7 +1332,7 @@ class WanVideoPipeline:
             
             # Clear CUDA cache
             if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
             
             # Create results
             step_4_results = {
