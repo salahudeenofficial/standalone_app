@@ -1,0 +1,120 @@
+Reference: Implementing the Step 5 VAE Latent Generation (Comfy-like)
+
+Goal
+Replace pipeline Step 5 with a ComfyUI-aligned latent generator that mirrors WanVaceToVideo.encode, without extra safety features (no chunking/tiling/downscale).
+
+Dependencies
+- torch
+- comfy.utils.common_upscale
+- comfy.latent_formats.Wan21
+- comfy.model_management.intermediate_device
+- from comfy import node_helpers
+- Existing vae.encode(...)
+
+Input/Output Contracts
+- Inputs (from pipeline): positive_cond, negative_cond, vae, width, height, length, batch_size, strength, control_video (optional), control_masks (optional), reference_image (optional).
+- Returns (must keep): (positive_cond, negative_cond, out_latent, trim_latent)
+  - out_latent is a dict: {"samples": latent_tensor}
+  - latent_tensor shape: [batch_size, 16, latent_length, height//8, width//8]
+  - latent_length = ((length - 1) // 4) + 1 (plus any prepend from reference image)
+- Conditioning keys added: vace_frames, vace_mask, vace_strength (append=True)
+
+Processing Order (mirror of Comfy)
+1) Compute latent temporal length
+- latent_length = ((length - 1) // 4) + 1
+- vae_stride = 8
+
+2) Control video preprocessing
+- If provided: trim/pad to length frames
+- Upscale: common_upscale(control_video[:length].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
+- Else: create torch.ones((length, height, width, 3)) * 0.5
+
+3) Reference image preprocessing (optional)
+- common_upscale(reference_image[:1].movedim(-1, 1), width, height, ...).movedim(1, -1)
+
+4) Mask preprocessing
+- If none: mask = torch.ones((length, height, width, 1))
+- Else:
+  - If 3D: mask = mask.unsqueeze(1)
+  - Upscale: common_upscale(mask[:length], width, height, "bilinear", "center").movedim(1, -1)
+  - Pad to length frames if needed
+
+5) Normalize and split streams
+- control_video = control_video - 0.5
+- inactive = (control_video * (1 - mask)) + 0.5
+- reactive = (control_video * mask) + 0.5
+
+6) VAE encode streams
+- inactive_latent = vae.encode(inactive[:, :, :, :3])
+- reactive_latent = vae.encode(reactive[:, :, :, :3])
+- control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
+
+7) Reference integration (optional)
+- ref_latent = vae.encode(reference_image[:, :, :, :3])
+- ref_latent = torch.cat([ref_latent, comfy.latent_formats.Wan21().process_out(torch.zeros_like(ref_latent))], dim=1)
+- Prepend temporally: control_video_latent = torch.cat((ref_latent, control_video_latent), dim=2)
+- trim_latent = ref_latent.shape[2] else trim_latent = 0
+
+8) WAN mask reshaping to latent grid
+- height_mask = height // vae_stride, width_mask = width // vae_stride
+- mask = mask.view(length, height_mask, vae_stride, width_mask, vae_stride)
+- mask = mask.permute(2, 4, 0, 1, 3)
+- mask = mask.reshape(vae_stride * vae_stride, length, height_mask, width_mask)
+- mask = torch.nn.functional.interpolate(mask.unsqueeze(0), size=(latent_length, height_mask, width_mask), mode='nearest-exact').squeeze(0)
+- If reference prepended: pad mask temporally at front with zeros; update latent_length accordingly
+- mask = mask.unsqueeze(0)
+
+9) Conditioning enrichment
+- positive_cond = node_helpers.conditioning_set_values(positive_cond, {"vace_frames": [control_video_latent], "vace_mask": [mask], "vace_strength": [strength]}, append=True)
+- negative_cond = node_helpers.conditioning_set_values(negative_cond, {"vace_frames": [control_video_latent], "vace_mask": [mask], "vace_strength": [strength]}, append=True)
+
+10) Latent allocation (Comfy-like)
+- latent = torch.zeros([batch_size, 16, latent_length, height // 8, width // 8], device=comfy.model_management.intermediate_device())
+- out_latent = {"samples": latent}
+
+11) Return
+- Return (positive_cond, negative_cond, out_latent, trim_latent)
+
+Minimal Code Snippets
+- Latent dimensions:
+latent_length = ((length - 1) // 4) + 1
+latent = torch.zeros([batch_size, 16, latent_length, height // 8, width // 8], device=comfy.model_management.intermediate_device())
+out_latent = {"samples": latent}
+
+- Conditioning updates:
+from comfy import node_helpers
+positive_cond = node_helpers.conditioning_set_values(positive_cond, {"vace_frames": [control_video_latent], "vace_mask": [mask], "vace_strength": [strength]}, append=True)
+negative_cond = node_helpers.conditioning_set_values(negative_cond, {"vace_frames": [control_video_latent], "vace_mask": [mask], "vace_strength": [strength]}, append=True)
+
+- Mask reshaping:
+vae_stride = 8
+height_mask = height // vae_stride
+width_mask = width // vae_stride
+mask = mask.view(length, height_mask, vae_stride, width_mask, vae_stride)
+mask = mask.permute(2, 4, 0, 1, 3)
+mask = mask.reshape(vae_stride * vae_stride, length, height_mask, width_mask)
+mask = torch.nn.functional.interpolate(mask.unsqueeze(0), size=(latent_length, height_mask, width_mask), mode='nearest-exact').squeeze(0)
+mask = mask.unsqueeze(0)
+
+Integration Points
+- Replace only Step 5 body; keep the surrounding control flow and the stop-after-step-5 behavior.
+- Preserve existing variable names (positive_cond, negative_cond, init_latent, trim_count), or remap: init_latent = out_latent["samples"], trim_count = trim_latent.
+
+Compatibility Checklist
+- Return signature unchanged.
+- Latent dict format used where expected.
+- Conditioning keys added with append=True.
+- Shapes: [B, 16, T_lat, H//8, W//8] and T_lat = ((length-1)//4)+1 (+ trim).
+- Devices consistent with comfy.model_management.intermediate_device().
+
+Testing Checklist
+- With/without control_video
+- With/without reference_image (check trim_latent)
+- With/without control_masks
+- Non-divisible temporal lengths
+- Varying width/height multiples of 8
+- Ensure downstream steps accept out_latent and trim_latent
+
+Rollback
+- Keep a copy of the previous Step 5 implementation.
+- Switch back by restoring the former block if downstream expects different formats. 

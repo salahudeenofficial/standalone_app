@@ -1,0 +1,155 @@
+⚠️  Warning: Could not import VHS classes directly: No module named 'utils.install_util'; 'utils' is not a package
+   Will use fallback video loading approach
+⚠️  Warning: Could not import extra_config, skipping extra model paths
+🔍 Starting main function...
+🔍 Attempting to import custom nodes...
+🔍 Custom node mappings result: <class 'dict'>
+🔍 Importing core ComfyUI nodes...
+✅ Successfully imported core ComfyUI nodes
+🔍 Checking NODE_CLASS_MAPPINGS...
+🔍 Total available nodes: 84
+⚠️  WARNING: VHS_LoadVideo not found in NODE_CLASS_MAPPINGS!
+🔍 This is expected if custom nodes aren't loaded. Continuing with model loading debugging...
+📋 Available nodes: KSampler, CheckpointLoaderSimple, CLIPTextEncode, CLIPSetLastLayer, VAEDecode, VAEEncode, VAEEncodeForInpaint, VAELoader, EmptyLatentImage, LatentUpscale...
+1. Loading diffusion model components...
+⏭️  Skipping video loading (VHS not available)
+✅ Reference image loaded successfully
+   Image type: <class 'tuple'>
+   Image data type: <class 'torch.Tensor'>
+   Image shape: torch.Size([1, 768, 576, 3])
+   Video: Not loaded
+
+🔍 CHECKING MODEL FILES:
+   ❌ VAE: vae.safetensors - NOT FOUND
+      Current working directory: /workspace/comfy_vast
+      Looking for: /workspace/comfy_vast/vae.safetensors
+   ❌ UNET: model.safetensors - NOT FOUND
+      Current working directory: /workspace/comfy_vast
+      Looking for: /workspace/comfy_vast/model.safetensors
+   ❌ CLIP: clip.safetensors - NOT FOUND
+      Current working directory: /workspace/comfy_vast
+      Looking for: /workspace/comfy_vast/clip.safetensors
+
+
+🔍 STARTING MONITORING FOR: VAE_LOADING
+   Baseline RAM: 59.4 GB used, 935.0 GB available
+   Baseline GPU: 0.0 MB allocated, 0.0 MB reserved
+
+🔍 VAE_LOADING DEBUGGING COMPLETE
+============================================================
+⏱️  PERFORMANCE:
+   Loading Time: 0.614 seconds
+💾 MEMORY ANALYSIS:
+   RAM Change: +260.4 MB
+   Current RAM: 59.6 GB used, 934.8 GB available
+   GPU Change: +0.0 MB allocated, +0.0 MB reserved
+   Current GPU: 0.0 MB allocated, 0.0 MB reserved
+🔧 ENHANCED MODEL INFORMATION:
+   Model Type: VAE
+   Result Type: tuple
+   Model Class: VAE
+   Device: cuda:0
+   Parameters: 126,892,531
+   Model Size: 484.1 MB
+   State Dict Keys: 0
+   🎨 VAE SPECIFIC DETAILS:
+     Latent Channels: 16
+     Downscale Ratio: (<function VAE.__init__.<locals>.<lambda> at 0x7b38fb1695a0>, 8, 8)
+     Upscale Ratio: (<function VAE.__init__.<locals>.<lambda> at 0x7b38fb169510>, 8, 8)
+     Has First Stage Model: ✅
+     🔍 VAE TYPE DETECTION:
+       Detected: Stable Cascade (Stage C)
+       Capabilities: Image Only
+   💡 MEMORY EFFICIENCY ANALYSIS:
+     Model Size: Small (484.1 MB)
+     Recommendation: Should fit comfortably in memory
+     Device Placement: GPU (faster inference, higher memory usage)
+============================================================
+
+🔍 STARTING MONITORING FOR: UNET_LOADING
+   Baseline RAM: 59.6 GB used, 934.8 GB available
+   Baseline GPU: 0.0 MB allocated, 0.0 MB reserved
+
+🔍 UNET_LOADING DEBUGGING COMPLETE
+============================================================
+⏱️  PERFORMANCE:
+   Loading Time: 10.113 seconds
+💾 MEMORY ANALYSIS:
+   RAM Change: +33397.7 MB
+   Current RAM: 92.3 GB used, 902.1 GB available
+   GPU Change: +0.0 MB allocated, +0.0 MB reserved
+   Current GPU: 0.0 MB allocated, 0.0 MB reserved
+🔧 ENHANCED MODEL INFORMATION:
+   Model Type: UNET
+   Result Type: tuple
+   Model Class: ModelPatcher
+   Device: cpu
+   Parameters: 17,337,592,896
+   Model Size: 66137.7 MB
+   State Dict Keys: 1332
+   🧠 UNET SPECIFIC DETAILS:
+     🔍 UNET TYPE DETECTION:
+   💡 MEMORY EFFICIENCY ANALYSIS:
+     Model Size: Large (66137.7 MB)
+     Recommendation: Consider GPU offloading for memory efficiency
+     Device Placement: CPU (memory efficient, slower inference)
+============================================================
+
+🔍 STARTING MONITORING FOR: CLIP_LOADING
+   Baseline RAM: 92.3 GB used, 902.1 GB available
+   Baseline GPU: 0.0 MB allocated, 0.0 MB reserved
+
+🔍 CLIP_LOADING DEBUGGING COMPLETE
+============================================================
+⏱️  PERFORMANCE:
+   Loading Time: 4.113 seconds
+💾 MEMORY ANALYSIS:
+   RAM Change: +11505.0 MB
+   Current RAM: 103.5 GB used, 890.8 GB available
+   GPU Change: +0.0 MB allocated, +0.0 MB reserved
+   Current GPU: 0.0 MB allocated, 0.0 MB reserved
+🔧 ENHANCED MODEL INFORMATION:
+   Model Type: CLIP
+   Result Type: tuple
+   Model Class: CLIP
+   Device: cpu
+   Parameters: 5,680,910,337
+   Model Size: 21671.0 MB
+   State Dict Keys: 0
+   📝 CLIP SPECIFIC DETAILS:
+     Has ModelPatcher: ✅
+     🔍 CLIP TYPE DETECTION:
+   💡 MEMORY EFFICIENCY ANALYSIS:
+     Model Size: Large (21671.0 MB)
+     Recommendation: Consider GPU offloading for memory efficiency
+     Device Placement: CPU (memory efficient, slower inference)
+============================================================
+
+📊 STEP 1 MODEL LOADING SUMMARY
+================================================================================
+⏱️  Total Loading Time: 14.840 seconds
+💾 Total RAM Change: +45163.0 MB
+
+🔍 VAE_LOADING:
+   Model: VAE
+   Time: 0.614s
+   RAM: +260.4 MB
+   GPU: +0.0 MB allocated
+
+🔍 UNET_LOADING:
+   Model: UNET
+   Time: 10.113s
+   RAM: +33397.7 MB
+   GPU: +0.0 MB allocated
+
+🔍 CLIP_LOADING:
+   Model: CLIP
+   Time: 4.113s
+   RAM: +11505.0 MB
+   GPU: +0.0 MB allocated
+================================================================================
+✅ Step 1 completed: Model Loading
+
+🛑 STOPPING EXECUTION AFTER STEP 1 (MODEL LOADING)
+🔍 All model loading debugging information has been displayed above.
+📊 Check the monitoring data above to analyze model loading performance.

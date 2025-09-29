@@ -1,0 +1,112 @@
+
+1. Loading diffusion model components...
+⏭️  Skipping video loading (VHS not available)
+✅ Reference image loaded successfully
+   Image type: <class 'tuple'>
+   Image data type: <class 'torch.Tensor'>
+   Image shape: torch.Size([1, 768, 576, 3])
+   Video: Not loaded
+
+🔍 CHECKING MODEL FILES:
+   ❌ VAE: vae.safetensors - NOT FOUND
+      Current working directory: /workspace/comfy_vast
+      Looking for: /workspace/comfy_vast/vae.safetensors
+   ❌ UNET: model.safetensors - NOT FOUND
+      Current working directory: /workspace/comfy_vast
+      Looking for: /workspace/comfy_vast/model.safetensors
+   ❌ CLIP: clip.safetensors - NOT FOUND
+      Current working directory: /workspace/comfy_vast
+      Looking for: /workspace/comfy_vast/clip.safetensors
+
+
+🔍 STARTING MONITORING FOR: VAE_LOADING
+   Baseline RAM: 58.9 GB used, 935.6 GB available
+   Baseline GPU: 0.0 MB allocated, 0.0 MB reserved
+
+🔍 VAE_LOADING DEBUGGING COMPLETE
+============================================================
+⏱️  PERFORMANCE:
+   Loading Time: 0.587 seconds
+💾 MEMORY ANALYSIS:
+   RAM Change: +191.5 MB
+   Current RAM: 59.1 GB used, 935.4 GB available
+   GPU Change: +0.0 MB allocated, +0.0 MB reserved
+   Current GPU: 0.0 MB allocated, 0.0 MB reserved
+🔧 MODEL INFORMATION:
+   Model Type: VAE
+   Result Type: tuple
+   Model Class: VAE
+   Device: cuda:0
+   Has First Stage Model: ✅
+============================================================
+
+🔍 STARTING MONITORING FOR: UNET_LOADING
+   Baseline RAM: 59.1 GB used, 935.4 GB available
+   Baseline GPU: 0.0 MB allocated, 0.0 MB reserved
+
+🔍 UNET_LOADING DEBUGGING COMPLETE
+============================================================
+⏱️  PERFORMANCE:
+   Loading Time: 7.829 seconds
+💾 MEMORY ANALYSIS:
+   RAM Change: +33104.8 MB
+   Current RAM: 91.5 GB used, 903.1 GB available
+   GPU Change: +0.0 MB allocated, +0.0 MB reserved
+   Current GPU: 0.0 MB allocated, 0.0 MB reserved
+🔧 MODEL INFORMATION:
+   Model Type: UNET
+   Result Type: tuple
+   Model Class: ModelPatcher
+   Device: cpu
+   Parameters: 17,337,592,896
+   State Dict Keys: 1332
+============================================================
+
+🔍 STARTING MONITORING FOR: CLIP_LOADING
+   Baseline RAM: 91.5 GB used, 903.1 GB available
+   Baseline GPU: 0.0 MB allocated, 0.0 MB reserved
+
+🔍 CLIP_LOADING DEBUGGING COMPLETE
+============================================================
+⏱️  PERFORMANCE:
+   Loading Time: 3.472 seconds
+💾 MEMORY ANALYSIS:
+   RAM Change: +11607.1 MB
+   Current RAM: 102.8 GB used, 891.7 GB available
+   GPU Change: +0.0 MB allocated, +0.0 MB reserved
+   Current GPU: 0.0 MB allocated, 0.0 MB reserved
+🔧 MODEL INFORMATION:
+   Model Type: CLIP
+   Result Type: tuple
+   Model Class: CLIP
+   Has ModelPatcher: ✅
+============================================================
+
+📊 STEP 1 MODEL LOADING SUMMARY
+================================================================================
+⏱️  Total Loading Time: 11.888 seconds
+💾 Total RAM Change: +44903.3 MB
+
+🔍 VAE_LOADING:
+   Model: VAE
+   Time: 0.587s
+   RAM: +191.5 MB
+   GPU: +0.0 MB allocated
+
+🔍 UNET_LOADING:
+   Model: UNET
+   Time: 7.829s
+   RAM: +33104.8 MB
+   GPU: +0.0 MB allocated
+
+🔍 CLIP_LOADING:
+   Model: CLIP
+   Time: 3.472s
+   RAM: +11607.1 MB
+   GPU: +0.0 MB allocated
+================================================================================
+✅ Step 1 completed: Model Loading
+
+🛑 STOPPING EXECUTION AFTER STEP 1 (MODEL LOADING)
+🔍 All model loading debugging information has been displayed above.
+📊 Check the monitoring data above to analyze model loading performance.

@@ -1,0 +1,4 @@
+the models are inside vast ai instance so i will carry out tests manualy.
+./motion pipeline shoud'nt have any outside module dependencies.
+fixing any error's in logic its expected the algorithm be borrowed from specific code in ComfyUI repo
+ComfyUI repo in /home/fashionx/comfy/ComfyUI (use workflow_api.py as starting point to map the code base if required.)

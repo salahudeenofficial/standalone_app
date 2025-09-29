@@ -1,0 +1,33 @@
+2025-09-17 22:11:25,628 - INFO - 🚀 STARTING COMPLETE WAN 2.1 VACE 16B MODEL VERIFICATION
+2025-09-17 22:11:25,628 - INFO - ================================================================================
+2025-09-17 22:11:25,628 - INFO - 🔍 Step 1: Verifying model file...
+2025-09-17 22:11:25,628 - INFO - 📁 Model file: ../models/diffusion_models/wan_2.1_diffusion_model.safetensors
+2025-09-17 22:11:25,629 - INFO - 📏 File size: 0.06 GB
+2025-09-17 22:11:25,629 - WARNING - ⚠️  File size (0.06 GB) smaller than expected minimum (25 GB)
+2025-09-17 22:11:25,629 - INFO - ✅ Valid model file format: .safetensors
+2025-09-17 22:11:25,629 - INFO - 🔍 Step 2: Loading WAN 2.1 VACE 16B model with ModelPatcher...
+2025-09-17 22:11:26,792 - INFO - 📂 Loading model using ModelPatcher pipeline...
+2025-09-17 22:11:26,793 - INFO - 🚀 Attempting normal loading mode...
+2025-09-17 22:11:26,796 - ERROR - ❌ ModelPatcher loading failed: Error while deserializing header: HeaderTooLarge
+2025-09-17 22:11:26,797 - ERROR - Traceback (most recent call last):
+  File "/home/fashionx/v_pipe/standalone_app/motion/test_wan21_vace_16b_complete.py", line 136, in load_model_with_patcher
+    model_patcher, clip, vae, clipvision = load_state_dict_guess_config(
+                                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        str(self.model_path),
+        ^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        output_model=True
+        ^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/fashionx/v_pipe/standalone_app/motion/standalone_sd.py", line 312, in load_state_dict_guess_config
+    sd = load_torch_file(sd)
+  File "/home/fashionx/v_pipe/standalone_app/motion/utils.py", line 32, in load_torch_file
+    return safetensors.torch.load_file(file_path, device=device)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/fashionx/miniconda3/lib/python3.13/site-packages/safetensors/torch.py", line 313, in load_file
+    with safe_open(filename, framework="pt", device=device) as f:
+         ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+safetensors_rust.SafetensorError: Error while deserializing header: HeaderTooLarge
+
+2025-09-17 22:11:26,797 - ERROR - ❌ Model loading failed - aborting
