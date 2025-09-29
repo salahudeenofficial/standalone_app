@@ -366,15 +366,16 @@ class AutoencoderKL(nn.Module):
         self.embed_dim = embed_dim
         self.encoder = Encoder(ddconfig)
         self.decoder = Decoder(ddconfig)
-        self.quant_conv = ComfyUICompatibleConv2d(ddconfig['z_channels'] * 2, embed_dim * 2, 1)
-        self.post_quant_conv = ComfyUICompatibleConv2d(embed_dim, ddconfig['z_channels'], 1)
+        self.quant_conv = nn.Conv2d(ddconfig['z_channels'] * 2, embed_dim * 2, 1)
+        self.post_quant_conv = nn.Conv2d(embed_dim, ddconfig['z_channels'], 1)
         self.regularizer = DiagonalGaussianRegularizer()
     
     def encode(self, x):
         h = self.encoder(x)
         moments = self.quant_conv(h)
         z, mean, logvar = self.regularizer(moments)
-        return z, mean, logvar
+        # For ComfyUI WAN VAE compatibility: return only mean (mu) like ComfyUI
+        return mean
     
     def decode(self, z):
         z = self.post_quant_conv(z)
@@ -699,7 +700,7 @@ class VAE:
         self.latent_channels = 4
         self.latent_dim = 2
         self.output_channels = 3
-        self.process_input = lambda image: (image + 0.5) / 255.0  # Convert [-0.5, 254.5] to [0, 1] like ComfyUI
+        self.process_input = lambda image: image * 2.0 - 1.0
         self.process_output = lambda image: torch.clamp((image + 1.0) / 2.0, min=0.0, max=1.0)
         self.working_dtypes = [torch.bfloat16, torch.float32]
         self.disable_offload = False
@@ -752,6 +753,11 @@ class VAE:
             self.patcher = None
     
     def _detect_and_init_vae(self, sd, metadata):
+        print(f"🔍 _detect_and_init_vae called with {len(sd)} keys")
+        print(f"🔍 First 10 keys: {list(sd.keys())[:10]}")
+        print(f"🔍 Looking for decoder.middle.0.residual.0.gamma: {'decoder.middle.0.residual.0.gamma' in sd}")
+        print(f"🔍 Looking for decoder.head.0.gamma: {'decoder.head.0.gamma' in sd}")
+        print(f"🔍 Looking for decoder.conv1.weight: {'decoder.conv1.weight' in sd}")
         """Detect VAE type and initialize appropriate model"""
         
         # Check for diffusers format
@@ -786,8 +792,8 @@ class VAE:
             self.first_stage_model = StageA()
             self.downscale_ratio = 4
             self.upscale_ratio = 4
-            self.process_input = lambda image: image
-            self.process_output = lambda image: image
+            self.process_input = lambda image: image * 2.0 - 1.0
+            self.process_output = lambda image: torch.clamp((image + 1.0) / 2.0, min=0.0, max=1.0)
             
         elif "backbone.1.0.block.0.1.num_batches_tracked" in sd:
             # EffNet encoder
@@ -816,6 +822,10 @@ class VAE:
             
         elif "decoder.middle.0.residual.0.gamma" in sd:
             # WAN VAE detection
+            print(f"🎯 OLD WAN DETECTION PATH TRIGGERED! (decoder.middle.0.residual.0.gamma)")
+            print(f"🔥 FIXING OLD PATH: Setting process_input to x*2_1")
+            self.process_input = lambda image: image * 2.0 - 1.0
+            self.process_output = lambda image: torch.clamp((image + 1.0) / 2.0, min=0.0, max=1.0)
             if "decoder.upsamples.0.upsamples.0.residual.2.weight" in sd:  # Wan 2.2 VAE
                 self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 16, 16)
                 self.upscale_index_formula = (4, 16, 16)
@@ -826,8 +836,8 @@ class VAE:
                 ddconfig = {"dim": 160, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
                 self.first_stage_model = WanVAE(**ddconfig)
                 self.working_dtypes = [torch.bfloat16, torch.float16, torch.float32]
-                self.memory_used_encode = lambda shape, dtype: 3300 * shape[2] * shape[3] * dtype_size(dtype)
-                self.memory_used_decode = lambda shape, dtype: 8000 * shape[2] * shape[3] * (16 * 16) * dtype_size(dtype)
+                self.memory_used_encode = lambda shape, dtype: 3300 * shape[3] * shape[4] * dtype_size(dtype)
+                self.memory_used_decode = lambda shape, dtype: 8000 * shape[3] * shape[4] * (16 * 16) * dtype_size(dtype)
             else:  # Wan 2.1 VAE
                 self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 8, 8)
                 self.upscale_index_formula = (4, 8, 8)
@@ -838,8 +848,8 @@ class VAE:
                 ddconfig = {"dim": 96, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
                 self.first_stage_model = WanVAE(**ddconfig)
                 self.working_dtypes = [torch.bfloat16, torch.float16, torch.float32]
-                self.memory_used_encode = lambda shape, dtype: 6000 * shape[2] * shape[3] * dtype_size(dtype)
-                self.memory_used_decode = lambda shape, dtype: 7000 * shape[2] * shape[3] * (8 * 8) * dtype_size(dtype)
+                self.memory_used_encode = lambda shape, dtype: 6000 * shape[3] * shape[4] * dtype_size(dtype)
+                self.memory_used_decode = lambda shape, dtype: 7000 * shape[3] * shape[4] * (8 * 8) * dtype_size(dtype)
                 
         elif "decoder.conv_in.weight" in sd:
             # Standard SD VAE
@@ -869,6 +879,7 @@ class VAE:
                 
         elif "decoder.layers.1.layers.0.beta" in sd:
             # Audio VAE
+            print(f"🚨 AUDIO VAE DETECTED! decoder.layers.1.layers.0.beta key found")
             self.first_stage_model = AudioOobleckVAE()
             self.memory_used_encode = lambda shape, dtype: (1000 * shape[2]) * dtype_size(dtype)
             self.memory_used_decode = lambda shape, dtype: (1000 * shape[2] * 2048) * dtype_size(dtype)
@@ -881,6 +892,51 @@ class VAE:
             self.process_input = lambda audio: audio
             self.working_dtypes = [torch.float16, torch.bfloat16, torch.float32]
             self.disable_offload = True
+            
+        elif "decoder.head.0.gamma" in sd or "decoder.conv1.weight" in sd:
+            print(f"🚨 CRITICAL: WAN DETECTION CONDITION MET!")
+            print(f"🔍 decoder.head.0.gamma in sd: {'decoder.head.0.gamma' in sd}")
+            print(f"🔍 decoder.conv1.weight in sd: {'decoder.conv1.weight' in sd}")
+            print(f"🔍 DEBUGGING: Checking WAN keys - head.gamma={'decoder.head.0.gamma' in sd}, conv1.weight={'decoder.conv1.weight' in sd}")
+            print(f"🔍 DEBUGGING: Available keys (first 20): {list(sd.keys())[:20]}")
+            # WAN VAE detection (matches ComfyUI logic)
+            print(f"🎯 MOTION VAE: WAN VAE DETECTED! Keys: decoder.head.0.gamma={('decoder.head.0.gamma' in sd)}, decoder.conv1.weight={('decoder.conv1.weight' in sd)}")
+            print(f"🔥 DEBUGGING: Setting process_input to x*2-1 BEFORE WanVAE creation")
+            self.process_input = lambda image: image * 2.0 - 1.0
+            print(f"🔥 DEBUGGING: process_input set = {self.process_input.__code__.co_consts}")
+            print(f"🔍 DEBUG: Full key example - decoder.conv1.weight: {'decoder.conv1.weight' in sd}")
+            print(f"🔍 DEBUG: Other WAN keys present: {[k for k in sd.keys() if 'decoder.conv1' in k or 'decoder.head.0.gamma' in k]}")
+            import math
+            if "decoder.upsamples.0.upsamples.0.residual.2.weight" in sd:  # Wan 2.2 VAE
+                self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 16, 16)
+                self.upscale_index_formula = (4, 16, 16)
+                self.downscale_ratio = (lambda a: max(0, math.floor((a + 3) / 4)), 16, 16)
+                self.downscale_index_formula = (4, 16, 16)
+                self.latent_dim = 3
+                self.latent_channels = 48
+                ddconfig = {"dim": 160, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
+                # Import and create WanVAE2_2 if available
+                try:
+                    from wan_vae_components.vae import WanVAE2_2  # Assuming this exists
+                    self.first_stage_model = WanVAE2_2(**ddconfig)
+                except ImportError:
+                    # Fallback to regular WanVAE
+                    from wan_vae_components.vae import WanVAE
+                    self.first_stage_model = WanVAE(**ddconfig)
+                self.memory_used_encode = lambda shape, dtype: 3300 * shape[3] * shape[4] * dtype_size(dtype)
+                self.memory_used_decode = lambda shape, dtype: 8000 * shape[3] * shape[4] * (16 * 16) * dtype_size(dtype)
+            else:  # Wan 2.1 VAE
+                self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 8, 8)
+                self.upscale_index_formula = (4, 8, 8)
+                self.downscale_ratio = (lambda a: max(0, math.floor((a + 3) / 4)), 8, 8)
+                self.downscale_index_formula = (4, 8, 8)
+                self.latent_dim = 3
+                self.latent_channels = 16
+                ddconfig = {"dim": 96, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
+                from wan_vae_components.vae import WanVAE
+                self.first_stage_model = WanVAE(**ddconfig)
+                self.memory_used_encode = lambda shape, dtype: 6000 * shape[3] * shape[4] * dtype_size(dtype)
+                self.memory_used_decode = lambda shape, dtype: 7000 * shape[3] * shape[4] * (8 * 8) * dtype_size(dtype)
             
         else:
             logging.warning("WARNING: No VAE weights detected, VAE not initialized.")
@@ -942,36 +998,161 @@ class VAE:
         """Encode input to latent space with proper downscaling logic"""
         self.throw_exception_if_invalid()
         
+        # DEBUG: Track tensor transformations step by step
+        print(f"🔍 VAE ENCODE TENSOR TRANSFORMATION DEBUG:")
+        print(f"   Step 0 - Original input:")
+        print(f"     Shape: {pixel_samples.shape}")
+        print(f"     Dtype: {pixel_samples.dtype}")
+        print(f"     Device: {pixel_samples.device}")
+        print(f"     Mean: {pixel_samples.mean().item():.6f}")
+        print(f"     Min: {pixel_samples.min().item():.6f}")
+        print(f"     Max: {pixel_samples.max().item():.6f}")
+        print()
+        
         # Crop pixels to be divisible by downscale ratio
         pixel_samples = self.vae_encode_crop_pixels(pixel_samples)
+        
+        print(f"   Step 1 - After crop_pixels:")
+        print(f"     Shape: {pixel_samples.shape}")
+        print(f"     Dtype: {pixel_samples.dtype}")
+        print(f"     Device: {pixel_samples.device}")
+        print(f"     Mean: {pixel_samples.mean().item():.6f}")
+        print(f"     Min: {pixel_samples.min().item():.6f}")
+        print(f"     Max: {pixel_samples.max().item():.6f}")
+        print()
         
         # Move channel dimension to correct position
         pixel_samples = pixel_samples.movedim(-1, 1)
         
+        print(f"   Step 2 - After movedim(-1, 1):")
+        print(f"     Shape: {pixel_samples.shape}")
+        print(f"     Dtype: {pixel_samples.dtype}")
+        print(f"     Device: {pixel_samples.device}")
+        print(f"     Mean: {pixel_samples.mean().item():.6f}")
+        print(f"     Min: {pixel_samples.min().item():.6f}")
+        print(f"     Max: {pixel_samples.max().item():.6f}")
+        print()
+        
         # Handle 3D latent (video) case
         if self.latent_dim == 3 and pixel_samples.ndim < 5:
             pixel_samples = pixel_samples.movedim(1, 0).unsqueeze(0)
+            
+            print(f"   Step 3 - After video transformation:")
+            print(f"     Shape: {pixel_samples.shape}")
+            print(f"     Dtype: {pixel_samples.dtype}")
+            print(f"     Device: {pixel_samples.device}")
+            print(f"     Mean: {pixel_samples.mean().item():.6f}")
+            print(f"     Min: {pixel_samples.min().item():.6f}")
+            print(f"     Max: {pixel_samples.max().item():.6f}")
+            print()
         
         try:
             # Calculate memory usage
             memory_used = self.memory_used_encode(pixel_samples.shape, self.vae_dtype)
             
-            # Simple batch processing (simplified from original)
-            batch_number = max(1, min(4, pixel_samples.shape[0]))  # Process in small batches
+            # Dynamic batch processing based on available memory (ComfyUI style)
+            if hasattr(self, 'patcher') and self.patcher is not None:
+                # Load models to GPU if using patcher
+                from wan_vae_components.model_management import load_models_gpu, get_free_memory
+                load_models_gpu([self.patcher], memory_required=memory_used, force_full_load=self.disable_offload)
+                free_memory = get_free_memory(self.device)
+                batch_number = int(free_memory / max(1, memory_used))
+                batch_number = max(1, batch_number)
+            else:
+                # Fallback to simple batch processing
+                batch_number = max(1, min(4, pixel_samples.shape[0]))
+            
+            # Force 3 batches for video processing to avoid OOM (ComfyUI style)
+            if pixel_samples.shape[0] > 10:  # Video processing (more than 10 frames)
+                batch_number = max(1, pixel_samples.shape[0] // 3)  # Process in 3 batches
+                print(f'🔧 VAE Encoding: Forcing 3 batches for video processing')
+                print(f'   Total frames: {pixel_samples.shape[0]}, Batch size: {batch_number}')
             
             samples = None
             for x in range(0, pixel_samples.shape[0], batch_number):
                 # Process input and move to device
-                pixels_in = self.process_input(pixel_samples[x:x + batch_number]).to(self.vae_dtype).to(self.device)
+                batch_tensor = pixel_samples[x:x + batch_number]
                 
-                # Encode
+                print(f"   Step 4 - Batch tensor (range {x}:{x + batch_number}):")
+                print(f"     Shape: {batch_tensor.shape}")
+                print(f"     Dtype: {batch_tensor.dtype}")
+                print(f"     Device: {batch_tensor.device}")
+                print(f"     Mean: {batch_tensor.mean().item():.6f}")
+                print(f"     Min: {batch_tensor.min().item():.6f}")
+                print(f"     Max: {batch_tensor.max().item():.6f}")
+                print()
+                
+                pixels_in = self.process_input(batch_tensor)
+                
+                print(f"   Step 5 - After process_input:")
+                print(f"     Shape: {pixels_in.shape}")
+                print(f"     Dtype: {pixels_in.dtype}")
+                print(f"     Device: {pixels_in.device}")
+                print(f"     Mean: {pixels_in.mean().item():.6f}")
+                print(f"     Min: {pixels_in.min().item():.6f}")
+                print(f"     Max: {pixels_in.max().item():.6f}")
+                print()
+                
+                pixels_in = pixels_in.to(self.vae_dtype).to(self.device)
+                
+                print(f"   Step 6 - After dtype/device conversion:")
+                print(f"     Shape: {pixels_in.shape}")
+                print(f"     Dtype: {pixels_in.dtype}")
+                print(f"     Device: {pixels_in.device}")
+                print(f"     Mean: {pixels_in.mean().item():.6f}")
+                print(f"     Min: {pixels_in.min().item():.6f}")
+                print(f"     Max: {pixels_in.max().item():.6f}")
+                print()
+                
+                # DEBUG: Print tensor info before encode call
+                print(f"🔍 VAE ENCODE INPUT TENSOR ANALYSIS:")
+                print(f"   Shape: {pixels_in.shape}")
+                print(f"   Dtype: {pixels_in.dtype}")
+                print(f"   Device: {pixels_in.device}")
+                
+                # Check if tensor is empty
+                if pixels_in.numel() == 0:
+                    print(f"   ❌ ERROR: Empty tensor detected!")
+                    print(f"   Original shape: {pixel_samples.shape}")
+                    print(f"   Batch range: {x}:{x + batch_number}")
+                    raise ValueError("Empty tensor detected in VAE encoding")
+                
+                print(f"   Mean: {pixels_in.mean().item():.6f}")
+                print(f"   Min: {pixels_in.min().item():.6f}")
+                print(f"   Max: {pixels_in.max().item():.6f}")
+                print(f"   Range: [{pixels_in.min().item():.6f}, {pixels_in.max().item():.6f}]")
+                print(f"   Std: {pixels_in.std().item():.6f}")
+                
+                # Get first 5 values for inspection
+                flat_tensor = pixels_in.flatten()
+                first_values = [f"{flat_tensor[i].item():.6f}" for i in range(min(5, len(flat_tensor)))]
+                print(f"   First 5 values: {first_values}")
+                print()
+                
+                # Encode (ComfyUI style - no dtype parameter)
                 if hasattr(self.first_stage_model, 'encode'):
-                    out = self.first_stage_model.encode(pixels_in, dtype=self.vae_dtype)
-                    if isinstance(out, tuple):
-                        out = out[0]  # Take the latent tensor
+                    out = self.first_stage_model.encode(pixels_in)
+                    # ComfyUI WAN VAE returns only mean (mu) directly, not a tuple
                 else:
                     # Fallback for models without encode method
                     out = self.first_stage_model.encoder(pixels_in)
+                
+                # DEBUG: Print tensor info after encode call
+                print(f"🔍 VAE ENCODE OUTPUT TENSOR ANALYSIS:")
+                print(f"   Shape: {out.shape}")
+                print(f"   Dtype: {out.dtype}")
+                print(f"   Device: {out.device}")
+                print(f"   Mean: {out.mean().item():.6f}")
+                print(f"   Min: {out.min().item():.6f}")
+                print(f"   Max: {out.max().item():.6f}")
+                print(f"   Range: [{out.min().item():.6f}, {out.max().item():.6f}]")
+                print(f"   Std: {out.std().item():.6f}")
+                
+                # Get first 5 values for inspection
+                flat_output = out.flatten()
+                first_output_values = [f"{flat_output[i].item():.6f}" for i in range(min(5, len(flat_output)))]
+                print(f"   First 5 values: {first_output_values}")
+                print()
                 
                 # Move to output device and convert to float
                 out = out.to(self.output_device).float()
@@ -983,72 +1164,35 @@ class VAE:
                 samples[x:x + batch_number] = out
                 
         except Exception as e:
-            logging.warning(f"Warning: VAE encoding failed: {e}")
-            raise e
+            # Check if it's an OOM error and try tiled encoding
+            if "out of memory" in str(e).lower() or "cuda" in str(e).lower():
+                logging.warning("Warning: Ran out of memory when regular VAE encoding, retrying with tiled VAE encoding.")
+                # TODO: Implement tiled encoding fallback
+                raise e
+            else:
+                logging.warning(f"Warning: VAE encoding failed: {e}")
+                raise e
         
-        # If it was video, reshape back to video format
-        if is_video:
-            batch_size, channels, frames, height, width = original_shape
-            latent_channels = samples.shape[1]
-            latent_height = samples.shape[2]
-            latent_width = samples.shape[3]
-            # Reshape back to (batch, latent_channels, frames, latent_height, latent_width)
-            samples = samples.view(batch_size, latent_channels, frames, latent_height, latent_width)
+        # Video reshape logic removed - ComfyUI doesn't do this in encode method
         
         return samples
     
-    def decode(self, samples_in, vae_options={}):
-        """Decode latent to output space with OOM-free memory management (following encode method pattern)"""
-        self.throw_exception_if_invalid()
-        pixel_samples = None
+    def decode(self, z):
+        """Decode latent to output space"""
+        if self.first_stage_model is None:
+            raise RuntimeError("VAE not initialized")
         
-        try:
-            # Calculate memory usage (following encode method pattern)
-            memory_used = self.memory_used_decode(samples_in.shape, self.vae_dtype)
-            
-            # Simple batch processing (following encode method pattern)
-            batch_number = max(1, min(4, samples_in.shape[0]))  # Process in small batches
-            
-            for x in range(0, samples_in.shape[0], batch_number):
-                # Process samples and move to device (following encode method pattern)
-                samples = samples_in[x:x+batch_number].to(self.vae_dtype).to(self.device)
-                
-                # Decode
-                if hasattr(self.first_stage_model, 'decode'):
-                    out = self.first_stage_model.decode(samples, **vae_options)
-                else:
-                    # Fallback for models without decode method
-                    out = self.first_stage_model.decoder(samples)
-                
-                # Process output and move to output device (following encode method pattern)
-                out = self.process_output(out.to(self.output_device).float())
-                
-                # Initialize output tensor if needed (following encode method pattern)
-                if pixel_samples is None:
-                    pixel_samples = torch.empty((samples_in.shape[0],) + tuple(out.shape[1:]), device=self.output_device)
-                
-                pixel_samples[x:x+batch_number] = out
-                
-        except Exception as e:
-            # OOM fallback to tiled decoding (following ComfyUI pattern)
-            logging.warning(f"Warning: Ran out of memory when regular VAE decoding, retrying with tiled VAE decoding.")
-            dims = samples_in.ndim - 2
-            if dims == 1 or self.extra_1d_channel is not None:
-                pixel_samples = self.decode_tiled_1d(samples_in)
-            elif dims == 2:
-                pixel_samples = self._simple_tiled_decode_2d(samples_in, 
-                    lambda a: self.first_stage_model.decode(a.to(self.vae_dtype).to(self.device)).float(),
-                    64, 64, 16)
-            elif dims == 3:
-                # Use conservative tile sizes for video (following ComfyUI pattern)
-                tile = 32  # Conservative for video
-                overlap = 8
-                pixel_samples = self.decode_tiled_3d(samples_in, tile_x=tile, tile_y=tile, 
-                    tile_t=2, overlap=(1, overlap, overlap))
+        # Decode (ComfyUI style - no dtype parameter)
+        if hasattr(self.first_stage_model, 'decode'):
+            x = self.first_stage_model.decode(z)
+        else:
+            # Fallback for models without decode method
+            x = self.first_stage_model.decoder(z)
         
-        # Move channel dimension to correct position (following ComfyUI pattern)
-        pixel_samples = pixel_samples.to(self.output_device).movedim(1, -1)
-        return pixel_samples
+        # Process output
+        x = self.process_output(x)
+        
+        return x
     
     def forward(self, x):
         """Forward pass through VAE"""
@@ -1083,128 +1227,11 @@ class VAE:
             self.first_stage_model.eval()
         return self
     
-    def decode_tiled_1d(self, samples, tile_x=128, overlap=32):
-        """1D tiled decoding"""
-        if samples.ndim == 3:
-            decode_fn = lambda a: self.first_stage_model.decode(a.to(self.vae_dtype).to(self.device)).float()
-        else:
-            og_shape = samples.shape
-            samples = samples.reshape((og_shape[0], og_shape[1] * og_shape[2], -1))
-            decode_fn = lambda a: self.first_stage_model.decode(a.reshape((-1, og_shape[1], og_shape[2], a.shape[-1])).to(self.vae_dtype).to(self.device)).float()
-
-        # Use simple tiled processing for 1D
-        return self._simple_tiled_decode(samples, decode_fn, tile_x, overlap)
-    
-    def decode_tiled_3d(self, samples, tile_t=999, tile_x=32, tile_y=32, overlap=(1, 8, 8)):
-        """3D tiled decoding for video"""
-        decode_fn = lambda a: self.first_stage_model.decode(a.to(self.vae_dtype).to(self.device)).float()
-        
-        # Use simple tiled processing for 3D
-        return self._simple_tiled_decode_3d(samples, decode_fn, tile_t, tile_x, tile_y, overlap)
-    
-    def decode_tiled(self, samples, tile_x=None, tile_y=None, overlap=None, tile_t=None, overlap_t=None):
-        """Main tiled decoding method following ComfyUI pattern"""
-        if self.first_stage_model is None:
-            raise RuntimeError("VAE not initialized")
-        
-        dims = samples.ndim - 2
-        args = {}
-        if tile_x is not None:
-            args["tile_x"] = tile_x
-        if tile_y is not None:
-            args["tile_y"] = tile_y
-        if overlap is not None:
-            args["overlap"] = overlap
-
-        if dims == 1:
-            args.pop("tile_y", None)
-            output = self.decode_tiled_1d(samples, **args)
-        elif dims == 2:
-            # For 2D, use simple tiled processing
-            decode_fn = lambda a: self.first_stage_model.decode(a.to(self.vae_dtype).to(self.device)).float()
-            output = self._simple_tiled_decode_2d(samples, decode_fn, tile_x or 64, tile_y or 64, overlap or 16)
-        elif dims == 3:
-            if overlap_t is None:
-                args["overlap"] = (1, overlap, overlap)
-            else:
-                args["overlap"] = (max(1, overlap_t), overlap, overlap)
-            if tile_t is not None:
-                args["tile_t"] = max(2, tile_t)
-
-            output = self.decode_tiled_3d(samples, **args)
-        return output.movedim(1, -1)
-    
-    def _simple_tiled_decode(self, samples, decode_fn, tile_x, overlap):
-        """Simple tiled decoding implementation"""
-        batch_size, channels, height, width = samples.shape
-        output_height = height * self.upscale_ratio
-        output_width = width * self.upscale_ratio
-        
-        # Create output tensor
-        output = torch.zeros((batch_size, self.output_channels, output_height, output_width), 
-                           device=samples.device, dtype=samples.dtype)
-        
-        # Process in tiles
-        for y in range(0, height, tile_x - overlap):
-            for x in range(0, width, tile_x - overlap):
-                # Calculate tile boundaries
-                y_end = min(y + tile_x, height)
-                x_end = min(x + tile_x, width)
-                
-                # Extract tile
-                tile = samples[:, :, y:y_end, x:x_end]
-                
-                # Decode tile
-                decoded_tile = decode_fn(tile)
-                
-                # Place in output
-                out_y_start = y * self.upscale_ratio
-                out_y_end = y_end * self.upscale_ratio
-                out_x_start = x * self.upscale_ratio
-                out_x_end = x_end * self.upscale_ratio
-                
-                output[:, :, out_y_start:out_y_end, out_x_start:out_x_end] = decoded_tile
-        
-        return output
-    
-    def _simple_tiled_decode_2d(self, samples, decode_fn, tile_x, tile_y, overlap):
-        """Simple 2D tiled decoding"""
-        return self._simple_tiled_decode(samples, decode_fn, tile_x, overlap)
-    
-    def _simple_tiled_decode_3d(self, samples, decode_fn, tile_t, tile_x, tile_y, overlap):
-        """Simple 3D tiled decoding for video"""
-        batch_size, channels, frames, height, width = samples.shape
-        output_height = height * self.upscale_ratio
-        output_width = width * self.upscale_ratio
-        
-        # Create output tensor
-        output = torch.zeros((batch_size, self.output_channels, frames, output_height, output_width), 
-                           device=samples.device, dtype=samples.dtype)
-        
-        # Process in tiles
-        for t in range(0, frames, tile_t - overlap[0]):
-            for y in range(0, height, tile_y - overlap[1]):
-                for x in range(0, width, tile_x - overlap[2]):
-                    # Calculate tile boundaries
-                    t_end = min(t + tile_t, frames)
-                    y_end = min(y + tile_y, height)
-                    x_end = min(x + tile_x, width)
-                    
-                    # Extract tile
-                    tile = samples[:, :, t:t_end, y:y_end, x:x_end]
-                    
-                    # Decode tile
-                    decoded_tile = decode_fn(tile)
-                    
-                    # Place in output
-                    out_y_start = y * self.upscale_ratio
-                    out_y_end = y_end * self.upscale_ratio
-                    out_x_start = x * self.upscale_ratio
-                    out_x_end = x_end * self.upscale_ratio
-                    
-                    output[:, :, t:t_end, out_y_start:out_y_end, out_x_start:out_x_end] = decoded_tile
-        
-        return output
+    def train(self):
+        """Set VAE to training mode"""
+        if self.first_stage_model is not None:
+            self.first_stage_model.train()
+        return self
 
 
 # ============================================================================
