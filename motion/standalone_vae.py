@@ -870,6 +870,7 @@ class VAE:
                 
         elif "decoder.layers.1.layers.0.beta" in sd:
             # Audio VAE
+            print(f"🚨 AUDIO VAE DETECTED! decoder.layers.1.layers.0.beta key found")
             self.first_stage_model = AudioOobleckVAE()
             self.memory_used_encode = lambda shape, dtype: (1000 * shape[2]) * dtype_size(dtype)
             self.memory_used_decode = lambda shape, dtype: (1000 * shape[2] * 2048) * dtype_size(dtype)
@@ -884,6 +885,9 @@ class VAE:
             self.disable_offload = True
             
         elif "decoder.head.0.gamma" in sd or "decoder.conv1.weight" in sd:
+            print(f"🚨 CRITICAL: WAN DETECTION CONDITION MET!")
+            print(f"🔍 decoder.head.0.gamma in sd: {'decoder.head.0.gamma' in sd}")
+            print(f"🔍 decoder.conv1.weight in sd: {'decoder.conv1.weight' in sd}")
             print(f"🔍 DEBUGGING: Checking WAN keys - head.gamma={'decoder.head.0.gamma' in sd}, conv1.weight={'decoder.conv1.weight' in sd}")
             print(f"🔍 DEBUGGING: Available keys (first 20): {list(sd.keys())[:20]}")
             # WAN VAE detection (matches ComfyUI logic)
