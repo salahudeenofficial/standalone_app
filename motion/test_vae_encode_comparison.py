@@ -199,12 +199,12 @@ def compare_vae_results(motion_result, comfy_result):
     print("=" * 70)
     
     if motion_result is None or comfy_result is None:
-        print("❌ Cannotcompare - one or both tests failed")
+        print("❌ Cannot compare - one or both tests failed")
         if motion_result is None:
             print("   ❌ Motion pipeline VAE failed")
         if comfy_result is None:
             print("   ❌ ComfyUI VAE failed")
-        return False
+        return False, "FAILED"
     
     print("📊 ENCODED OUTPUT COMPARISON:")
     print(f"   Motion shape: {motion_result.shape}")
@@ -213,7 +213,7 @@ def compare_vae_results(motion_result, comfy_result):
     
     if motion_result.shape != comfy_result.shape:
         print("❌ INCOMPATIBLE - Different output shapes")
-        return False
+        return False, "INCOMPATIBLE"
     
     # Compare tensor values
     diff = torch.abs(motion_result - comfy_result)

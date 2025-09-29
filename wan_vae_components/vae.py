@@ -4,7 +4,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-# from .einops_replacement import rearrange  # Implemented manually below
+from .einops_replacement import rearrange
 import math
 from .modules.diffusionmodules.model import vae_attention
 
