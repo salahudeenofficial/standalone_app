@@ -35,35 +35,78 @@ def add_paths():
 
 def load_vae_model():
     """Load the VAE model state dict"""
-    # Check if model exists in various locations
+    print("🔍 Searching for VAE model files...")
+    
+    # Check multiple possible locations
     model_paths = [
+        # Direct paths from current directory
+        'models/vaes/wan_vae.safetensors',
+        './models/vaes/wan_vae.safetensors',
+        '../models/vaes/wan_vae.safetensors',
+        '../../models/vaes/wan_vae.safetensors',
+        # Alternative VAE names
+        'models/vaes/wan_2.1_vae.safetensors',
+        './models/vaes/wan_2.1_vae.safetensors',
+        'models/vaes/wan2.1_vae.safetensors',
+        './models/vaes/wan2.1_vae.safetensors',
+        # Root level models
         'wan2.1_vace_14B_fp16.safetensors',
         '../wan2.1_vace_14B_fp16.safetensors',
         '../../wan2.1_vace_14B_fp16.safetensors',
-        'models/vaes/wan_vae.safetensors',
-        '../models/vaes/wan_vae.safetensors',
-        '../../models/vaes/wan_vae.safetensors',
-        'models/vaes/wan_2.1_vae.safetensors',
-        '../models/vaes/wan_2.1_vae.safetensors',
-        '../../models/vaes/wan_2.1_vae.safetensors'
+        # Absolute paths
+        '/home/fashionx/v_pipe/standalone_app/models/vaes/wan_vae.safetensors',
+        '/home/fashionx/v_pipe/standalone_app/wan2.1_vace_14B_fp16.safetensors'
     ]
+    
+    print(f"Current working directory: {os.getcwd()}")
     
     model_path = None
     for path in model_paths:
+        print(f"Checking: {path}")
         if os.path.exists(path):
+            print(f"✅ Found model: {path}")
             model_path = path
             break
+        else:
+            print(f"❌ Not found: {path}")
     
     if model_path is None:
-        raise FileNotFoundError("WAN VAE model not found. Expected path: wan2.1_vace_14B_fp16.safetensors")
+        print("\n📂 All checked directories:")
+        for path in ['models/vaes/', 'models/', '.']:
+            full_path = os.path.abspath(path)
+            print(f"   {full_path}: {os.path.exists(full_path)}")
+            if os.path.exists(full_path):
+                print(f"   Contents: {os.listdir(full_path) if os.path.isdir(full_path) else 'not a directory'}")
+        raise FileNotFoundError("WAN VAE model not found in any expected location")
     
     print(f"📁 Loading VAE model: {model_path}")
     
-    with safetensors.safe_open(model_path, framework='pt', device='cpu') as f:
-        sd = {k: f.get_tensor(k) for k in f.keys()}
-    
-    print(f"✅ Model loaded: {len(sd)} parameters")
-    return sd
+    try:
+        # Try loading with safetensors
+        with safetensors.safe_open(model_path, framework='pt', device='cpu') as f:
+            sd = {k: f.get_tensor(k) for k in f.keys()}
+        print(f"✅ Model loaded successfully with safetensors: {len(sd)} parameters")
+        
+        # Check if this looks like a VAE by examining key names
+        vae_keys = [k for k in sd.keys() if 'encoder' in k.lower() or 'decoder' in k.lower() or 'vae' in k.lower()]
+        print(f"🔍 VAE-related keys found: {len(vae_keys)}")
+        if vae_keys:
+            print(f"   Sample keys: {vae_keys[:5]}")
+        
+        return sd
+        
+    except Exception as e:
+        print(f"❌ Error loading with safetensors: {e}")
+        print("🔄 Trying alternative loading method...")
+        
+        # Try loading with torch directly
+        try:
+            sd = torch.load(model_path, map_location='cpu', weights_only=False)
+            print(f"✅ Model loaded successfully with torch: {len(sd) if isinstance(sd, dict) else 'not dict'}")
+            return sd
+        except Exception as e2:
+            print(f"❌ Error loading with torch: {e2}")
+            raise e  # Re-raise the original safetensors error
 
 def create_test_video_tensor():
     """Create a test video tensor"""
