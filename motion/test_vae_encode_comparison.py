@@ -35,17 +35,17 @@ def add_paths():
 
 def load_vae_model():
     """Load the VAE model state dict"""
-    # Check if model exists in various locations (prioritize actual VAE model)
+    # Check if model exists in various locations
     model_paths = [
-        'models/vaes/wan_2.1_vae.safetensors',
-        '../models/vaes/wan_2.1_vae.safetensors',
-        '../../models/vaes/wan_2.1_vae.safetensors',
+        'wan2.1_vace_14B_fp16.safetensors',
+        '../wan2.1_vace_14B_fp16.safetensors',
+        '../../wan2.1_vace_14B_fp16.safetensors',
         'models/vaes/wan_vae.safetensors',
         '../models/vaes/wan_vae.safetensors',
         '../../models/vaes/wan_vae.safetensors',
-        'wan2.1_vace_14B_fp16.safetensors',
-        '../wan2.1_vace_14B_fp16.safetensors',
-        '../../wan2.1_vace_14B_fp16.safetensors'
+        'models/vaes/wan_2.1_vae.safetensors',
+        '../models/vaes/wan_2.1_vae.safetensors',
+        '../../models/vaes/wan_2.1_vae.safetensors'
     ]
     
     model_path = None
@@ -55,7 +55,7 @@ def load_vae_model():
             break
     
     if model_path is None:
-        raise FileNotFoundError("WAN VAE model not found. Expected path: models/vaes/wan_2.1_vae.safetensors")
+        raise FileNotFoundError("WAN VAE model not found. Expected path: wan2.1_vace_14B_fp16.safetensors")
     
     print(f"📁 Loading VAE model: {model_path}")
     
@@ -199,12 +199,12 @@ def compare_vae_results(motion_result, comfy_result):
     print("=" * 70)
     
     if motion_result is None or comfy_result is None:
-        print("❌ Cannot compare - one or both tests failed")
+        print("❌ Cannotcompare - one or both tests failed")
         if motion_result is None:
             print("   ❌ Motion pipeline VAE failed")
         if comfy_result is None:
             print("   ❌ ComfyUI VAE failed")
-        return False, "FAILED"
+        return False
     
     print("📊 ENCODED OUTPUT COMPARISON:")
     print(f"   Motion shape: {motion_result.shape}")
@@ -213,7 +213,7 @@ def compare_vae_results(motion_result, comfy_result):
     
     if motion_result.shape != comfy_result.shape:
         print("❌ INCOMPATIBLE - Different output shapes")
-        return False, "INCOMPATIBLE"
+        return False
     
     # Compare tensor values
     diff = torch.abs(motion_result - comfy_result)
