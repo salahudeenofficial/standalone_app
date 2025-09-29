@@ -152,12 +152,36 @@ def test_motion_pipeline_vae(sd, vae_input):
         motion_vae = VAE(sd=sd)
         print(f"✅ Motion VAE initialized: {type(motion_vae.first_stage_model).__name__}")
         
-        # Test process_input
+        # Test process_input with detailed debugging
+        print(f"\n🔍 DEBUGGING MOTION PROCESS_INPUT:")
+        print(f"   Input to process_input:")
+        print(f"     Shape: {vae_input.shape}")
+        print(f"     Range: [{vae_input.min().item():.6f}, {vae_input.max().item():.6f}]")
+        print(f"     Mean: {vae_input.mean().item():.6f}")
+        print(f"     First 3 values: {vae_input.flatten()[:3].tolist()}")
+        
+        # Test the lambda function directly
+        test_lambda = lambda image: image * 2.0 - 1.0
+        manual_result = test_lambda(vae_input)
+        print(f"   Manual lambda result:")
+        print(f"     Range: [{manual_result.min().item():.6f}, {manual_result.max().item():.6f}]")
+        print(f"     Mean: {manual_result.mean().item():.6f}")
+        print(f"     First 3 values: {manual_result.flatten()[:3].tolist()}")
+        
+        # Test VAE's process_input
         motion_processed = motion_vae.process_input(vae_input)
-        print(f"✅ Motion process_input:")
-        print(f"   Shape: {motion_processed.shape}")
-        print(f"   Range: [{motion_processed.min().item():.6f}, {motion_processed.max().item():.6f}]")
-        print(f"   Mean: {motion_processed.mean().item():.6f}")
+        print(f"   VAE process_input result:")
+        print(f"     Range: [{motion_processed.min().item():.6f}, {motion_processed.max().item():.6f}]")
+        print(f"     Mean: {motion_processed.mean().item():.6f}")
+        print(f"     First 3 values: {motion_processed.flatten()[:3].tolist()}")
+        
+        # Check if they match
+        match_check = torch.allclose(motion_processed, manual_result, atol=1e-6)
+        print(f"   Match with manual result: {match_check}")
+        if not match_check:
+            diff = torch.abs(motion_processed - manual_result)
+            print(f"     Max difference: {diff.max().item():.6f}")
+            print(f"     Mean difference: {diff.mean().item():.6f}")
         
         # Test encoding
         print(f"\n🔧 Motion VAE Encoding...")
@@ -200,12 +224,36 @@ def test_comfyui_vae(sd, vae_input):
         comfy_vae = ComfyVAE(sd=sd)
         print(f"✅ ComfyUI VAE initialized: {type(comfy_vae.first_stage_model).__name__}")
         
-        # Test process_input
+        # Test process_input with detailed debugging
+        print(f"\n🔍 DEBUGGING COMFYUI PROCESS_INPUT:")
+        print(f"   Input to process_input:")
+        print(f"     Shape: {vae_input.shape}")
+        print(f"     Range: [{vae_input.min().item():.6f}, {vae_input.max().item():.6f}]")
+        print(f"     Mean: {vae_input.mean().item():.6f}")
+        print(f"     First 3 values: {vae_input.flatten()[:3].tolist()}")
+        
+        # Test the lambda function directly
+        test_lambda = lambda image: image * 2.0 - 1.0
+        manual_result = test_lambda(vae_input)
+        print(f"   Manual lambda result:")
+        print(f"     Range: [{manual_result.min().item():.6f}, {manual_result.max().item():.6f}]")
+        print(f"     Mean: {manual_result.mean().item():.6f}")
+        print(f"     First 3 values: {manual_result.flatten()[:3].tolist()}")
+        
+        # Test VAE's process_input
         comfy_processed = comfy_vae.process_input(vae_input)
-        print(f"✅ ComfyUI process_input:")
-        print(f"   Shape: {comfy_processed.shape}")
-        print(f"   Range: [{comfy_processed.min().item():.6f}, {comfy_processed.max().item():.6f}]")
-        print(f"   Mean: {comfy_processed.mean().item():.6f}")
+        print(f"   VAE process_input result:")
+        print(f"     Range: [{comfy_processed.min().item():.6f}, {comfy_processed.max().item():.6f}]")
+        print(f"     Mean: {comfy_processed.mean().item():.6f}")
+        print(f"     First 3 values: {comfy_processed.flatten()[:3].tolist()}")
+        
+        # Check if they match
+        match_check = torch.allclose(comfy_processed, manual_result, atol=1e-6)
+        print(f"   Match with manual result: {match_check}")
+        if not match_check:
+            diff = torch.abs(comfy_processed - manual_result)
+            print(f"     Max difference: {diff.max().item():.6f}")
+            print(f"     Mean difference: {diff.mean().item():.6f}")
         
         # Test encoding
         print(f"\n🔧 ComfyUI VAE Encoding...")
@@ -247,7 +295,7 @@ def compare_vae_results(motion_result, comfy_result):
             print("   ❌ Motion pipeline VAE failed")
         if comfy_result is None:
             print("   ❌ ComfyUI VAE failed")
-        return False
+        return False, "FAILED"
     
     print("📊 ENCODED OUTPUT COMPARISON:")
     print(f"   Motion shape: {motion_result.shape}")
@@ -256,7 +304,7 @@ def compare_vae_results(motion_result, comfy_result):
     
     if motion_result.shape != comfy_result.shape:
         print("❌ INCOMPATIBLE - Different output shapes")
-        return False
+        return False, "INCOMPATIBLE"
     
     # Compare tensor values
     diff = torch.abs(motion_result - comfy_result)
