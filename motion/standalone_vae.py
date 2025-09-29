@@ -883,6 +883,40 @@ class VAE:
             self.working_dtypes = [torch.float16, torch.bfloat16, torch.float32]
             self.disable_offload = True
             
+        elif "decoder.head.0.gamma" in sd or "decoder.conv1.weight" in sd:
+            # WAN VAE detection (matches ComfyUI logic)
+            import math
+            if "decoder.upsamples.0.upsamples.0.residual.2.weight" in sd:  # Wan 2.2 VAE
+                self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 16, 16)
+                self.upscale_index_formula = (4, 16, 16)
+                self.downscale_ratio = (lambda a: max(0, math.floor((a + 3) / 4)), 16, 16)
+                self.downscale_index_formula = (4, 16, 16)
+                self.latent_dim = 3
+                self.latent_channels = 48
+                ddconfig = {"dim": 160, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
+                # Import and create WanVAE2_2 if available
+                try:
+                    from wan_vae_components.vae import WanVAE2_2  # Assuming this exists
+                    self.first_stage_model = WanVAE2_2(**ddconfig)
+                except ImportError:
+                    # Fallback to regular WanVAE
+                    from wan_vae_components.vae import WanVAE
+                    self.first_stage_model = WanVAE(**ddconfig)
+                self.memory_used_encode = lambda shape, dtype: 3300 * shape[3] * shape[4] * dtype_size(dtype)
+                self.memory_used_decode = lambda shape, dtype: 8000 * shape[3] * shape[4] * (16 * 16) * dtype_size(dtype)
+            else:  # Wan 2.1 VAE
+                self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 8, 8)
+                self.upscale_index_formula = (4, 8, 8)
+                self.downscale_ratio = (lambda a: max(0, math.floor((a + 3) / 4)), 8, 8)
+                self.downscale_index_formula = (4, 8, 8)
+                self.latent_dim = 3
+                self.latent_channels = 16
+                ddconfig = {"dim": 96, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
+                from wan_vae_components.vae import WanVAE
+                self.first_stage_model = WanVAE(**ddconfig)
+                self.memory_used_encode = lambda shape, dtype: 6000 * shape[3] * shape[4] * dtype_size(dtype)
+                self.memory_used_decode = lambda shape, dtype: 7000 * shape[3] * shape[4] * (8 * 8) * dtype_size(dtype)
+            
         else:
             logging.warning("WARNING: No VAE weights detected, VAE not initialized.")
             self.first_stage_model = None
