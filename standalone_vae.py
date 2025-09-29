@@ -753,11 +753,7 @@ class VAE:
             self.patcher = None
     
     def _detect_and_init_vae(self, sd, metadata):
-        print(f"🔍 _detect_and_init_vae called with {len(sd)} keys")
-        print(f"🔍 First 10 keys: {list(sd.keys())[:10]}")
-        print(f"🔍 Looking for decoder.middle.0.residual.0.gamma: {'decoder.middle.0.residual.0.gamma' in sd}")
-        print(f"🔍 Looking for decoder.head.0.gamma: {'decoder.head.0.gamma' in sd}")
-        print(f"🔍 Looking for decoder.conv1.weight: {'decoder.conv1.weight' in sd}")
+        # Debug prints removed for production
         """Detect VAE type and initialize appropriate model"""
         
         # Check for diffusers format
@@ -822,8 +818,7 @@ class VAE:
             
         elif "decoder.middle.0.residual.0.gamma" in sd:
             # WAN VAE detection
-            print(f"🎯 OLD WAN DETECTION PATH TRIGGERED! (decoder.middle.0.residual.0.gamma)")
-            print(f"🔥 FIXING OLD PATH: Setting process_input to x*2_1")
+            # WAN VAE detected - setting correct process_input/output
             self.process_input = lambda image: image * 2.0 - 1.0
             self.process_output = lambda image: torch.clamp((image + 1.0) / 2.0, min=0.0, max=1.0)
             if "decoder.upsamples.0.upsamples.0.residual.2.weight" in sd:  # Wan 2.2 VAE
@@ -881,7 +876,7 @@ class VAE:
                 
         elif "decoder.layers.1.layers.0.beta" in sd:
             # Audio VAE
-            print(f"🚨 AUDIO VAE DETECTED! decoder.layers.1.layers.0.beta key found")
+            # Audio VAE detected
             self.first_stage_model = AudioOobleckVAE()
             self.memory_used_encode = lambda shape, dtype: (1000 * shape[2]) * dtype_size(dtype)
             self.memory_used_decode = lambda shape, dtype: (1000 * shape[2] * 2048) * dtype_size(dtype)
@@ -896,18 +891,10 @@ class VAE:
             self.disable_offload = True
             
         elif "decoder.head.0.gamma" in sd or "decoder.conv1.weight" in sd:
-            print(f"🚨 CRITICAL: WAN DETECTION CONDITION MET!")
-            print(f"🔍 decoder.head.0.gamma in sd: {'decoder.head.0.gamma' in sd}")
-            print(f"🔍 decoder.conv1.weight in sd: {'decoder.conv1.weight' in sd}")
-            print(f"🔍 DEBUGGING: Checking WAN keys - head.gamma={'decoder.head.0.gamma' in sd}, conv1.weight={'decoder.conv1.weight' in sd}")
-            print(f"🔍 DEBUGGING: Available keys (first 20): {list(sd.keys())[:20]}")
+            # WAN VAE detection condition met
             # WAN VAE detection (matches ComfyUI logic)
-            print(f"🎯 MOTION VAE: WAN VAE DETECTED! Keys: decoder.head.0.gamma={('decoder.head.0.gamma' in sd)}, decoder.conv1.weight={('decoder.conv1.weight' in sd)}")
-            print(f"🔥 DEBUGGING: Setting process_input to x*2-1 BEFORE WanVAE creation")
             self.process_input = lambda image: image * 2.0 - 1.0
-            print(f"🔥 DEBUGGING: process_input set = {self.process_input.__code__.co_consts}")
-            print(f"🔍 DEBUG: Full key example - decoder.conv1.weight: {'decoder.conv1.weight' in sd}")
-            print(f"🔍 DEBUG: Other WAN keys present: {[k for k in sd.keys() if 'decoder.conv1' in k or 'decoder.head.0.gamma' in k]}")
+            self.process_output = lambda image: torch.clamp((image + 1.0) / 2.0, min=0.0, max=1.0)
             import math
             if "decoder.upsamples.0.upsamples.0.residual.2.weight" in sd:  # Wan 2.2 VAE
                 self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 16, 16)
