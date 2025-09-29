@@ -1,1 +1,73 @@
 models/vaes/*.safetensors
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environment
+venv/
+.venv/
+
+# Environment variables
+.env
+*.env
+
+# =========================
+# IDEs & Editors
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# =========================
+# Build & Packaging
+# =========================
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# =========================
+# Logs & Temp
+# =========================
+*.log
+logs/
+*.out
+*.err
+*.tmp
+*.bak
+
+# =========================
+# OS-specific
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Jupyter / Notebooks
+# =========================
+.ipynb_checkpoints/
+*.ipynb-meta
+
+# =========================
+# Cache
+# =========================
+.cache/
+*.pickle
+*.pkl
+*.h5
+*.ckpt
+
+# =========================
+# Custom (add as needed)
+# =========================
+# Ignore large media or export files
+outputs/
+exports/
+models/
