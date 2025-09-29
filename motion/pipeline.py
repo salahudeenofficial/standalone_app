@@ -1332,7 +1332,7 @@ class WanVideoPipeline:
             
             # Clear CUDA cache
             if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+                torch.cuda.empty_cache()
             
             # Create results
             step_4_results = {
