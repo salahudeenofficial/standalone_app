@@ -817,6 +817,10 @@ class VAE:
             
         elif "decoder.middle.0.residual.0.gamma" in sd:
             # WAN VAE detection
+            print(f"🎯 OLD WAN DETECTION PATH TRIGGERED! (decoder.middle.0.residual.0.gamma)")
+            print(f"🔥 FIXING OLD PATH: Setting process_input to x*2_1")
+            self.process_input = lambda image: image * 2.0 - 1.0
+            self.process_output = lambda image: torch.clamp((image + 1.0) / 2.0, min=0.0, max=1.0)
             if "decoder.upsamples.0.upsamples.0.residual.2.weight" in sd:  # Wan 2.2 VAE
                 self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 16, 16)
                 self.upscale_index_formula = (4, 16, 16)
