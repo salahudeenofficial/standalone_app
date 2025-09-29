@@ -12,6 +12,8 @@ from pathlib import Path
 import safetensors
 import traceback
 import os
+import torchvision
+import torch.nn.functional as F
 
 def add_paths():
     """Add necessary paths for imports"""
@@ -108,15 +110,56 @@ def load_vae_model():
             print(f"❌ Error loading with torch: {e2}")
             raise e  # Re-raise the original safetensors error
 
-def create_test_video_tensor():
-    """Create a test video tensor"""
-    print(f"🎬 Creating test video tensor...")
+def load_real_video():
+    """Load actual video and process into reactive/inactive tensors"""
+    print(f"\n🎬 Loading real video and processing...")
     
-    # Create a reasonable test tensor: [8, 256, 256, 3] float32
-    torch.manual_seed(42)  # Ensure reproducible results
-    video_tensor = torch.randn(8, 256, 256, 3, dtype=torch.float32)
+    # Try to load the actual video file
+    video_paths = [
+        "safu.mp4",
+        "../safu.mp4", 
+        "motion/safu.mp4",
+        "../motion/safu.mp4"
+    ]
     
-    print(f"✅ Test video created:")
+    video_tensor = None
+    used_path = None
+    
+    for path in video_paths:
+        if os.path.exists(path):
+            try:
+                print(f"📹 Loading video from: {path}")
+                video_tensor, audio, info = torchvision.io.read_video(path, pts_unit='sec')
+                used_path = path
+                break
+            except Exception as e:
+                print(f"❌ Failed to load {path}: {e}")
+                continue
+    
+    if video_tensor is None:
+        print("❌ No video file found, creating dummy video")
+        # Fallback to dummy video
+        video_tensor = torch.randn(8, 256, 256, 3, dtype=torch.float32)
+    else:
+        # Limit frames and resize if needed
+        max_frames = 8
+        if video_tensor.shape[0] > max_frames:
+            video_tensor = video_tensor[:max_frames]
+        
+        # Resize if too large
+        if video_tensor.shape[1] > 512 or video_tensor.shape[2] > 512:
+            video_tensor = F.interpolate(
+                video_tensor.permute(0, 3, 1, 2), 
+                size=(256, 256), 
+                mode='bilinear', 
+                align_corners=False
+            ).permute(0, 2, 3, 1)
+        
+        # Normalize to [0, 1] range (torchvision loads as [0, 255])
+        video_tensor = video_tensor.float() / 255.0
+    
+    print(f"✅ Video loaded:")
+    print(f"   Path: {used_path}")
     print(f"   Shape: {video_tensor.shape} (T,H,W,C)")
     print(f"   Dtype: {video_tensor.dtype}")
     print(f"   Range: [{video_tensor.min().item():.6f}, {video_tensor.max().item():.6f}]")
@@ -124,6 +167,28 @@ def create_test_video_tensor():
     print(f"   Memory: {video_tensor.numel() * 4 / (1024*1024):.2f} MB")
     
     return video_tensor
+
+def process_video_into_tensors(video_tensor):
+    """Process video into reactive and inactive tensors like motion pipeline"""
+    print(f"\n🔧 Processing video into reactive/inactive tensors...")
+    
+    # Create reactive tensor (actual video data)
+    reactive = video_tensor.clone()
+    
+    # Create inactive tensor (constant 0.5 values)
+    inactive = torch.full_like(video_tensor, 0.5)
+    
+    print(f"✅ Processed tensors:")
+    print(f"   Reactive tensor:")
+    print(f"     Shape: {reactive.shape}")
+    print(f"     Range: [{reactive.min().item():.6f}, {reactive.max().item():.6f}]")
+    print(f"     Mean: {reactive.mean().item():.6f}")
+    print(f"   Inactive tensor:")
+    print(f"     Shape: {inactive.shape}")
+    print(f"     Range: [{inactive.min().item():.6f}, {inactive.max().item():.6f}]")
+    print(f"     Mean: {inactive.mean().item():.6f}")
+    
+    return reactive, inactive
 
 def prepare_video_for_vae(video_tensor):
     """Prepare video tensor for VAE encoding"""
@@ -373,13 +438,27 @@ def main():
         add_paths()
         sd = load_vae_model()
         
-        # Create test data
-        video_tensor = create_test_video_tensor()
-        vae_input = prepare_video_for_vae(video_tensor)
+        # Load real video and process into tensors
+        video_tensor = load_real_video()
+        reactive, inactive = process_video_into_tensors(video_tensor)
         
-        # Test both VAE implementations
-        motion_result = test_motion_pipeline_vae(sd, vae_input)
-        comfy_result = test_comfyui_vae(sd, vae_input)
+        # Prepare both tensors for VAE encoding
+        reactive_vae_input = prepare_video_for_vae(reactive)
+        inactive_vae_input = prepare_video_for_vae(inactive)
+        
+        # Test both VAE implementations with reactive tensor
+        print(f"\n🔧 TESTING WITH REACTIVE TENSOR (real video data)")
+        motion_result_reactive = test_motion_pipeline_vae(sd, reactive_vae_input)
+        comfy_result_reactive = test_comfyui_vae(sd, reactive_vae_input)
+        
+        # Test both VAE implementations with inactive tensor
+        print(f"\n🔧 TESTING WITH INACTIVE TENSOR (constant 0.5)")
+        motion_result_inactive = test_motion_pipeline_vae(sd, inactive_vae_input)
+        comfy_result_inactive = test_comfyui_vae(sd, inactive_vae_input)
+        
+        # Use reactive results for main comparison
+        motion_result = motion_result_reactive
+        comfy_result = comfy_result_reactive
         
         # Compare results
         success, compatibility = compare_vae_results(motion_result, comfy_result)
