@@ -435,28 +435,28 @@ class WanVideoPipeline:
             control_video = None
             if control_video_path and os.path.exists(control_video_path):
                 control_video = self.load_video(control_video_path)
-                else:
+            else:
                 # Use real video file for testing (safu.mp4)
                 real_video_path = "safu.mp4"
                 if os.path.exists(real_video_path):
                     print(f"🎬 Using real video file: {real_video_path}")
                     control_video = self.load_video(real_video_path)
-            else:
+                else:
                     print(f"⚠️  Real video file not found: {real_video_path}")
                     print(f"   Creating dummy control video for testing")
-                control_video = torch.rand(length, height, width, 3)
+                    control_video = torch.rand(length, height, width, 3)
             
             # Load reference image
             reference_image = None
             if reference_image_path and os.path.exists(reference_image_path):
                 reference_image = self.load_image(reference_image_path)
-                else:
+            else:
                 # Use real reference image for testing (safu.jpg)
                 real_image_path = "safu.jpg"
                 if os.path.exists(real_image_path):
                     print(f"🖼️  Using real reference image: {real_image_path}")
                     reference_image = self.load_image(real_image_path)
-            else:
+                else:
                     print(f"⚠️  Real reference image not found: {real_image_path}")
                     print(f"   No reference image will be used")
             
@@ -1422,7 +1422,7 @@ class WanVideoPipeline:
             
             # Clear CUDA cache
             if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+                torch.cuda.empty_cache()
             
             # Create results
             step_4_results = {
