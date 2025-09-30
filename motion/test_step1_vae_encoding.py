@@ -14,6 +14,10 @@ from pathlib import Path
 motion_dir = Path(__file__).parent
 sys.path.insert(0, str(motion_dir))
 
+# Also add parent directory for imports
+parent_dir = motion_dir.parent
+sys.path.insert(0, str(parent_dir))
+
 def test_step1_vae_encoding():
     """Test Step 1 VAE encoding with the fixed crop_pixels function"""
     print("🚀 STEP 1 VAE ENCODING TEST")
@@ -23,9 +27,26 @@ def test_step1_vae_encoding():
     
     try:
         # Import pipeline components
-        from pipeline import WanVideoPipeline
-        from standalone_vae import VAE
-        from wan_vae_components.model_management import get_torch_device
+        try:
+            from pipeline import WanVideoPipeline
+            print("✅ Imported WanVideoPipeline from motion/pipeline.py")
+        except ImportError as e:
+            print(f"❌ Failed to import WanVideoPipeline: {e}")
+            return False
+            
+        try:
+            from standalone_vae import VAE
+            print("✅ Imported VAE from motion/standalone_vae.py")
+        except ImportError as e:
+            print(f"❌ Failed to import VAE: {e}")
+            return False
+            
+        try:
+            from wan_vae_components.model_management import get_torch_device
+            print("✅ Imported model_management from motion/wan_vae_components/")
+        except ImportError as e:
+            print(f"❌ Failed to import model_management: {e}")
+            return False
         
         print("✅ Imports successful")
         
