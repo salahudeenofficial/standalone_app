@@ -205,6 +205,30 @@ def _get_tensor_memory(tensor):
     else:
         return 0
 
+def _print_tensor_debug_info(tensor, name):
+    """Print comprehensive tensor debug information - easy to remove"""
+    print(f"🔍 {name}:")
+    print(f"   Shape: {tensor.shape}")
+    print(f"   Dtype: {tensor.dtype}")
+    print(f"   Device: {tensor.device}")
+    print(f"   Mean: {tensor.mean().item():.6f}")
+    print(f"   Range: [{tensor.min().item():.6f}, {tensor.max().item():.6f}]")
+    print(f"   Std: {tensor.std().item():.6f}")
+    flat_tensor = tensor.flatten()
+    first_values = [f"{flat_tensor[i].item():.6f}" for i in range(min(5, len(flat_tensor)))]
+    print(f"   First 5 values: {first_values}")
+    print()
+
+def remove_debug_code():
+    """
+    Instructions to remove debug code:
+    1. Delete this function
+    2. Delete all calls to _print_tensor_debug_info()
+    3. Delete the _print_tensor_debug_info() function definition
+    4. Search for "DEBUG:" comments and remove those sections
+    """
+    pass
+
 def common_upscale(samples, width, height, upscale_method, crop):
     """
     ComfyUI-compatible common_upscale function
@@ -544,6 +568,10 @@ class WanVideoPipeline:
             print(f"🔍 CALLING VAE.ENCODE() FOR INACTIVE TENSOR:")
             print(f"   Input shape: {inactive_5d.shape}")
             print(f"   Input format: [1, 3, T, H, W] (motion pipeline VAE format)")
+            
+            # DEBUG: Print tensor info before VAE encoding
+            _print_tensor_debug_info(inactive_5d, "INACTIVE TENSOR BEFORE VAE.ENCODE()")
+            
             inactive_latent = self.vae.encode(inactive_5d)
             
             # GPU Monitoring: Check GPU state after first encode
@@ -552,6 +580,10 @@ class WanVideoPipeline:
             print(f"🔍 CALLING VAE.ENCODE() FOR REACTIVE TENSOR:")
             print(f"   Input shape: {reactive_5d.shape}")
             print(f"   Input format: [1, 3, T, H, W] (motion pipeline VAE format)")
+            
+            # DEBUG: Print tensor info before VAE encoding
+            _print_tensor_debug_info(reactive_5d, "REACTIVE TENSOR BEFORE VAE.ENCODE()")
+            
             reactive_latent = self.vae.encode(reactive_5d)
             
             # GPU Monitoring: Check GPU state after second encode
@@ -561,38 +593,9 @@ class WanVideoPipeline:
             
             # DEBUG: Print tensor info after VAE encoding
             print(f"🔍 CONTROL VIDEO LATENTS AFTER VAE ENCODING:")
-            print(f"   Inactive latent:")
-            print(f"     Shape: {inactive_latent.shape}")
-            print(f"     Dtype: {inactive_latent.dtype}")
-            print(f"     Device: {inactive_latent.device}")
-            print(f"     Mean: {inactive_latent.mean().item():.6f}")
-            print(f"     Min: {inactive_latent.min().item():.6f}")
-            print(f"     Max: {inactive_latent.max().item():.6f}")
-            print(f"     Range: [{inactive_latent.min().item():.6f}, {inactive_latent.max().item():.6f}]")
-            print(f"     Std: {inactive_latent.std().item():.6f}")
-            print()
-            
-            print(f"   Reactive latent:")
-            print(f"     Shape: {reactive_latent.shape}")
-            print(f"     Dtype: {reactive_latent.dtype}")
-            print(f"     Device: {reactive_latent.device}")
-            print(f"     Mean: {reactive_latent.mean().item():.6f}")
-            print(f"     Min: {reactive_latent.min().item():.6f}")
-            print(f"     Max: {reactive_latent.max().item():.6f}")
-            print(f"     Range: [{reactive_latent.min().item():.6f}, {reactive_latent.max().item():.6f}]")
-            print(f"     Std: {reactive_latent.std().item():.6f}")
-            print()
-            
-            print(f"   Combined control video latent:")
-            print(f"     Shape: {control_video_latent.shape}")
-            print(f"     Dtype: {control_video_latent.dtype}")
-            print(f"     Device: {control_video_latent.device}")
-            print(f"     Mean: {control_video_latent.mean().item():.6f}")
-            print(f"     Min: {control_video_latent.min().item():.6f}")
-            print(f"     Max: {control_video_latent.max().item():.6f}")
-            print(f"     Range: [{control_video_latent.min().item():.6f}, {control_video_latent.max().item():.6f}]")
-            print(f"     Std: {control_video_latent.std().item():.6f}")
-            print()
+            _print_tensor_debug_info(inactive_latent, "INACTIVE LATENT AFTER VAE.ENCODE()")
+            _print_tensor_debug_info(reactive_latent, "REACTIVE LATENT AFTER VAE.ENCODE()")
+            _print_tensor_debug_info(control_video_latent, "COMBINED CONTROL VIDEO LATENT")
         
         # Process reference image using ComfyUI-compatible method
         reference_image_latent = None
@@ -627,22 +630,17 @@ class WanVideoPipeline:
                 print(f"🔍 CALLING VAE.ENCODE() FOR REFERENCE IMAGE:")
                 print(f"   Input shape: {reference_5d.shape}")
                 print(f"   Input format: [1, 3, 1, H, W] (motion pipeline VAE format)")
+                
+                # DEBUG: Print tensor info before VAE encoding
+                _print_tensor_debug_info(reference_5d, "REFERENCE TENSOR BEFORE VAE.ENCODE()")
+                
                 reference_image_latent = self.vae.encode(reference_5d)
                 
                 # GPU Monitoring: Check GPU state after reference image encoding
                 self._log_gpu_state("AFTER REFERENCE IMAGE VAE ENCODING")
                 
                 # DEBUG: Print tensor info after VAE encoding
-                print(f"🔍 REFERENCE IMAGE LATENT AFTER VAE ENCODING:")
-                print(f"   Shape: {reference_image_latent.shape}")
-                print(f"   Dtype: {reference_image_latent.dtype}")
-                print(f"   Device: {reference_image_latent.device}")
-                print(f"   Mean: {reference_image_latent.mean().item():.6f}")
-                print(f"   Min: {reference_image_latent.min().item():.6f}")
-                print(f"   Max: {reference_image_latent.max().item():.6f}")
-                print(f"   Range: [{reference_image_latent.min().item():.6f}, {reference_image_latent.max().item():.6f}]")
-                print(f"   Std: {reference_image_latent.std().item():.6f}")
-                print()
+                _print_tensor_debug_info(reference_image_latent, "REFERENCE IMAGE LATENT AFTER VAE.ENCODE()")
             
             # Add motion latent channels (WAN format) - exact match to ComfyUI WanVaceToVideo
             try:
