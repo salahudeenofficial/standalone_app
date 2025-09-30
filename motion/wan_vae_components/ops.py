@@ -96,28 +96,60 @@ class disable_weight_init:
     """Disable weight initialization for layers."""
     
     class Linear(torch.nn.Linear, CastWeightBiasOp):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self.weight_function = []
-            self.bias_function = []
+        def reset_parameters(self):
+            return None
+
+        def forward_comfy_cast_weights(self, input):
+            weight, bias = cast_bias_weight(self, input)
+            return torch.nn.functional.linear(input, weight, bias)
+
+        def forward(self, *args, **kwargs):
+            if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
+                return self.forward_comfy_cast_weights(*args, **kwargs)
+            else:
+                return super().forward(*args, **kwargs)
 
     class Conv1d(torch.nn.Conv1d, CastWeightBiasOp):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self.weight_function = []
-            self.bias_function = []
+        def reset_parameters(self):
+            return None
+
+        def forward_comfy_cast_weights(self, input):
+            weight, bias = cast_bias_weight(self, input)
+            return self._conv_forward(input, weight, bias)
+
+        def forward(self, *args, **kwargs):
+            if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
+                return self.forward_comfy_cast_weights(*args, **kwargs)
+            else:
+                return super().forward(*args, **kwargs)
 
     class Conv2d(torch.nn.Conv2d, CastWeightBiasOp):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self.weight_function = []
-            self.bias_function = []
+        def reset_parameters(self):
+            return None
+
+        def forward_comfy_cast_weights(self, input):
+            weight, bias = cast_bias_weight(self, input)
+            return self._conv_forward(input, weight, bias)
+
+        def forward(self, *args, **kwargs):
+            if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
+                return self.forward_comfy_cast_weights(*args, **kwargs)
+            else:
+                return super().forward(*args, **kwargs)
 
     class Conv3d(torch.nn.Conv3d, CastWeightBiasOp):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self.weight_function = []
-            self.bias_function = []
+        def reset_parameters(self):
+            return None
+
+        def forward_comfy_cast_weights(self, input):
+            weight, bias = cast_bias_weight(self, input)
+            return self._conv_forward(input, weight, bias)
+
+        def forward(self, *args, **kwargs):
+            if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
+                return self.forward_comfy_cast_weights(*args, **kwargs)
+            else:
+                return super().forward(*args, **kwargs)
 
     class GroupNorm(torch.nn.GroupNorm, CastWeightBiasOp):
         def __init__(self, *args, **kwargs):
