@@ -14,6 +14,30 @@ from typing import Dict, Any, Optional, Tuple, Callable
 from standalone_model_patcher import ModelPatcher, create_model_patcher
 from wan_vae_components import WanVAE
 
+# Simple fallback latent format for scaling
+class SimpleLatentFormat:
+    """Simple fallback latent format that applies basic scaling"""
+    def __init__(self):
+        self.scale_factor = 1.0
+        self.latent_channels = 16
+        self.latent_dimensions = 3
+        
+        # Wan21-style latent statistics (from ComfyUI)
+        self.latents_mean = torch.tensor([
+            -0.7571, -0.7089, -0.9113, 0.1075, -0.1745, 0.9653, -0.1517, 1.5508,
+            0.4134, -0.0715, 0.5517, -0.3632, -0.1922, -0.9497, 0.2503, -0.2921
+        ]).view(1, self.latent_channels, 1, 1, 1)
+        self.latents_std = torch.tensor([
+            2.8184, 1.4541, 2.3275, 2.6558, 1.2196, 1.7708, 2.6052, 2.0743,
+            3.2687, 2.1526, 2.8652, 1.5579, 1.6382, 1.1253, 2.8251, 1.9160
+        ]).view(1, self.latent_channels, 1, 1, 1)
+    
+    def process_out(self, latent):
+        """Apply Wan21-style scaling (ComfyUI process_out method)"""
+        latents_mean = self.latents_mean.to(latent.device, latent.dtype)
+        latents_std = self.latents_std.to(latent.device, latent.dtype)
+        return latent * latents_std / self.scale_factor + latents_mean
+
 # ComfyUI-compatible Conv2d with weight/bias casting
 class ComfyUICompatibleConv2d(nn.Conv2d):
     """Conv2d layer that mimics ComfyUI's ops.Conv2d weight/bias casting behavior"""
@@ -963,8 +987,10 @@ class VAE:
             self.latent_format = Wan21()
             print(f"✅ Initialized Wan21 latent format for proper scaling")
         except ImportError:
-            print(f"⚠️  Could not import Wan21 latent format, using fallback scaling")
-            self.latent_format = None
+            print(f"⚠️  Could not import Wan21 latent format, creating fallback")
+            # Create a simple fallback latent format
+            self.latent_format = SimpleLatentFormat()
+            print(f"✅ Created fallback latent format for scaling")
     
     def throw_exception_if_invalid(self):
         """Check if VAE is valid"""
