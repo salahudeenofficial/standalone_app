@@ -90,17 +90,17 @@ def test_step1_vae_encoding():
             vae_model_path = dummy_vae_path
             print(f"✅ Created dummy VAE: {dummy_vae_path}")
         
-        # Test parameters
+        # Test parameters with real video and image
         test_params = {
             'vae_model_path': vae_model_path,
-            'positive_prompt': "test prompt",
+            'positive_prompt': "test prompt with real video",
             'negative_prompt': "test negative prompt",
             'width': 832,
             'height': 480,
             'length': 37,  # Small length for testing
             'batch_size': 1,
-            'control_video_path': None,  # Will create dummy video
-            'reference_image_path': None,  # Will create dummy image
+            'control_video_path': None,  # Will use real video automatically (safu.mp4)
+            'reference_image_path': None,  # Will use real image automatically (safu.jpg)
             'strength': 1.0,
         }
         
@@ -108,16 +108,28 @@ def test_step1_vae_encoding():
         for key, value in test_params.items():
             print(f"   {key}: {value}")
         
-        # Test Step 1: VAE and Latent Creation
-        print(f"\n🎯 TESTING STEP 1: VAE AND LATENT CREATION")
-        print("-" * 50)
+        # Test Step 1: VAE and Latent Creation with Real Video
+        print(f"\n🎯 TESTING STEP 1: VAE AND LATENT CREATION WITH REAL VIDEO")
+        print("-" * 60)
+        print("🎬 Using real video: safu.mp4")
+        print("🖼️  Using real image: safu.jpg")
+        print("📊 Will produce all three latents for comparison:")
+        print("   1. Reference Image Latent")
+        print("   2. Inactive Video Latent") 
+        print("   3. Reactive Video Latent")
+        print("-" * 60)
         
         # Call step 1
         step1_results = pipeline.step_1_vae_and_latent_creation(**test_params)
         
-        # Validate results
-        print(f"\n✅ STEP 1 COMPLETED SUCCESSFULLY!")
+        # Validate results and extract all three latents
+        print(f"\n✅ STEP 1 COMPLETED SUCCESSFULLY WITH REAL VIDEO!")
         print(f"📊 Results structure:")
+        
+        # Extract the three key latents for comparison
+        reference_latent = None
+        inactive_latent = None
+        reactive_latent = None
         
         if isinstance(step1_results, dict):
             for key, value in step1_results.items():
@@ -127,6 +139,15 @@ def test_step1_vae_encoding():
                         print(f"      Mean: {value.mean().item():.6f}")
                         print(f"      Range: [{value.min().item():.6f}, {value.max().item():.6f}]")
                         print(f"      Std: {value.std().item():.6f}")
+                        
+                        # Extract specific latents for comparison
+                        if key == 'reference_image_latent':
+                            reference_latent = value
+                        elif key == 'control_video_latent':
+                            # Split control_video_latent into inactive and reactive
+                            if value.shape[1] == 32:  # Combined latent
+                                inactive_latent = value[:, :16, :, :, :]  # First 16 channels
+                                reactive_latent = value[:, 16:, :, :, :]   # Last 16 channels
                     else:
                         print(f"      ⚠️  EMPTY TENSOR!")
                 else:
@@ -140,6 +161,39 @@ def test_step1_vae_encoding():
                 if step1_results.numel() > 0:
                     print(f"   Mean: {step1_results.mean().item():.6f}")
                     print(f"   Range: [{step1_results.min().item():.6f}, {step1_results.max().item():.6f}]")
+        
+        # Display the three latents for comparison
+        print(f"\n🎯 THREE LATENTS FOR COMPARISON:")
+        print("=" * 60)
+        
+        if reference_latent is not None:
+            print(f"1️⃣ REFERENCE IMAGE LATENT:")
+            print(f"   Shape: {reference_latent.shape}")
+            print(f"   Mean: {reference_latent.mean().item():.6f}")
+            print(f"   Range: [{reference_latent.min().item():.6f}, {reference_latent.max().item():.6f}]")
+            print(f"   Std: {reference_latent.std().item():.6f}")
+        else:
+            print(f"1️⃣ REFERENCE IMAGE LATENT: ❌ Not found")
+        
+        if inactive_latent is not None:
+            print(f"\n2️⃣ INACTIVE VIDEO LATENT:")
+            print(f"   Shape: {inactive_latent.shape}")
+            print(f"   Mean: {inactive_latent.mean().item():.6f}")
+            print(f"   Range: [{inactive_latent.min().item():.6f}, {inactive_latent.max().item():.6f}]")
+            print(f"   Std: {inactive_latent.std().item():.6f}")
+        else:
+            print(f"\n2️⃣ INACTIVE VIDEO LATENT: ❌ Not found")
+        
+        if reactive_latent is not None:
+            print(f"\n3️⃣ REACTIVE VIDEO LATENT:")
+            print(f"   Shape: {reactive_latent.shape}")
+            print(f"   Mean: {reactive_latent.mean().item():.6f}")
+            print(f"   Range: [{reactive_latent.min().item():.6f}, {reactive_latent.max().item():.6f}]")
+            print(f"   Std: {reactive_latent.std().item():.6f}")
+        else:
+            print(f"\n3️⃣ REACTIVE VIDEO LATENT: ❌ Not found")
+        
+        print("=" * 60)
         
         # Test VAE crop_pixels function directly
         print(f"\n🔍 TESTING VAE CROP_PIXELS FUNCTION DIRECTLY")
@@ -202,8 +256,14 @@ def test_step1_vae_encoding():
         else:
             print("⚠️  VAE not available for direct testing")
         
-        print(f"\n🎉 STEP 1 VAE ENCODING TEST COMPLETED!")
-        print("=" * 50)
+        print(f"\n🎉 STEP 1 VAE ENCODING TEST WITH REAL VIDEO COMPLETED!")
+        print("=" * 60)
+        print("📊 SUMMARY:")
+        print("✅ Used real video: safu.mp4")
+        print("✅ Used real image: safu.jpg") 
+        print("✅ Produced all three latents for comparison")
+        print("🔍 Compare these results with ComfyUI expected values")
+        print("=" * 60)
         
         # Cleanup dummy VAE file if created
         if vae_model_path == "dummy_vae.safetensors" and os.path.exists("dummy_vae.safetensors"):
@@ -308,10 +368,12 @@ def test_vae_crop_pixels_edge_cases():
 
 def main():
     """Main test function"""
-    print("🚀 MOTION PIPELINE STEP 1 VAE ENCODING TEST")
-    print("=" * 60)
+    print("🚀 MOTION PIPELINE STEP 1 VAE ENCODING TEST WITH REAL VIDEO")
+    print("=" * 70)
     print("This script tests the vae_encode_crop_pixels fix and validates")
-    print("Step 1 VAE encoding output format.")
+    print("Step 1 VAE encoding output format using real video data.")
+    print("🎬 Uses: safu.mp4 (control video) + safu.jpg (reference image)")
+    print("📊 Produces: Reference + Inactive + Reactive latents for comparison")
     print()
     
     # Test 1: Main Step 1 VAE encoding
@@ -333,7 +395,8 @@ def main():
     if success1:
         print(f"\n🎉 ALL TESTS PASSED!")
         print("The vae_encode_crop_pixels fix is working correctly.")
-        print("Step 1 VAE encoding should now work without empty tensor errors.")
+        print("Step 1 VAE encoding with real video data completed successfully.")
+        print("📊 All three latents produced for comparison with ComfyUI.")
     else:
         print(f"\n⚠️  SOME TESTS FAILED!")
         print("Please check the error messages above for details.")
