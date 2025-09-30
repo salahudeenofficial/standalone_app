@@ -987,7 +987,10 @@ class VAE:
         pixel_samples = self.vae_encode_crop_pixels(pixel_samples)
         
         # Move channel dimension to correct position (ComfyUI style)
-        pixel_samples = pixel_samples.movedim(-1, 1)
+        # Only apply movedim for 4D tensors [B, H, W, C] -> [B, C, H, W]
+        if pixel_samples.ndim == 4:
+            pixel_samples = pixel_samples.movedim(-1, 1)
+        # For 5D tensors [B, C, T, H, W], no dimension change needed
         if self.latent_dim == 3 and pixel_samples.ndim < 5:
             pixel_samples = pixel_samples.movedim(1, 0).unsqueeze(0)
         
