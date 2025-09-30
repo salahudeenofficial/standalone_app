@@ -18,22 +18,24 @@ sys.path.insert(0, str(motion_dir))
 parent_dir = motion_dir.parent
 sys.path.insert(0, str(parent_dir))
 
-def test_wan21_latent_format():
-    """Test Wan21 latent format scaling"""
-    print("🔍 TESTING WAN21 LATENT FORMAT SCALING")
+def test_simple_latent_format():
+    """Test SimpleLatentFormat scaling (fallback)"""
+    print("🔍 TESTING SIMPLE LATENT FORMAT SCALING")
     print("=" * 50)
     
     try:
-        # Import Wan21 latent format
-        from latent_formats import Wan21
-        print("✅ Successfully imported Wan21 from ComfyUI")
+        # Import SimpleLatentFormat from motion/standalone_vae
+        import sys
+        sys.path.insert(0, str(motion_dir))
+        from standalone_vae import SimpleLatentFormat
+        print("✅ Successfully imported SimpleLatentFormat")
         
-        # Create Wan21 instance
-        wan21 = Wan21()
-        print(f"✅ Created Wan21 instance")
-        print(f"   Scale factor: {wan21.scale_factor}")
-        print(f"   Latent channels: {wan21.latent_channels}")
-        print(f"   Latent dimensions: {wan21.latent_dimensions}")
+        # Create SimpleLatentFormat instance
+        latent_format = SimpleLatentFormat()
+        print(f"✅ Created SimpleLatentFormat instance")
+        print(f"   Scale factor: {latent_format.scale_factor}")
+        print(f"   Latent channels: {latent_format.latent_channels}")
+        print(f"   Latent dimensions: {latent_format.latent_dimensions}")
         
         # Create test latent tensor (similar to VAE encode output)
         test_latent = torch.randn(1, 16, 8, 60, 104)  # [B, C, T, H, W]
@@ -44,7 +46,7 @@ def test_wan21_latent_format():
         print(f"   Std: {test_latent.std().item():.6f}")
         
         # Apply process_out scaling (this is what was missing)
-        scaled_latent = wan21.process_out(test_latent)
+        scaled_latent = latent_format.process_out(test_latent)
         print(f"\n📊 After process_out scaling:")
         print(f"   Shape: {scaled_latent.shape}")
         print(f"   Mean: {scaled_latent.mean().item():.6f}")
@@ -73,7 +75,7 @@ def test_wan21_latent_format():
         return True
         
     except ImportError as e:
-        print(f"❌ Failed to import Wan21: {e}")
+        print(f"❌ Failed to import SimpleLatentFormat: {e}")
         return False
     except Exception as e:
         print(f"❌ Test failed: {e}")
@@ -117,8 +119,8 @@ def main():
     print("to verify that the missing scale factor has been added.")
     print()
     
-    # Test 1: Wan21 latent format
-    success1 = test_wan21_latent_format()
+    # Test 1: SimpleLatentFormat scaling
+    success1 = test_simple_latent_format()
     
     # Test 2: Standalone VAE latent format initialization
     success2 = test_standalone_vae_latent_format()
@@ -127,9 +129,9 @@ def main():
     print(f"\n📋 TEST SUMMARY")
     print("=" * 30)
     if success1:
-        print("✅ Wan21 latent format test: PASSED")
+        print("✅ SimpleLatentFormat scaling test: PASSED")
     else:
-        print("❌ Wan21 latent format test: FAILED")
+        print("❌ SimpleLatentFormat scaling test: FAILED")
     
     if success2:
         print("✅ Standalone VAE latent format test: PASSED")
