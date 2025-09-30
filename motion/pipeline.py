@@ -547,12 +547,18 @@ class WanVideoPipeline:
             # Device verification: Ensure VAE model is on GPU
             self._verify_vae_device()
             
-            # CRITICAL FIX: Convert to VAE format [1, 3, T, H, W] (motion pipeline VAE expects this)
-            # Convert from [T, H, W, 3] to [1, 3, T, H, W] for VAE encoding
-            inactive_5d = inactive[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)  # [T,H,W,3] -> [1,3,T,H,W]
-            reactive_5d = reactive[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)  # [T,H,W,3] -> [1,3,T,H,W]
+            # CRITICAL FIX: Use 4D tensor encoding like ComfyUI WanVaceToVideo
+            # ComfyUI uses: vae.encode(inactive[:, :, :, :3]) directly
+            # Use 4D tensor encoding to match ComfyUI exactly
             
-            inactive_latent = self.vae.encode(inactive_5d)
+            # DEBUG: Print tensor shapes before VAE encoding
+            print(f"🔍 TENSOR SHAPES BEFORE VAE ENCODING:")
+            print(f"   inactive[:, :, :, :3].shape: {inactive[:, :, :, :3].shape}")
+            print(f"   reactive[:, :, :, :3].shape: {reactive[:, :, :, :3].shape}")
+            print(f"   Expected after encoding: [1, 16, {latent_length}, {height//8}, {width//8}]")
+            print()
+            
+            inactive_latent = self.vae.encode(inactive[:, :, :, :3])
             
             # GPU Monitoring: Check GPU state after first encode
             self._log_gpu_state("AFTER INACTIVE VAE ENCODE")
