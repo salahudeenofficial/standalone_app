@@ -648,45 +648,8 @@ class WanVideoPipeline:
                 
             
             # Add motion latent channels (WAN format) - exact match to ComfyUI WanVaceToVideo
-            try:
-                from wan_latent_format import Wan21_LatentFormat
-                wan21_format = Wan21_LatentFormat()
-                # CRITICAL FIX: Apply process_out to zeros_like(reference_image_latent) to get motion channels
-                motion_channels = wan21_format.process_out(torch.zeros_like(reference_image_latent))
-                
-                # DEBUG: Print motion channels before concatenation
-                print(f"🔍 WAN21 MOTION CHANNELS (before concatenation):")
-                print(f"   Shape: {motion_channels.shape}")
-                print(f"   Dtype: {motion_channels.dtype}")
-                print(f"   Device: {motion_channels.device}")
-                print(f"   Mean: {motion_channels.mean().item():.6f}")
-                print(f"   Range: [{motion_channels.min().item():.6f}, {motion_channels.max().item():.6f}]")
-                print(f"   Std: {motion_channels.std().item():.6f}")
-                flat_motion = motion_channels.flatten()
-                first_5_motion = [f"{flat_motion[i].item():.6f}" for i in range(min(5, len(flat_motion)))]
-                print(f"   First 5 elements: {first_5_motion}")
-                print()
-                
-                reference_image_latent = torch.cat([reference_image_latent, motion_channels], dim=1)
-                print(f"   ✅ Added WAN21 motion channels to reference image")
-                print(f"   📊 Reference image latent shape after WAN21: {reference_image_latent.shape}")
-                
-                # DEBUG: Print final reference image latent after WAN21 concatenation
-                print(f"🔍 FINAL REFERENCE IMAGE LATENT (after WAN21 concatenation):")
-                print(f"   Shape: {reference_image_latent.shape}")
-                print(f"   Dtype: {reference_image_latent.dtype}")
-                print(f"   Device: {reference_image_latent.device}")
-                print(f"   Mean: {reference_image_latent.mean().item():.6f}")
-                print(f"   Range: [{reference_image_latent.min().item():.6f}, {reference_image_latent.max().item():.6f}]")
-                print(f"   Std: {reference_image_latent.std().item():.6f}")
-                flat_final = reference_image_latent.flatten()
-                first_5_final = [f"{flat_final[i].item():.6f}" for i in range(min(5, len(flat_final)))]
-                print(f"   First 5 elements: {first_5_final}")
-                print()
-                
-            except ImportError:
-                print(f"   ⚠️  Wan21_LatentFormat not available, using standard format")
-                pass  # Use standard format
+            from wan_latent_format import Wan21_LatentFormat
+            reference_image_latent = torch.cat([reference_image_latent, Wan21_LatentFormat().process_out(torch.zeros_like(reference_image_latent))], dim=1)
         
         # DEBUG: Print latent length calculation
         print(f"🔍 LATENT LENGTH CALCULATION:")
