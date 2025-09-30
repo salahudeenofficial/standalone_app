@@ -1,0 +1,54 @@
+VACE_FRAMES TENSOR ANALYSIS
+===========================
+
+TENSOR FLOW TO VACE_FRAMES:
+===========================
+
+1. INACTIVE LATENT:
+   - Created from: inactive_5d = inactive[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)
+   - Shape: [1, 3, T, H, W] (e.g., [1, 3, 37, 832, 480])
+   - VAE Encoded: inactive_latent = self.vae.encode(inactive_5d)
+   - Shape: [1, 16, T//8, H//8, W//8] (e.g., [1, 16, 9, 104, 60])
+
+2. REACTIVE LATENT:
+   - Created from: reactive_5d = reactive[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)
+   - Shape: [1, 3, T, H, W] (e.g., [1, 3, 37, 832, 480])
+   - VAE Encoded: reactive_latent = self.vae.encode(reactive_5d)
+   - Shape: [1, 16, T//8, H//8, W//8] (e.g., [1, 16, 9, 104, 60])
+
+3. CONTROL VIDEO LATENT:
+   - Combined: control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
+   - Shape: [1, 32, T//8, H//8, W//8] (e.g., [1, 32, 9, 104, 60])
+   - Contains: First 16 channels = inactive, Last 16 channels = reactive
+
+4. REFERENCE IMAGE LATENT (if available):
+   - Created from: reference_5d = reference_image[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)
+   - Shape: [1, 3, 1, H, W] (e.g., [1, 3, 1, 832, 480])
+   - VAE Encoded: reference_image_latent = self.vae.encode(reference_5d)
+   - Shape: [1, 16, 1, H//8, W//8] (e.g., [1, 16, 1, 104, 60])
+
+5. INITIAL LATENT (FINAL VACE_FRAMES):
+   - Base: initial_latent = control_video_latent
+   - Shape: [1, 32, T//8, H//8, W//8] (e.g., [1, 32, 9, 104, 60])
+   
+   - If reference image exists:
+     initial_latent = torch.cat((reference_image_latent, control_video_latent), dim=2)
+     Shape: [1, 32, 1 + T//8, H//8, W//8] (e.g., [1, 32, 10, 104, 60])
+     Contains: First temporal frame = reference image, Remaining frames = control video
+
+6. VACE_FRAMES IN CONDITIONING:
+   - Passed as: "vace_frames": [initial_latent]
+   - Final tensor: initial_latent
+   - Shape: [1, 32, T_final, H//8, W//8]
+   - Where T_final = 1 + T//8 if reference image exists, else T//8
+
+TENSOR COMPOSITION:
+==================
+
+The vace_frames tensor contains:
+- 32 channels total
+- Channels 0-15: Inactive video latent (constant regions)
+- Channels 16-31: Reactive video latent (controlled regions)
+- Temporal dimension: Reference image (1 frame) + Control video (T//8 frames)
+
+This tensor is passed to Step 4 (KSampler) as part of the VACE conditioning.

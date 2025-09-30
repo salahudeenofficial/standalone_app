@@ -564,45 +564,6 @@ class WanVideoPipeline:
             
             control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
             
-            # DETAILED RESULTS: Three VAE Encodes Analysis
-            print(f"\n📊 THREE VAE ENCODES RESULTS:")
-            print("=" * 60)
-            
-            # 1. Inactive Latent Results
-            print(f"1️⃣ INACTIVE LATENT:")
-            print(f"   Shape: {inactive_latent.shape}")
-            print(f"   Mean: {inactive_latent.mean().item():.6f}")
-            print(f"   Range: [{inactive_latent.min().item():.6f}, {inactive_latent.max().item():.6f}]")
-            print(f"   Std: {inactive_latent.std().item():.6f}")
-            flat_inactive = inactive_latent.flatten()
-            first_5_inactive = [f"{flat_inactive[i].item():.6f}" for i in range(min(5, len(flat_inactive)))]
-            print(f"   First 5 elements: {first_5_inactive}")
-            
-            # 2. Reactive Latent Results
-            print(f"\n2️⃣ REACTIVE LATENT:")
-            print(f"   Shape: {reactive_latent.shape}")
-            print(f"   Mean: {reactive_latent.mean().item():.6f}")
-            print(f"   Range: [{reactive_latent.min().item():.6f}, {reactive_latent.max().item():.6f}]")
-            print(f"   Std: {reactive_latent.std().item():.6f}")
-            flat_reactive = reactive_latent.flatten()
-            first_5_reactive = [f"{flat_reactive[i].item():.6f}" for i in range(min(5, len(flat_reactive)))]
-            print(f"   First 5 elements: {first_5_reactive}")
-            
-            # 3. Reference Image Latent Results (if available)
-            if reference_image_latent is not None:
-                print(f"\n3️⃣ REFERENCE IMAGE LATENT:")
-                print(f"   Shape: {reference_image_latent.shape}")
-                print(f"   Mean: {reference_image_latent.mean().item():.6f}")
-                print(f"   Range: [{reference_image_latent.min().item():.6f}, {reference_image_latent.max().item():.6f}]")
-                print(f"   Std: {reference_image_latent.std().item():.6f}")
-                flat_reference = reference_image_latent.flatten()
-                first_5_reference = [f"{flat_reference[i].item():.6f}" for i in range(min(5, len(flat_reference)))]
-                print(f"   First 5 elements: {first_5_reference}")
-            else:
-                print(f"\n3️⃣ REFERENCE IMAGE LATENT: Not available")
-            
-            print("=" * 60)
-            
         
         # Process reference image using ComfyUI-compatible method
         reference_image_latent = None
@@ -670,6 +631,45 @@ class WanVideoPipeline:
         if reference_image_latent is not None:
             initial_latent = torch.cat((reference_image_latent, control_video_latent), dim=2)
         
+        # DETAILED RESULTS: Three VAE Encodes Analysis
+        print(f"\n📊 THREE VAE ENCODES RESULTS:")
+        print("=" * 60)
+        
+        # 1. Inactive Latent Results
+        print(f"1️⃣ INACTIVE LATENT:")
+        print(f"   Shape: {inactive_latent.shape}")
+        print(f"   Mean: {inactive_latent.mean().item():.6f}")
+        print(f"   Range: [{inactive_latent.min().item():.6f}, {inactive_latent.max().item():.6f}]")
+        print(f"   Std: {inactive_latent.std().item():.6f}")
+        flat_inactive = inactive_latent.flatten()
+        first_5_inactive = [f"{flat_inactive[i].item():.6f}" for i in range(min(5, len(flat_inactive)))]
+        print(f"   First 5 elements: {first_5_inactive}")
+        
+        # 2. Reactive Latent Results
+        print(f"\n2️⃣ REACTIVE LATENT:")
+        print(f"   Shape: {reactive_latent.shape}")
+        print(f"   Mean: {reactive_latent.mean().item():.6f}")
+        print(f"   Range: [{reactive_latent.min().item():.6f}, {reactive_latent.max().item():.6f}]")
+        print(f"   Std: {reactive_latent.std().item():.6f}")
+        flat_reactive = reactive_latent.flatten()
+        first_5_reactive = [f"{flat_reactive[i].item():.6f}" for i in range(min(5, len(flat_reactive)))]
+        print(f"   First 5 elements: {first_5_reactive}")
+        
+        # 3. Reference Image Latent Results (if available)
+        if reference_image_latent is not None:
+            print(f"\n3️⃣ REFERENCE IMAGE LATENT:")
+            print(f"   Shape: {reference_image_latent.shape}")
+            print(f"   Mean: {reference_image_latent.mean().item():.6f}")
+            print(f"   Range: [{reference_image_latent.min().item():.6f}, {reference_image_latent.max().item():.6f}]")
+            print(f"   Std: {reference_image_latent.std().item():.6f}")
+            flat_reference = reference_image_latent.flatten()
+            first_5_reference = [f"{flat_reference[i].item():.6f}" for i in range(min(5, len(flat_reference)))]
+            print(f"   First 5 elements: {first_5_reference}")
+        else:
+            print(f"\n3️⃣ REFERENCE IMAGE LATENT: Not available")
+        
+        print("=" * 60)
+        
         # Create control mask in latent space using ComfyUI-compatible method (exact match to WanVaceToVideo)
         height_mask = height // vae_stride
         width_mask = width // vae_stride
@@ -717,6 +717,74 @@ class WanVideoPipeline:
                 "vace_strength": [strength]
             }
         ]
+        
+        # DETAILED VACE_FRAMES ANALYSIS: Print tensor details for positive and negative conditioning
+        print(f"\n📊 VACE_FRAMES TENSOR ANALYSIS (initial_latent):")
+        print("=" * 70)
+        
+        # Extract vace_frames tensor from positive conditioning
+        positive_vace_frames = positive[1]["vace_frames"][0]  # Get the tensor from the list
+        negative_vace_frames = negative[1]["vace_frames"][0]  # Get the tensor from the list
+        
+        # Verify both are the same tensor (they should be)
+        are_same_tensor = positive_vace_frames is negative_vace_frames
+        print(f"🔍 Tensor Identity Check: {'✅ SAME TENSOR' if are_same_tensor else '❌ DIFFERENT TENSORS'}")
+        
+        # Print detailed tensor information
+        print(f"\n📋 POSITIVE CONDITIONING VACE_FRAMES:")
+        print(f"   Shape: {positive_vace_frames.shape}")
+        print(f"   Dtype: {positive_vace_frames.dtype}")
+        print(f"   Device: {positive_vace_frames.device}")
+        print(f"   Mean: {positive_vace_frames.mean().item():.6f}")
+        print(f"   Range: [{positive_vace_frames.min().item():.6f}, {positive_vace_frames.max().item():.6f}]")
+        print(f"   Std: {positive_vace_frames.std().item():.6f}")
+        
+        # Get first 5 values (flattened)
+        flat_positive = positive_vace_frames.flatten()
+        first_5_positive = [f"{flat_positive[i].item():.6f}" for i in range(min(5, len(flat_positive)))]
+        print(f"   First 5 elements: {first_5_positive}")
+        
+        print(f"\n📋 NEGATIVE CONDITIONING VACE_FRAMES:")
+        print(f"   Shape: {negative_vace_frames.shape}")
+        print(f"   Dtype: {negative_vace_frames.dtype}")
+        print(f"   Device: {negative_vace_frames.device}")
+        print(f"   Mean: {negative_vace_frames.mean().item():.6f}")
+        print(f"   Range: [{negative_vace_frames.min().item():.6f}, {negative_vace_frames.max().item():.6f}]")
+        print(f"   Std: {negative_vace_frames.std().item():.6f}")
+        
+        # Get first 5 values (flattened)
+        flat_negative = negative_vace_frames.flatten()
+        first_5_negative = [f"{flat_negative[i].item():.6f}" for i in range(min(5, len(flat_negative)))]
+        print(f"   First 5 elements: {first_5_negative}")
+        
+        # Channel analysis (if tensor has channel dimension)
+        if len(positive_vace_frames.shape) >= 2:
+            channels = positive_vace_frames.shape[1]
+            print(f"\n📊 CHANNEL ANALYSIS (32 channels total):")
+            print(f"   Total Channels: {channels}")
+            print(f"   Channels 0-15: Inactive video latent")
+            print(f"   Channels 16-31: Reactive video latent")
+            
+            # Analyze first few channels
+            for i in range(min(4, channels)):
+                channel_data = positive_vace_frames[0, i, :, :, :]  # Get channel i
+                print(f"   Channel {i}: Mean={channel_data.mean().item():.6f}, Range=[{channel_data.min().item():.6f}, {channel_data.max().item():.6f}]")
+            
+            if channels > 4:
+                print(f"   ... (and {channels - 4} more channels)")
+        
+        # Temporal analysis (if tensor has temporal dimension)
+        if len(positive_vace_frames.shape) >= 3:
+            temporal_frames = positive_vace_frames.shape[2]
+            print(f"\n📊 TEMPORAL ANALYSIS:")
+            print(f"   Total Frames: {temporal_frames}")
+            if reference_image_latent is not None:
+                print(f"   Frame 0: Reference image latent")
+                print(f"   Frames 1-{temporal_frames-1}: Control video latent")
+            else:
+                print(f"   Frames 0-{temporal_frames-1}: Control video latent")
+        
+        print("=" * 70)
         
         # Mark step complete and return results
         self.step_completed[1] = True
