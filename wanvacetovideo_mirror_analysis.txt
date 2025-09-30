@@ -1,0 +1,115 @@
+WANVACETOVIDEO MIRROR ANALYSIS
+==============================
+
+COMPARING MOTION PIPELINE vs COMFYUI WANVACETOVIDEO
+==================================================
+
+KEY DIFFERENCES FOUND:
+======================
+
+1. REFERENCE IMAGE PROCESSING ORDER:
+   ComfyUI: Processes reference image FIRST, then VAE encodes it
+   Motion: Processes reference image AFTER control video encoding
+   
+   ComfyUI Code:
+   ```python
+   if reference_image is not None:
+       reference_image = comfy.utils.common_upscale(reference_image[:1].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
+       reference_image = vae.encode(reference_image[:, :, :, :3])
+       reference_image = torch.cat([reference_image, comfy.latent_formats.Wan21().process_out(torch.zeros_like(reference_image))], dim=1)
+   ```
+   
+   Motion Code:
+   ```python
+   # Processes reference image AFTER control video encoding
+   if reference_image is not None:
+       reference_image = common_upscale(...)
+       reference_image_latent = self.vae.encode(reference_image[:, :, :, :3])
+       reference_image_latent = torch.cat([reference_image_latent, Wan21_LatentFormat().process_out(torch.zeros_like(reference_image_latent))], dim=1)
+   ```
+
+2. CONTROL VIDEO PROCESSING:
+   ComfyUI: Uses control_video directly, no extra processing
+   Motion: Uses control_video_centered = control_video - 0.5
+   
+   ComfyUI Code:
+   ```python
+   control_video = control_video - 0.5
+   inactive = (control_video * (1 - mask)) + 0.5
+   reactive = (control_video * mask) + 0.5
+   ```
+   
+   Motion Code:
+   ```python
+   control_video_centered = control_video - 0.5  # Center around 0
+   inactive = (control_video_centered * (1 - mask)) + 0.5  # Inactive regions
+   reactive = (control_video_centered * mask) + 0.5        # Active/controlled regions
+   ```
+
+3. MASK PROCESSING:
+   ComfyUI: Uses mask directly from control_masks or creates ones
+   Motion: Always creates mask = torch.ones((length, height, width, 1))
+   
+   ComfyUI Code:
+   ```python
+   if control_masks is None:
+       mask = torch.ones((length, height, width, 1))
+   else:
+       mask = control_masks
+       # ... processing
+   ```
+   
+   Motion Code:
+   ```python
+   mask = torch.ones((length, height, width, 1), device=control_video.device)
+   ```
+
+4. CONDITIONING SETUP:
+   ComfyUI: Uses node_helpers.conditioning_set_values
+   Motion: Creates conditioning structure manually
+   
+   ComfyUI Code:
+   ```python
+   positive = node_helpers.conditioning_set_values(positive, {"vace_frames": [control_video_latent], "vace_mask": [mask], "vace_strength": [strength]}, append=True)
+   negative = node_helpers.conditioning_set_values(negative, {"vace_frames": [control_video_latent], "vace_mask": [mask], "vace_strength": [strength]}, append=True)
+   ```
+   
+   Motion Code:
+   ```python
+   positive = [
+       empty_text_tensor,
+       {
+           "pooled_output": None,
+           "vace_frames": [initial_latent],
+           "vace_mask": [mask_latent], 
+           "vace_strength": [strength]
+       }
+   ]
+   ```
+
+5. LATENT CONCATENATION ORDER:
+   ComfyUI: Concatenates reference_image with control_video_latent in dim=2
+   Motion: Same approach but different variable names
+   
+   ComfyUI Code:
+   ```python
+   if reference_image is not None:
+       control_video_latent = torch.cat((reference_image, control_video_latent), dim=2)
+   ```
+   
+   Motion Code:
+   ```python
+   if reference_image_latent is not None:
+       initial_latent = torch.cat((reference_image_latent, control_video_latent), dim=2)
+   ```
+
+CRITICAL FIXES NEEDED:
+=====================
+
+1. Move reference image processing to BEFORE control video encoding
+2. Use control_video directly instead of control_video_centered
+3. Implement proper mask handling (support control_masks parameter)
+4. Use proper conditioning_set_values equivalent
+5. Ensure exact variable naming and flow
+
+The main issue is the processing order and variable naming differences!

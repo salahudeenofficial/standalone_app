@@ -435,28 +435,28 @@ class WanVideoPipeline:
             control_video = None
             if control_video_path and os.path.exists(control_video_path):
                 control_video = self.load_video(control_video_path)
-            else:
+                else:
                 # Use real video file for testing (safu.mp4)
                 real_video_path = "safu.mp4"
                 if os.path.exists(real_video_path):
                     print(f"🎬 Using real video file: {real_video_path}")
                     control_video = self.load_video(real_video_path)
-                else:
+            else:
                     print(f"⚠️  Real video file not found: {real_video_path}")
                     print(f"   Creating dummy control video for testing")
-                    control_video = torch.rand(length, height, width, 3)
+                control_video = torch.rand(length, height, width, 3)
             
             # Load reference image
             reference_image = None
             if reference_image_path and os.path.exists(reference_image_path):
                 reference_image = self.load_image(reference_image_path)
-            else:
+                else:
                 # Use real reference image for testing (safu.jpg)
                 real_image_path = "safu.jpg"
                 if os.path.exists(real_image_path):
                     print(f"🖼️  Using real reference image: {real_image_path}")
                     reference_image = self.load_image(real_image_path)
-                else:
+            else:
                     print(f"⚠️  Real reference image not found: {real_image_path}")
                     print(f"   No reference image will be used")
             
@@ -469,7 +469,7 @@ class WanVideoPipeline:
                 ).movedim(1, -1)
                 
                 # Use ComfyUI's padding method (exact match to WanVaceToVideo)
-                if control_video.shape[0] < length:
+            if control_video.shape[0] < length:
                     control_video = torch.nn.functional.pad(
                         control_video, (0, 0, 0, 0, 0, 0, 0, length - control_video.shape[0]), 
                         value=0.5
@@ -489,7 +489,7 @@ class WanVideoPipeline:
             raise
 
     def _step_1_continue_encoding(self, control_video, reference_image, width, height, length, batch_size, start_time, positive_prompt, negative_prompt, strength):
-        """Continue Step 1 VAE encoding process"""
+        """Continue Step 1 VAE encoding process - exact mirror of ComfyUI WanVaceToVideo"""
         
         # Calculate latent dimensions first (needed for debug output)
         vae_stride = 8
@@ -497,22 +497,42 @@ class WanVideoPipeline:
         latent_width = width // vae_stride
         latent_length = ((length - 1) // 4) + 1
         
+        # Process reference image FIRST (exact match to ComfyUI WanVaceToVideo)
+        if reference_image is not None:
+            # Use ComfyUI's common_upscale with movedim (exact match to WanVaceToVideo)
+            reference_image = common_upscale(
+                reference_image[:1].movedim(-1, 1), 
+                width, height, "bilinear", "center"
+            ).movedim(1, -1)
+            
+            # Encode reference image
+            with torch.no_grad():
+                # GPU Monitoring: Check GPU state before reference image encoding
+                self._log_gpu_state("BEFORE REFERENCE IMAGE VAE ENCODING")
+                
+                # CRITICAL FIX: Use 4D tensor encoding for reference image
+                reference_image = self.vae.encode(reference_image[:, :, :, :3])
+                
+                # GPU Monitoring: Check GPU state after reference image encoding
+                self._log_gpu_state("AFTER REFERENCE IMAGE VAE ENCODING")
+            
+            # Add motion latent channels (WAN format) - exact match to ComfyUI WanVaceToVideo
+            from wan_latent_format import Wan21_LatentFormat
+            reference_image = torch.cat([reference_image, Wan21_LatentFormat().process_out(torch.zeros_like(reference_image))], dim=1)
+        
         # Create control mask using ComfyUI-compatible method (exact match to WanVaceToVideo)
         mask = torch.ones((length, height, width, 1), device=control_video.device)
         
         # CRITICAL FIX: Use proper control video processing (exact match to ComfyUI WanVaceToVideo)
         # ComfyUI WanVaceToVideo does: control_video = control_video - 0.5, then splits by mask
-        control_video_centered = control_video - 0.5  # Center around 0
-        inactive = (control_video_centered * (1 - mask)) + 0.5  # Inactive regions
-        reactive = (control_video_centered * mask) + 0.5        # Active/controlled regions
+        control_video = control_video - 0.5
+        inactive = (control_video * (1 - mask)) + 0.5
+        reactive = (control_video * mask) + 0.5
         
         print(f"🔍 CONTROL VIDEO PROCESSING DEBUG:")
-        print(f"   Original control_video range: [{control_video.min().item():.6f}, {control_video.max().item():.6f}]")
-        print(f"   Original control_video mean: {control_video.mean().item():.6f}")
-        print(f"   Original control_video std: {control_video.std().item():.6f}")
-        print(f"   Centered control_video range: [{control_video_centered.min().item():.6f}, {control_video_centered.max().item():.6f}]")
-        print(f"   Centered control_video mean: {control_video_centered.mean().item():.6f}")
-        print(f"   Centered control_video std: {control_video_centered.std().item():.6f}")
+        print(f"   Centered control_video range: [{control_video.min().item():.6f}, {control_video.max().item():.6f}]")
+        print(f"   Centered control_video mean: {control_video.mean().item():.6f}")
+        print(f"   Centered control_video std: {control_video.std().item():.6f}")
         print(f"   Inactive tensor range: [{inactive.min().item():.6f}, {inactive.max().item():.6f}]")
         print(f"   Inactive tensor mean: {inactive.mean().item():.6f}")
         print(f"   Inactive tensor std: {inactive.std().item():.6f}")
@@ -583,106 +603,21 @@ class WanVideoPipeline:
             print(f"   Expected: [1, 32, {latent_length}, {height//8}, {width//8}]")
             print(f"   Match: {'✅ YES' if control_video_latent.shape == (1, 32, latent_length, height//8, width//8) else '❌ NO'}")
             print()
-            
         
-        # Process reference image using ComfyUI-compatible method
-        reference_image_latent = None
+        # Concatenate reference image with control video latent (exact match to ComfyUI)
         if reference_image is not None:
-            # Use ComfyUI's common_upscale with movedim (exact match to WanVaceToVideo)
-            reference_image = common_upscale(
-                reference_image[:1].movedim(-1, 1), 
-                width, height, "bilinear", "center"
-            ).movedim(1, -1)
-            
-            # Encode reference image
-            with torch.no_grad():
-                # GPU Monitoring: Check GPU state before reference image encoding
-                self._log_gpu_state("BEFORE REFERENCE IMAGE VAE ENCODING")
-                
-                # DEBUG: Print tensor info before VAE encoding
-                print(f"🔍 REFERENCE IMAGE TENSOR BEFORE VAE ENCODING:")
-                print(f"   Shape: {reference_image[:, :, :, :3].shape}")
-                print(f"   Dtype: {reference_image[:, :, :, :3].dtype}")
-                print(f"   Device: {reference_image[:, :, :, :3].device}")
-                print(f"   Mean: {reference_image[:, :, :, :3].mean().item():.6f}")
-                print(f"   Min: {reference_image[:, :, :, :3].min().item():.6f}")
-                print(f"   Max: {reference_image[:, :, :, :3].max().item():.6f}")
-                print(f"   Range: [{reference_image[:, :, :, :3].min().item():.6f}, {reference_image[:, :, :, :3].max().item():.6f}]")
-                print(f"   Std: {reference_image[:, :, :, :3].std().item():.6f}")
-                print()
-                
-                # CRITICAL FIX: Use 4D tensor encoding like ComfyUI WanVaceToVideo
-                # ComfyUI uses: vae.encode(reference_image[:, :, :, :3]) directly
-                # Use 4D tensor encoding to match ComfyUI exactly
-                
-                # CRITICAL FIX: Ensure reference image is in float32 for VAE encoding
-                if reference_image[:, :, :, :3].dtype != torch.float32:
-                    print(f"🔧 Converting reference image from {reference_image[:, :, :, :3].dtype} to float32")
-                    reference_image = reference_image.float()
-                
-                # DEBUG: Print reference image tensor shape before VAE encoding
-                print(f"🔍 REFERENCE IMAGE TENSOR SHAPE BEFORE VAE ENCODING:")
-                print(f"   reference_image[:, :, :, :3].shape: {reference_image[:, :, :, :3].shape}")
-                print(f"   Expected after encoding: [1, 16, 1, {height//8}, {width//8}]")
-                print(f"   Using 4D tensor encoding like ComfyUI WanVaceToVideo")
-                print()
-                
-                # CRITICAL FIX: Use 4D tensor encoding for reference image
-                reference_image_latent = self.vae.encode(reference_image[:, :, :, :3])
-                
-                # DEBUG: Print reference image latent after VAE encoding (before WAN21)
-                print(f"🔍 REFERENCE IMAGE LATENT AFTER VAE ENCODING (before WAN21):")
-                print(f"   Shape: {reference_image_latent.shape}")
-                print(f"   Dtype: {reference_image_latent.dtype}")
-                print(f"   Device: {reference_image_latent.device}")
-                print(f"   Mean: {reference_image_latent.mean().item():.6f}")
-                print(f"   Range: [{reference_image_latent.min().item():.6f}, {reference_image_latent.max().item():.6f}]")
-                print(f"   Std: {reference_image_latent.std().item():.6f}")
-                flat_ref = reference_image_latent.flatten()
-                first_5_ref = [f"{flat_ref[i].item():.6f}" for i in range(min(5, len(flat_ref)))]
-                print(f"   First 5 elements: {first_5_ref}")
-                print()
-                
-                # GPU Monitoring: Check GPU state after reference image encoding
-                self._log_gpu_state("AFTER REFERENCE IMAGE VAE ENCODING")
-                
-            
-            # Add motion latent channels (WAN format) - exact match to ComfyUI WanVaceToVideo
-            from wan_latent_format import Wan21_LatentFormat
-            reference_image_latent = torch.cat([reference_image_latent, Wan21_LatentFormat().process_out(torch.zeros_like(reference_image_latent))], dim=1)
+            control_video_latent = torch.cat((reference_image, control_video_latent), dim=2)
         
-        # DEBUG: Print latent length calculation
-        print(f"🔍 LATENT LENGTH CALCULATION:")
-        print(f"   length: {length}")
-        print(f"   latent_length = (({length} - 1) // 4) + 1 = {latent_length}")
-        print(f"   Expected control video latent: [1, 32, {latent_length}, {latent_height}, {latent_width}]")
-        print(f"   Expected final with reference: [1, 32, {latent_length + 1}, {latent_height}, {latent_width}]")
-        print()
-        
-        # Start with control video latent
-        initial_latent = control_video_latent
-        
-        # Add reference image if provided (exact match to ComfyUI)
-        if reference_image_latent is not None:
-            # DEBUG: Print shapes before reference image concatenation
-            print(f"🔍 BEFORE REFERENCE IMAGE CONCATENATION:")
-            print(f"   reference_image_latent.shape: {reference_image_latent.shape}")
-            print(f"   control_video_latent.shape: {control_video_latent.shape}")
-            print(f"   Expected result: [1, 32, {reference_image_latent.shape[2] + control_video_latent.shape[2]}, {height//8}, {width//8}]")
-            
-            initial_latent = torch.cat((reference_image_latent, control_video_latent), dim=2)
-            
-            # DEBUG: Print final initial_latent shape
-            print(f"🔍 AFTER REFERENCE IMAGE CONCATENATION:")
-            print(f"   initial_latent.shape: {initial_latent.shape}")
-            print(f"   Expected: [1, 32, 11, {height//8}, {width//8}]")
-            print(f"   Match: {'✅ YES' if initial_latent.shape == (1, 32, 11, height//8, width//8) else '❌ NO'}")
-            print()
+        # DEBUG: Print final latent shape
+        print(f"🔍 FINAL LATENT SHAPE:")
+        print(f"   control_video_latent.shape: {control_video_latent.shape}")
+        if reference_image is not None:
+            print(f"   Expected: [1, 32, {latent_length + 1}, {latent_height}, {latent_width}]")
+            print(f"   Match: {'✅ YES' if control_video_latent.shape == (1, 32, latent_length + 1, latent_height, latent_width) else '❌ NO'}")
         else:
-            print(f"🔍 NO REFERENCE IMAGE - USING CONTROL VIDEO LATENT ONLY:")
-            print(f"   initial_latent.shape: {initial_latent.shape}")
-            print(f"   Expected: [1, 32, {latent_length}, {height//8}, {width//8}]")
-            print()
+            print(f"   Expected: [1, 32, {latent_length}, {latent_height}, {latent_width}]")
+            print(f"   Match: {'✅ YES' if control_video_latent.shape == (1, 32, latent_length, latent_height, latent_width) else '❌ NO'}")
+        print()
         
         # DETAILED RESULTS: Three VAE Encodes Analysis
         print(f"\n📊 THREE VAE ENCODES RESULTS:")
@@ -709,13 +644,13 @@ class WanVideoPipeline:
         print(f"   First 5 elements: {first_5_reactive}")
         
         # 3. Reference Image Latent Results (if available)
-        if reference_image_latent is not None:
+        if reference_image is not None:
             print(f"\n3️⃣ REFERENCE IMAGE LATENT:")
-            print(f"   Shape: {reference_image_latent.shape}")
-            print(f"   Mean: {reference_image_latent.mean().item():.6f}")
-            print(f"   Range: [{reference_image_latent.min().item():.6f}, {reference_image_latent.max().item():.6f}]")
-            print(f"   Std: {reference_image_latent.std().item():.6f}")
-            flat_reference = reference_image_latent.flatten()
+            print(f"   Shape: {reference_image.shape}")
+            print(f"   Mean: {reference_image.mean().item():.6f}")
+            print(f"   Range: [{reference_image.min().item():.6f}, {reference_image.max().item():.6f}]")
+            print(f"   Std: {reference_image.std().item():.6f}")
+            flat_reference = reference_image.flatten()
             first_5_reference = [f"{flat_reference[i].item():.6f}" for i in range(min(5, len(flat_reference)))]
             print(f"   First 5 elements: {first_5_reference}")
         else:
@@ -739,10 +674,12 @@ class WanVideoPipeline:
         ).squeeze(0)
         
         # Handle reference image mask padding using ComfyUI method
-        if reference_image_latent is not None:
-            mask_pad = torch.zeros_like(mask_latent[:, :reference_image_latent.shape[2], :, :])
+        trim_latent = 0
+        if reference_image is not None:
+            mask_pad = torch.zeros_like(mask_latent[:, :reference_image.shape[2], :, :])
             mask_latent = torch.cat((mask_pad, mask_latent), dim=1)
-            latent_length += reference_image_latent.shape[2]
+            latent_length += reference_image.shape[2]
+            trim_latent = reference_image.shape[2]
         
         mask_latent = mask_latent.unsqueeze(0)  # Add batch dimension
         
@@ -755,7 +692,7 @@ class WanVideoPipeline:
             empty_text_tensor,  # Placeholder - will be replaced with actual text encoding in Step 3
             {
                 "pooled_output": None,
-                "vace_frames": [initial_latent],
+                "vace_frames": [control_video_latent],
                 "vace_mask": [mask_latent], 
                 "vace_strength": [strength]
             }
@@ -765,14 +702,14 @@ class WanVideoPipeline:
             empty_text_tensor,  # Placeholder - will be replaced with actual text encoding in Step 3
             {
                 "pooled_output": None,
-                "vace_frames": [initial_latent],
+                "vace_frames": [control_video_latent],
                 "vace_mask": [mask_latent], 
                 "vace_strength": [strength]
             }
         ]
         
         # DETAILED VACE_FRAMES ANALYSIS: Print tensor details for positive and negative conditioning
-        print(f"\n📊 VACE_FRAMES TENSOR ANALYSIS (initial_latent):")
+        print(f"\n📊 VACE_FRAMES TENSOR ANALYSIS (control_video_latent):")
         print("=" * 70)
         
         # Extract vace_frames tensor from positive conditioning
@@ -831,10 +768,10 @@ class WanVideoPipeline:
             temporal_frames = positive_vace_frames.shape[2]
             print(f"\n📊 TEMPORAL ANALYSIS:")
             print(f"   Total Frames: {temporal_frames}")
-            if reference_image_latent is not None:
+            if reference_image is not None:
                 print(f"   Frame 0: Reference image latent")
                 print(f"   Frames 1-{temporal_frames-1}: Control video latent")
-            else:
+        else:
                 print(f"   Frames 0-{temporal_frames-1}: Control video latent")
         
         print("=" * 70)
@@ -847,9 +784,6 @@ class WanVideoPipeline:
                                    device=self.device, dtype=self.vae.vae_dtype)
         out_latent = {"samples": output_latent}
         
-        # Calculate trim_latent using ComfyUI method (exact match to WanVaceToVideo)
-        trim_latent = reference_image_latent.shape[2] if reference_image_latent is not None else 0
-        
         # Return results
         step_1_results = {
             'positive': positive,
@@ -858,8 +792,7 @@ class WanVideoPipeline:
             'trim_latent': trim_latent,
             'vae': self.vae,
             'control_video_latent': control_video_latent,
-            'reference_image_latent': reference_image_latent,
-            'initial_latent': initial_latent,
+            'reference_image_latent': reference_image,
             'control_mask': mask_latent,
             'strength': strength,
             'prompts': {
@@ -1489,7 +1422,7 @@ class WanVideoPipeline:
             
             # Clear CUDA cache
             if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
             
             # Create results
             step_4_results = {
