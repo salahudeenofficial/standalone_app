@@ -552,20 +552,10 @@ class WanVideoPipeline:
             inactive_5d = inactive[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)  # [T,H,W,3] -> [1,3,T,H,W]
             reactive_5d = reactive[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)  # [T,H,W,3] -> [1,3,T,H,W]
             
-            print(f"🔍 CALLING VAE.ENCODE() FOR INACTIVE TENSOR:")
-            print(f"   Input shape: {inactive_5d.shape}")
-            print(f"   Input format: [1, 3, T, H, W] (motion pipeline VAE format)")
-            
-            
             inactive_latent = self.vae.encode(inactive_5d)
             
             # GPU Monitoring: Check GPU state after first encode
             self._log_gpu_state("AFTER INACTIVE VAE ENCODE")
-            
-            print(f"🔍 CALLING VAE.ENCODE() FOR REACTIVE TENSOR:")
-            print(f"   Input shape: {reactive_5d.shape}")
-            print(f"   Input format: [1, 3, T, H, W] (motion pipeline VAE format)")
-            
             
             reactive_latent = self.vae.encode(reactive_5d)
             
@@ -573,6 +563,45 @@ class WanVideoPipeline:
             self._log_gpu_state("AFTER REACTIVE VAE ENCODE")
             
             control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
+            
+            # DETAILED RESULTS: Three VAE Encodes Analysis
+            print(f"\n📊 THREE VAE ENCODES RESULTS:")
+            print("=" * 60)
+            
+            # 1. Inactive Latent Results
+            print(f"1️⃣ INACTIVE LATENT:")
+            print(f"   Shape: {inactive_latent.shape}")
+            print(f"   Mean: {inactive_latent.mean().item():.6f}")
+            print(f"   Range: [{inactive_latent.min().item():.6f}, {inactive_latent.max().item():.6f}]")
+            print(f"   Std: {inactive_latent.std().item():.6f}")
+            flat_inactive = inactive_latent.flatten()
+            first_5_inactive = [f"{flat_inactive[i].item():.6f}" for i in range(min(5, len(flat_inactive)))]
+            print(f"   First 5 elements: {first_5_inactive}")
+            
+            # 2. Reactive Latent Results
+            print(f"\n2️⃣ REACTIVE LATENT:")
+            print(f"   Shape: {reactive_latent.shape}")
+            print(f"   Mean: {reactive_latent.mean().item():.6f}")
+            print(f"   Range: [{reactive_latent.min().item():.6f}, {reactive_latent.max().item():.6f}]")
+            print(f"   Std: {reactive_latent.std().item():.6f}")
+            flat_reactive = reactive_latent.flatten()
+            first_5_reactive = [f"{flat_reactive[i].item():.6f}" for i in range(min(5, len(flat_reactive)))]
+            print(f"   First 5 elements: {first_5_reactive}")
+            
+            # 3. Reference Image Latent Results (if available)
+            if reference_image_latent is not None:
+                print(f"\n3️⃣ REFERENCE IMAGE LATENT:")
+                print(f"   Shape: {reference_image_latent.shape}")
+                print(f"   Mean: {reference_image_latent.mean().item():.6f}")
+                print(f"   Range: [{reference_image_latent.min().item():.6f}, {reference_image_latent.max().item():.6f}]")
+                print(f"   Std: {reference_image_latent.std().item():.6f}")
+                flat_reference = reference_image_latent.flatten()
+                first_5_reference = [f"{flat_reference[i].item():.6f}" for i in range(min(5, len(flat_reference)))]
+                print(f"   First 5 elements: {first_5_reference}")
+            else:
+                print(f"\n3️⃣ REFERENCE IMAGE LATENT: Not available")
+            
+            print("=" * 60)
             
         
         # Process reference image using ComfyUI-compatible method
@@ -609,12 +638,6 @@ class WanVideoPipeline:
                 if reference_5d.dtype != torch.float32:
                     print(f"🔧 Converting reference image from {reference_5d.dtype} to float32")
                     reference_5d = reference_5d.float()
-                
-                print(f"🔍 CALLING VAE.ENCODE() FOR REFERENCE IMAGE:")
-                print(f"   Input shape: {reference_5d.shape}")
-                print(f"   Input format: [1, 3, 1, H, W] (motion pipeline VAE format)")
-                print(f"   Input dtype: {reference_5d.dtype} (ensured float32)")
-                
                 
                 # CRITICAL FIX: Use float32 encoding for reference image
                 reference_image_latent = self.vae.encode(reference_5d)
