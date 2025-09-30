@@ -425,13 +425,29 @@ class WanVideoPipeline:
             if control_video_path and os.path.exists(control_video_path):
                 control_video = self.load_video(control_video_path)
             else:
-                # Create dummy control video for testing
-                control_video = torch.rand(length, height, width, 3)
+                # Use real video file for testing (safu.mp4)
+                real_video_path = "safu.mp4"
+                if os.path.exists(real_video_path):
+                    print(f"🎬 Using real video file: {real_video_path}")
+                    control_video = self.load_video(real_video_path)
+                else:
+                    print(f"⚠️  Real video file not found: {real_video_path}")
+                    print(f"   Creating dummy control video for testing")
+                    control_video = torch.rand(length, height, width, 3)
             
             # Load reference image
             reference_image = None
             if reference_image_path and os.path.exists(reference_image_path):
                 reference_image = self.load_image(reference_image_path)
+            else:
+                # Use real reference image for testing (safu.jpg)
+                real_image_path = "safu.jpg"
+                if os.path.exists(real_image_path):
+                    print(f"🖼️  Using real reference image: {real_image_path}")
+                    reference_image = self.load_image(real_image_path)
+                else:
+                    print(f"⚠️  Real reference image not found: {real_image_path}")
+                    print(f"   No reference image will be used")
             
             # Process control video using ComfyUI-compatible method (exact match to WanVaceToVideo)
             if control_video is not None:
@@ -475,9 +491,17 @@ class WanVideoPipeline:
         
         print(f"🔍 CONTROL VIDEO PROCESSING DEBUG:")
         print(f"   Original control_video range: [{control_video.min().item():.6f}, {control_video.max().item():.6f}]")
+        print(f"   Original control_video mean: {control_video.mean().item():.6f}")
+        print(f"   Original control_video std: {control_video.std().item():.6f}")
         print(f"   Centered control_video range: [{control_video_centered.min().item():.6f}, {control_video_centered.max().item():.6f}]")
+        print(f"   Centered control_video mean: {control_video_centered.mean().item():.6f}")
+        print(f"   Centered control_video std: {control_video_centered.std().item():.6f}")
         print(f"   Inactive tensor range: [{inactive.min().item():.6f}, {inactive.max().item():.6f}]")
+        print(f"   Inactive tensor mean: {inactive.mean().item():.6f}")
+        print(f"   Inactive tensor std: {inactive.std().item():.6f}")
         print(f"   Reactive tensor range: [{reactive.min().item():.6f}, {reactive.max().item():.6f}]")
+        print(f"   Reactive tensor mean: {reactive.mean().item():.6f}")
+        print(f"   Reactive tensor std: {reactive.std().item():.6f}")
         print()
         
         # VAE encoding of control video (exact match to ComfyUI - pass same range)
