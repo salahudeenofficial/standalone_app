@@ -14,30 +14,6 @@ from typing import Dict, Any, Optional, Tuple, Callable
 from standalone_model_patcher import ModelPatcher, create_model_patcher
 from wan_vae_components import WanVAE
 
-# Simple fallback latent format for scaling
-class SimpleLatentFormat:
-    """Simple fallback latent format that applies basic scaling"""
-    def __init__(self):
-        self.scale_factor = 1.0
-        self.latent_channels = 16
-        self.latent_dimensions = 3
-        
-        # Wan21-style latent statistics (from ComfyUI)
-        self.latents_mean = torch.tensor([
-            -0.7571, -0.7089, -0.9113, 0.1075, -0.1745, 0.9653, -0.1517, 1.5508,
-            0.4134, -0.0715, 0.5517, -0.3632, -0.1922, -0.9497, 0.2503, -0.2921
-        ]).view(1, self.latent_channels, 1, 1, 1)
-        self.latents_std = torch.tensor([
-            2.8184, 1.4541, 2.3275, 2.6558, 1.2196, 1.7708, 2.6052, 2.0743,
-            3.2687, 2.1526, 2.8652, 1.5579, 1.6382, 1.1253, 2.8251, 1.9160
-        ]).view(1, self.latent_channels, 1, 1, 1)
-    
-    def process_out(self, latent):
-        """Apply Wan21-style scaling (ComfyUI process_out method)"""
-        latents_mean = self.latents_mean.to(latent.device, latent.dtype)
-        latents_std = self.latents_std.to(latent.device, latent.dtype)
-        return latent * latents_std / self.scale_factor + latents_mean
-
 # ComfyUI-compatible Conv2d with weight/bias casting
 class ComfyUICompatibleConv2d(nn.Conv2d):
     """Conv2d layer that mimics ComfyUI's ops.Conv2d weight/bias casting behavior"""
@@ -734,8 +710,8 @@ class VAE:
         self.extra_1d_channel = None
         
         # Initialize latent format for proper scaling (ComfyUI style)
-        self.latent_format = None
-        self._init_latent_format()
+        # self.latent_format = None
+        # self._init_latent_format()
         
         # Detect VAE type and initialize
         if config is None:
@@ -918,42 +894,6 @@ class VAE:
             self.working_dtypes = [torch.float16, torch.bfloat16, torch.float32]
             self.disable_offload = True
             
-        elif "decoder.head.0.gamma" in sd or "decoder.conv1.weight" in sd:
-            # WAN VAE detection condition met
-            # WAN VAE detection (matches ComfyUI logic)
-            self.process_input = lambda image: image * 2.0 - 1.0
-            self.process_output = lambda image: torch.clamp((image + 1.0) / 2.0, min=0.0, max=1.0)
-            import math
-            if "decoder.upsamples.0.upsamples.0.residual.2.weight" in sd:  # Wan 2.2 VAE
-                self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 16, 16)
-                self.upscale_index_formula = (4, 16, 16)
-                self.downscale_ratio = (lambda a: max(0, math.floor((a + 3) / 4)), 16, 16)
-                self.downscale_index_formula = (4, 16, 16)
-                self.latent_dim = 3
-                self.latent_channels = 48
-                ddconfig = {"dim": 160, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
-                # Import and create WanVAE2_2 if available
-                try:
-                    from wan_vae_components.vae import WanVAE2_2  # Assuming this exists
-                    self.first_stage_model = WanVAE2_2(**ddconfig)
-                except ImportError:
-                    # Fallback to regular WanVAE
-                    from wan_vae_components.vae import WanVAE
-                    self.first_stage_model = WanVAE(**ddconfig)
-                self.memory_used_encode = lambda shape, dtype: 3300 * shape[3] * shape[4] * dtype_size(dtype)
-                self.memory_used_decode = lambda shape, dtype: 8000 * shape[3] * shape[4] * (16 * 16) * dtype_size(dtype)
-            else:  # Wan 2.1 VAE
-                self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 8, 8)
-                self.upscale_index_formula = (4, 8, 8)
-                self.downscale_ratio = (lambda a: max(0, math.floor((a + 3) / 4)), 8, 8)
-                self.downscale_index_formula = (4, 8, 8)
-                self.latent_dim = 3
-                self.latent_channels = 16
-                ddconfig = {"dim": 96, "z_dim": self.latent_channels, "dim_mult": [1, 2, 4, 4], "num_res_blocks": 2, "attn_scales": [], "temperal_downsample": [False, True, True], "dropout": 0.0}
-                from wan_vae_components.vae import WanVAE
-                self.first_stage_model = WanVAE(**ddconfig)
-                self.memory_used_encode = lambda shape, dtype: 6000 * shape[3] * shape[4] * dtype_size(dtype)
-                self.memory_used_decode = lambda shape, dtype: 7000 * shape[3] * shape[4] * (8 * 8) * dtype_size(dtype)
             
         else:
             logging.warning("WARNING: No VAE weights detected, VAE not initialized.")
@@ -987,10 +927,8 @@ class VAE:
             self.latent_format = Wan21()
             print(f"✅ Initialized Wan21 latent format for proper scaling")
         except ImportError:
-            print(f"⚠️  Could not import Wan21 latent format, creating fallback")
-            # Create a simple fallback latent format
-            self.latent_format = SimpleLatentFormat()
-            print(f"✅ Created fallback latent format for scaling")
+            print(f"⚠️  Could not import Wan21 latent format, using fallback scaling")
+            self.latent_format = None
     
     def throw_exception_if_invalid(self):
         """Check if VAE is valid"""
@@ -1045,223 +983,31 @@ class VAE:
         """Encode input to latent space with proper downscaling logic"""
         self.throw_exception_if_invalid()
         
-        # DEBUG: Track tensor transformations step by step
-        print(f"🔍 VAE ENCODE TENSOR TRANSFORMATION DEBUG:")
-        print(f"   Step 0 - Original input:")
-        print(f"     Shape: {pixel_samples.shape}")
-        print(f"     Dtype: {pixel_samples.dtype}")
-        print(f"     Device: {pixel_samples.device}")
-        if pixel_samples.numel() > 0:
-            print(f"     Mean: {pixel_samples.mean().item():.6f}")
-            print(f"     Min: {pixel_samples.min().item():.6f}")
-            print(f"     Max: {pixel_samples.max().item():.6f}")
-        else:
-            print(f"     ERROR: Empty tensor!")
-        print()
-        
         # Crop pixels to be divisible by downscale ratio
         pixel_samples = self.vae_encode_crop_pixels(pixel_samples)
         
-        print(f"   Step 1 - After crop_pixels:")
-        print(f"     Shape: {pixel_samples.shape}")
-        print(f"     Dtype: {pixel_samples.dtype}")
-        print(f"     Device: {pixel_samples.device}")
-        if pixel_samples.numel() > 0:
-            print(f"     Mean: {pixel_samples.mean().item():.6f}")
-            print(f"     Min: {pixel_samples.min().item():.6f}")
-            print(f"     Max: {pixel_samples.max().item():.6f}")
-        else:
-            print(f"     ERROR: Empty tensor after crop_pixels!")
-        print()
-        
-        # Skip reshape logic - expect input to already be in correct format [1, 3, T, H, W]
-        # Move channel dimension to correct position only if input is 4D
-        if pixel_samples.ndim == 4:
-            pixel_samples = pixel_samples.movedim(-1, 1)
-            
-            print(f"   Step 2 - After movedim(-1, 1):")
-            print(f"     Shape: {pixel_samples.shape}")
-            print(f"     Dtype: {pixel_samples.dtype}")
-            print(f"     Device: {pixel_samples.device}")
-            if pixel_samples.numel() > 0:
-                print(f"     Mean: {pixel_samples.mean().item():.6f}")
-                print(f"     Min: {pixel_samples.min().item():.6f}")
-                print(f"     Max: {pixel_samples.max().item():.6f}")
-            else:
-                print(f"     ERROR: Empty tensor after movedim!")
-            print()
-            
-            # Handle 3D latent (video) case
-            if self.latent_dim == 3 and pixel_samples.ndim < 5:
-                pixel_samples = pixel_samples.movedim(1, 0).unsqueeze(0)
-                
-                print(f"   Step 3 - After video transformation:")
-                print(f"     Shape: {pixel_samples.shape}")
-                print(f"     Dtype: {pixel_samples.dtype}")
-                print(f"     Device: {pixel_samples.device}")
-                if pixel_samples.numel() > 0:
-                    print(f"     Mean: {pixel_samples.mean().item():.6f}")
-                    print(f"     Min: {pixel_samples.min().item():.6f}")
-                    print(f"     Max: {pixel_samples.max().item():.6f}")
-                else:
-                    print(f"     ERROR: Empty tensor after video transformation!")
-                print()
-        else:
-            print(f"   Step 2 - Input already in correct format (5D):")
-            print(f"     Shape: {pixel_samples.shape}")
-            print(f"     Dtype: {pixel_samples.dtype}")
-            print(f"     Device: {pixel_samples.device}")
-            if pixel_samples.numel() > 0:
-                print(f"     Mean: {pixel_samples.mean().item():.6f}")
-                print(f"     Min: {pixel_samples.min().item():.6f}")
-                print(f"     Max: {pixel_samples.max().item():.6f}")
-            else:
-                print(f"     ERROR: Empty tensor in 5D format!")
-            print()
+        # Move channel dimension to correct position (ComfyUI style)
+        pixel_samples = pixel_samples.movedim(-1, 1)
+        if self.latent_dim == 3 and pixel_samples.ndim < 5:
+            pixel_samples = pixel_samples.movedim(1, 0).unsqueeze(0)
         
         try:
             # Calculate memory usage
             memory_used = self.memory_used_encode(pixel_samples.shape, self.vae_dtype)
             
-            # Dynamic batch processing based on available memory (ComfyUI style)
-            if hasattr(self, 'patcher') and self.patcher is not None:
-                # Load models to GPU if using patcher
-                from wan_vae_components.model_management import load_models_gpu, get_free_memory
-                load_models_gpu([self.patcher], memory_required=memory_used, force_full_load=self.disable_offload)
-                free_memory = get_free_memory(self.device)
-                batch_number = int(free_memory / max(1, memory_used))
-                batch_number = max(1, batch_number)
-            else:
-                # Fallback to simple batch processing
-                batch_number = max(1, min(4, pixel_samples.shape[0]))
-            
-            # Force 3 batches for video processing to avoid OOM (ComfyUI style)
-            if pixel_samples.shape[0] > 10:  # Video processing (more than 10 frames)
-                batch_number = max(1, pixel_samples.shape[0] // 3)  # Process in 3 batches
-                print(f'🔧 VAE Encoding: Forcing 3 batches for video processing')
-                print(f'   Total frames: {pixel_samples.shape[0]}, Batch size: {batch_number}')
+            # Load models to GPU (ComfyUI style)
+            from wan_vae_components.model_management import load_models_gpu, get_free_memory
+            load_models_gpu([self.patcher], memory_required=memory_used, force_full_load=self.disable_offload)
+            free_memory = get_free_memory(self.device)
+            batch_number = int(free_memory / max(1, memory_used))
+            batch_number = max(1, batch_number)
             
             samples = None
             for x in range(0, pixel_samples.shape[0], batch_number):
-                # Process input and move to device
-                batch_tensor = pixel_samples[x:x + batch_number]
-                
-                print(f"   Step 4 - Batch tensor (range {x}:{x + batch_number}):")
-                print(f"     Shape: {batch_tensor.shape}")
-                print(f"     Dtype: {batch_tensor.dtype}")
-                print(f"     Device: {batch_tensor.device}")
-                print(f"     Mean: {batch_tensor.mean().item():.6f}")
-                print(f"     Min: {batch_tensor.min().item():.6f}")
-                print(f"     Max: {batch_tensor.max().item():.6f}")
-                print()
-                
-                pixels_in = self.process_input(batch_tensor)
-                
-                print(f"   Step 5 - After process_input:")
-                print(f"     Shape: {pixels_in.shape}")
-                print(f"     Dtype: {pixels_in.dtype}")
-                print(f"     Device: {pixels_in.device}")
-                print(f"     Mean: {pixels_in.mean().item():.6f}")
-                print(f"     Min: {pixels_in.min().item():.6f}")
-                print(f"     Max: {pixels_in.max().item():.6f}")
-                print()
-                
-                pixels_in = pixels_in.to(self.vae_dtype).to(self.device)
-                
-                print(f"   Step 6 - After dtype/device conversion:")
-                print(f"     Shape: {pixels_in.shape}")
-                print(f"     Dtype: {pixels_in.dtype}")
-                print(f"     Device: {pixels_in.device}")
-                print(f"     Mean: {pixels_in.mean().item():.6f}")
-                print(f"     Min: {pixels_in.min().item():.6f}")
-                print(f"     Max: {pixels_in.max().item():.6f}")
-                print()
-                
-                # DEBUG: Print tensor info before encode call
-                print(f"🔍 VAE ENCODE INPUT TENSOR ANALYSIS:")
-                print(f"   Shape: {pixels_in.shape}")
-                print(f"   Dtype: {pixels_in.dtype}")
-                print(f"   Device: {pixels_in.device}")
-                
-                # Check if tensor is empty
-                if pixels_in.numel() == 0:
-                    print(f"   ❌ ERROR: Empty tensor detected!")
-                    print(f"   Original shape: {pixel_samples.shape}")
-                    print(f"   Batch range: {x}:{x + batch_number}")
-                    raise ValueError("Empty tensor detected in VAE encoding")
-                
-                print(f"   Mean: {pixels_in.mean().item():.6f}")
-                print(f"   Min: {pixels_in.min().item():.6f}")
-                print(f"   Max: {pixels_in.max().item():.6f}")
-                print(f"   Range: [{pixels_in.min().item():.6f}, {pixels_in.max().item():.6f}]")
-                print(f"   Std: {pixels_in.std().item():.6f}")
-                
-                # Get first 5 values for inspection
-                flat_tensor = pixels_in.flatten()
-                first_values = [f"{flat_tensor[i].item():.6f}" for i in range(min(5, len(flat_tensor)))]
-                print(f"   First 5 values: {first_values}")
-                print()
-                
-                # Encode (ComfyUI style - no dtype parameter)
-                if hasattr(self.first_stage_model, 'encode'):
-                    out = self.first_stage_model.encode(pixels_in)
-                    # ComfyUI WAN VAE returns only mean (mu) directly, not a tuple
-                else:
-                    # Fallback for models without encode method
-                    out = self.first_stage_model.encoder(pixels_in)
-                
-                # DEBUG: Print tensor info after encode call
-                print(f"🔍 VAE ENCODE OUTPUT TENSOR ANALYSIS:")
-                print(f"   Shape: {out.shape}")
-                print(f"   Dtype: {out.dtype}")
-                print(f"   Device: {out.device}")
-                print(f"   Mean: {out.mean().item():.6f}")
-                print(f"   Min: {out.min().item():.6f}")
-                print(f"   Max: {out.max().item():.6f}")
-                print(f"   Range: [{out.min().item():.6f}, {out.max().item():.6f}]")
-                print(f"   Std: {out.std().item():.6f}")
-                
-                # Get first 5 values for inspection
-                flat_output = out.flatten()
-                first_output_values = [f"{flat_output[i].item():.6f}" for i in range(min(5, len(flat_output)))]
-                print(f"   First 5 values: {first_output_values}")
-                print()
-                
-                # Move to output device and convert to float
-                out = out.to(self.output_device).float()
-                
-                # CRITICAL FIX: Apply Wan21 latent format scaling (ComfyUI style)
-                # This matches ComfyUI's Wan21.process_out() method
-                if hasattr(self, 'latent_format') and self.latent_format is not None:
-                    out = self.latent_format.process_out(out)
-                    print(f"   Step 7 - After latent format scaling:")
-                    print(f"     Shape: {out.shape}")
-                    print(f"     Dtype: {out.dtype}")
-                    print(f"     Device: {out.device}")
-                    print(f"     Mean: {out.mean().item():.6f}")
-                    print(f"     Min: {out.min().item():.6f}")
-                    print(f"     Max: {out.max().item():.6f}")
-                    print(f"     Range: [{out.min().item():.6f}, {out.max().item():.6f}]")
-                    print(f"     Std: {out.std().item():.6f}")
-                    print()
-                else:
-                    # Fallback: Apply basic scaling if no latent format available
-                    # This is a temporary fix until proper latent format is implemented
-                    print(f"   Step 7 - Applying basic scaling (no latent format available):")
-                    print(f"     Shape: {out.shape}")
-                    print(f"     Dtype: {out.dtype}")
-                    print(f"     Device: {out.device}")
-                    print(f"     Mean: {out.mean().item():.6f}")
-                    print(f"     Min: {out.min().item():.6f}")
-                    print(f"     Max: {out.max().item():.6f}")
-                    print(f"     Range: [{out.min().item():.6f}, {out.max().item():.6f}]")
-                    print(f"     Std: {out.std().item():.6f}")
-                    print()
-                
-                # Initialize output tensor if needed
+                pixels_in = self.process_input(pixel_samples[x:x + batch_number]).to(self.vae_dtype).to(self.device)
+                out = self.first_stage_model.encode(pixels_in).to(self.output_device).float()
                 if samples is None:
                     samples = torch.empty((pixel_samples.shape[0],) + tuple(out.shape[1:]), device=self.output_device)
-                
                 samples[x:x + batch_number] = out
                 
         except Exception as e:

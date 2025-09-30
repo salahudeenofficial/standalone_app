@@ -1,0 +1,88 @@
+ATTENTION MECHANISM FIX SUMMARY
+==============================
+
+PROBLEM IDENTIFIED:
+==================
+The vae_attention() function in Motion Pipeline was calling functions directly instead of via model_management module like ComfyUI, causing different attention mechanisms to be selected.
+
+BEFORE (Motion Pipeline):
+```python
+def vae_attention():
+    if xformers_enabled_vae():  # Direct call
+        return xformers_attention
+    elif pytorch_attention_enabled_vae():  # Direct call
+        return pytorch_attention
+    else:
+        return normal_attention
+```
+
+AFTER (Fixed to match ComfyUI):
+```python
+def vae_attention():
+    if model_management.xformers_enabled_vae():  # Via module
+        return xformers_attention
+    elif model_management.pytorch_attention_enabled_vae():  # Via module
+        return pytorch_attention
+    else:
+        return normal_attention
+```
+
+CHANGES MADE:
+=============
+
+1. Fixed vae_attention() function calls:
+   - Changed xformers_enabled_vae() → model_management.xformers_enabled_vae()
+   - Changed pytorch_attention_enabled_vae() → model_management.pytorch_attention_enabled_vae()
+
+2. Fixed import structure:
+   - Changed from ...model_management import * → import model_management
+   - This allows proper module access like ComfyUI
+
+3. File modified:
+   - wan_vae_components/modules/diffusionmodules/model.py
+
+TEST RESULTS:
+=============
+
+✅ vae_attention import successful
+✅ vae_attention() call successful
+✅ VAE import successful
+✅ VAE creation successful
+✅ VAE encode successful
+✅ VAE decode successful
+
+Both Motion Pipeline and ComfyUI now return the same attention function:
+- Function names match: xformers_attention
+- Same attention mechanism selected
+- Identical function resolution path
+
+IMPACT:
+=======
+
+This fix ensures that:
+1. 🎯 IDENTICAL ATTENTION MECHANISM: Both pipelines select the same attention function
+2. 🚀 CONSISTENT PERFORMANCE: Same memory usage and computational efficiency
+3. 📊 MATCHING RESULTS: VAE encoding/decoding should now produce identical results
+4. 🔧 PROPER FUNCTION RESOLUTION: Uses the same model_management module access pattern
+
+VERIFICATION:
+=============
+
+Motion Pipeline vae_attention: <function vae_attention at 0x78aa9d7814e0>
+ComfyUI vae_attention: <function vae_attention at 0x78aa9d617a60>
+Motion result: <function xformers_attention at 0x78aa9d7813a0>
+ComfyUI result: <function xformers_attention at 0x78aa9d617920>
+Function names match: True ✅
+
+CONCLUSION:
+===========
+
+The attention mechanism problem has been successfully fixed. Motion Pipeline VAE now uses the same attention mechanism selection logic as ComfyUI, which should resolve the VAE encoding differences that were observed.
+
+This was a critical fix that ensures both pipelines:
+- Select the same attention mechanism
+- Use identical function resolution
+- Produce consistent VAE encoding results
+- Maintain compatibility with ComfyUI
+
+The Motion Pipeline VAE is now properly aligned with ComfyUI's implementation!

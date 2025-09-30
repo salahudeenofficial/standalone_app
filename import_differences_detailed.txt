@@ -1,0 +1,151 @@
+DETAILED IMPORT DIFFERENCES ANALYSIS: Motion Pipeline vs ComfyUI
+================================================================
+
+CRITICAL FINDING: vae_attention() FUNCTIONS ARE DIFFERENT!
+=========================================================
+
+The vae_attention() function has different implementations between Motion Pipeline and ComfyUI:
+
+MOTION PIPELINE vae_attention():
+```python
+def vae_attention():
+    if xformers_enabled_vae():
+        logging.info("Using xformers attention in VAE")
+        return xformers_attention
+    elif pytorch_attention_enabled_vae():
+        logging.info("Using pytorch attention in VAE")
+        return pytorch_attention
+    else:
+        logging.info("Using split attention in VAE")
+        return normal_attention
+```
+
+COMFYUI vae_attention():
+```python
+def vae_attention():
+    if model_management.xformers_enabled_vae():
+        logging.info("Using xformers attention in VAE")
+        return xformers_attention
+    elif model_management.pytorch_attention_enabled_vae():
+        logging.info("Using pytorch attention in VAE")
+        return pytorch_attention
+    else:
+        logging.info("Using split attention in VAE")
+        return normal_attention
+```
+
+DIFFERENCE: Motion Pipeline calls functions directly, ComfyUI calls them via model_management module.
+
+IMPORT STRUCTURE COMPARISON:
+============================
+
+1. EINOPS IMPORT (FIXED):
+   Motion: from einops import rearrange ✅
+   ComfyUI: from einops import rearrange ✅
+   STATUS: IDENTICAL
+
+2. VAE_ATTENTION IMPORT:
+   Motion: from .modules.diffusionmodules.model import vae_attention
+   ComfyUI: from comfy.ldm.modules.diffusionmodules.model import vae_attention
+   DIFFERENCE: Relative vs absolute import path
+
+3. OPS IMPORT:
+   Motion: from . import ops
+   ComfyUI: import comfy.ops
+   DIFFERENCE: Relative vs absolute import path
+
+4. MODEL_MANAGEMENT IMPORT:
+   Motion: from ...model_management import * (in model.py)
+   ComfyUI: import model_management (in model.py)
+   DIFFERENCE: Wildcard import vs module import
+
+DEPENDENCY CHAIN DIFFERENCES:
+=============================
+
+MOTION PIPELINE DEPENDENCY CHAIN:
+vae.py → .modules.diffusionmodules.model → ...model_management → (local modules)
+- Uses relative imports throughout
+- Imports model_management functions directly
+- Self-contained module structure
+
+COMFYUI DEPENDENCY CHAIN:
+vae.py → comfy.ldm.modules.diffusionmodules.model → model_management → (ComfyUI modules)
+- Uses absolute imports throughout
+- Imports model_management as a module
+- Centralized module structure
+
+FUNCTIONAL DIFFERENCES:
+======================
+
+1. vae_attention() FUNCTION:
+   Motion: Calls xformers_enabled_vae() directly
+   ComfyUI: Calls model_management.xformers_enabled_vae()
+   IMPACT: Different function resolution paths
+
+2. MODEL_MANAGEMENT ACCESS:
+   Motion: Direct function access via wildcard import
+   ComfyUI: Module access via model_management.x
+   IMPACT: Different namespace resolution
+
+3. OPS MODULE:
+   Motion: Local ops.py implementation
+   ComfyUI: Centralized comfy.ops implementation
+   IMPACT: Potentially different weight initialization
+
+POTENTIAL ISSUES:
+=================
+
+1. ATTENTION MECHANISM DIFFERENCES:
+   - Different function resolution for xformers_enabled_vae()
+   - Could lead to different attention mechanisms being selected
+   - This directly affects VAE encoding/decoding behavior
+
+2. MODEL_MANAGEMENT DIFFERENCES:
+   - Motion uses local model_management implementation
+   - ComfyUI uses centralized model_management
+   - Different memory management and device handling
+
+3. OPS IMPLEMENTATION DIFFERENCES:
+   - Motion has custom ops.py
+   - ComfyUI has centralized ops.py
+   - Different weight initialization could affect model behavior
+
+RECOMMENDATIONS:
+================
+
+1. CRITICAL: Fix vae_attention() function calls
+   - Change Motion Pipeline to use model_management.xformers_enabled_vae()
+   - Ensure identical function resolution
+
+2. VERIFY MODEL_MANAGEMENT COMPATIBILITY:
+   - Compare Motion's model_management with ComfyUI's
+   - Ensure xformers_enabled_vae() and pytorch_attention_enabled_vae() work identically
+
+3. COMPARE OPS IMPLEMENTATIONS:
+   - Verify ops.py implementations are functionally identical
+   - Check weight initialization behavior
+
+4. TEST ATTENTION MECHANISM SELECTION:
+   - Verify both pipelines select the same attention mechanism
+   - Test with and without xformers
+
+IMPACT ON VAE ENCODING:
+=======================
+
+The vae_attention() function directly affects:
+- Which attention mechanism is used in VAE
+- Memory usage patterns
+- Computational efficiency
+- Numerical precision
+
+If Motion Pipeline and ComfyUI select different attention mechanisms, this could explain the encoding differences observed.
+
+NEXT STEPS:
+===========
+
+1. Fix vae_attention() function calls in Motion Pipeline
+2. Compare model_management implementations
+3. Test attention mechanism selection
+4. Verify ops.py compatibility
+
+This is likely the root cause of VAE encoding differences!

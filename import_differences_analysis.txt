@@ -1,0 +1,131 @@
+IMPORT DIFFERENCES ANALYSIS: Motion Pipeline vs ComfyUI
+=======================================================
+
+OVERVIEW:
+=========
+The motion pipeline uses relative imports and local modules, while ComfyUI uses absolute imports and centralized modules. This creates different import paths for the same functionality.
+
+DETAILED COMPARISON:
+===================
+
+1. EINOPS IMPORT (FIXED):
+   Motion Pipeline: from einops import rearrange ✅ (now fixed)
+   ComfyUI:         from einops import rearrange ✅
+   STATUS: IDENTICAL (after fix)
+
+2. VAE_ATTENTION IMPORT:
+   Motion Pipeline: from .modules.diffusionmodules.model import vae_attention
+   ComfyUI:         from comfy.ldm.modules.diffusionmodules.model import vae_attention
+   DIFFERENCE: Relative vs absolute import path
+
+3. OPS IMPORT:
+   Motion Pipeline: from . import ops
+   ComfyUI:         import comfy.ops
+   DIFFERENCE: Relative vs absolute import path
+
+4. OPS ASSIGNMENT:
+   Motion Pipeline: ops = ops.disable_weight_init
+   ComfyUI:         ops = comfy.ops.disable_weight_init
+   DIFFERENCE: Same functionality, different source
+
+MODULE STRUCTURE DIFFERENCES:
+=============================
+
+MOTION PIPELINE STRUCTURE:
+wan_vae_components/
+├── __init__.py
+├── vae.py                    # Main VAE file
+├── ops.py                    # Local ops implementation
+├── modules/
+│   └── diffusionmodules/
+│       ├── __init__.py
+│       └── model.py          # Contains vae_attention
+└── einops_replacement.py     # (now unused)
+
+COMFYUI STRUCTURE:
+comfy/
+├── ops.py                    # Centralized ops
+└── ldm/
+    └── modules/
+        └── diffusionmodules/
+            ├── __init__.py
+            └── model.py      # Contains vae_attention
+
+IMPORT PATH ANALYSIS:
+====================
+
+1. VAE_ATTENTION IMPORT:
+   Motion: .modules.diffusionmodules.model → wan_vae_components/modules/diffusionmodules/model.py
+   ComfyUI: comfy.ldm.modules.diffusionmodules.model → comfy/ldm/modules/diffusionmodules/model.py
+   
+   FUNCTIONALITY: Should be identical (same source code)
+   RISK: Low - both import the same vae_attention function
+
+2. OPS IMPORT:
+   Motion: . import ops → wan_vae_components/ops.py
+   ComfyUI: comfy.ops → comfy/ops.py
+   
+   FUNCTIONALITY: May have differences (custom vs ComfyUI implementation)
+   RISK: Medium - ops.py contains weight initialization logic
+
+POTENTIAL ISSUES:
+=================
+
+1. OPS MODULE DIFFERENCES:
+   - Motion pipeline has custom ops.py implementation
+   - ComfyUI has centralized ops.py
+   - Different implementations could cause weight initialization differences
+
+2. MODULE RESOLUTION:
+   - Relative imports depend on current working directory
+   - Absolute imports are more reliable
+   - Could cause import errors in different environments
+
+3. DEPENDENCY CHAIN:
+   - Motion: vae.py → ops.py → model_management.py → float.py → rmsnorm.py
+   - ComfyUI: vae.py → comfy.ops → (ComfyUI's dependency chain)
+   - Different dependency chains could introduce subtle differences
+
+RECOMMENDATIONS:
+================
+
+1. VERIFY OPS COMPATIBILITY:
+   - Compare wan_vae_components/ops.py with comfy/ops.py
+   - Ensure disable_weight_init works identically
+   - Check for any behavioral differences
+
+2. CONSIDER ABSOLUTE IMPORTS:
+   - Change relative imports to absolute imports
+   - This would make the code more robust
+   - But may violate the "no external dependencies" guideline
+
+3. TEST IMPORT RESOLUTION:
+   - Test imports from different working directories
+   - Ensure relative imports work correctly
+   - Verify module resolution in all scenarios
+
+4. COMPARE MODULE IMPLEMENTATIONS:
+   - Compare wan_vae_components/modules/diffusionmodules/model.py
+   - With comfy/ldm/modules/diffusionmodules/model.py
+   - Ensure vae_attention is identical
+
+CURRENT STATUS:
+===============
+
+✅ EINOPS: Fixed - now identical to ComfyUI
+⚠️  VAE_ATTENTION: Different import paths, same functionality
+⚠️  OPS: Different import paths, potentially different implementations
+⚠️  MODULE STRUCTURE: Different organization, same functionality
+
+NEXT STEPS:
+===========
+
+1. Compare ops.py implementations for differences
+2. Test import resolution in different environments
+3. Verify vae_attention function is identical
+4. Consider standardizing import patterns
+
+CONCLUSION:
+===========
+
+The import differences are primarily structural (relative vs absolute imports) rather than functional. The main risk is in the ops.py implementation, which could affect weight initialization and model behavior. The einops fix was the most critical change needed.

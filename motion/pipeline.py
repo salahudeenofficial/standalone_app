@@ -205,19 +205,6 @@ def _get_tensor_memory(tensor):
     else:
         return 0
 
-def _print_tensor_debug_info(tensor, name):
-    """Print comprehensive tensor debug information - easy to remove"""
-    print(f"🔍 {name}:")
-    print(f"   Shape: {tensor.shape}")
-    print(f"   Dtype: {tensor.dtype}")
-    print(f"   Device: {tensor.device}")
-    print(f"   Mean: {tensor.mean().item():.6f}")
-    print(f"   Range: [{tensor.min().item():.6f}, {tensor.max().item():.6f}]")
-    print(f"   Std: {tensor.std().item():.6f}")
-    flat_tensor = tensor.flatten()
-    first_values = [f"{flat_tensor[i].item():.6f}" for i in range(min(5, len(flat_tensor)))]
-    print(f"   First 5 values: {first_values}")
-    print()
 
 def remove_debug_code():
     """
@@ -569,8 +556,6 @@ class WanVideoPipeline:
             print(f"   Input shape: {inactive_5d.shape}")
             print(f"   Input format: [1, 3, T, H, W] (motion pipeline VAE format)")
             
-            # DEBUG: Print tensor info before VAE encoding
-            _print_tensor_debug_info(inactive_5d, "INACTIVE TENSOR BEFORE VAE.ENCODE()")
             
             inactive_latent = self.vae.encode(inactive_5d)
             
@@ -581,8 +566,6 @@ class WanVideoPipeline:
             print(f"   Input shape: {reactive_5d.shape}")
             print(f"   Input format: [1, 3, T, H, W] (motion pipeline VAE format)")
             
-            # DEBUG: Print tensor info before VAE encoding
-            _print_tensor_debug_info(reactive_5d, "REACTIVE TENSOR BEFORE VAE.ENCODE()")
             
             reactive_latent = self.vae.encode(reactive_5d)
             
@@ -591,11 +574,6 @@ class WanVideoPipeline:
             
             control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
             
-            # DEBUG: Print tensor info after VAE encoding
-            print(f"🔍 CONTROL VIDEO LATENTS AFTER VAE ENCODING:")
-            _print_tensor_debug_info(inactive_latent, "INACTIVE LATENT AFTER VAE.ENCODE()")
-            _print_tensor_debug_info(reactive_latent, "REACTIVE LATENT AFTER VAE.ENCODE()")
-            _print_tensor_debug_info(control_video_latent, "COMBINED CONTROL VIDEO LATENT")
         
         # Process reference image using ComfyUI-compatible method
         reference_image_latent = None
@@ -627,20 +605,23 @@ class WanVideoPipeline:
                 # Convert from [1, H, W, 3] to [1, 3, 1, H, W] for VAE encoding
                 reference_5d = reference_image[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)  # [1,H,W,3] -> [1,3,1,H,W]
                 
+                # CRITICAL FIX: Ensure reference image is in float32 for VAE encoding
+                if reference_5d.dtype != torch.float32:
+                    print(f"🔧 Converting reference image from {reference_5d.dtype} to float32")
+                    reference_5d = reference_5d.float()
+                
                 print(f"🔍 CALLING VAE.ENCODE() FOR REFERENCE IMAGE:")
                 print(f"   Input shape: {reference_5d.shape}")
                 print(f"   Input format: [1, 3, 1, H, W] (motion pipeline VAE format)")
+                print(f"   Input dtype: {reference_5d.dtype} (ensured float32)")
                 
-                # DEBUG: Print tensor info before VAE encoding
-                _print_tensor_debug_info(reference_5d, "REFERENCE TENSOR BEFORE VAE.ENCODE()")
                 
+                # CRITICAL FIX: Use float32 encoding for reference image
                 reference_image_latent = self.vae.encode(reference_5d)
                 
                 # GPU Monitoring: Check GPU state after reference image encoding
                 self._log_gpu_state("AFTER REFERENCE IMAGE VAE ENCODING")
                 
-                # DEBUG: Print tensor info after VAE encoding
-                _print_tensor_debug_info(reference_image_latent, "REFERENCE IMAGE LATENT AFTER VAE.ENCODE()")
             
             # Add motion latent channels (WAN format) - exact match to ComfyUI WanVaceToVideo
             try:

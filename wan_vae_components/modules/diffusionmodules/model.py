@@ -5,7 +5,7 @@ import torch.nn as nn
 import numpy as np
 import logging
 
-from ...model_management import *
+import model_management
 # from comfy import model_management  # Using standalone version
 # import comfy.ops  # Using standalone version
 from ...ops import disable_weight_init as ops
@@ -295,10 +295,10 @@ def pytorch_attention(q, k, v):
 
 
 def vae_attention():
-    if xformers_enabled_vae():
+    if model_management.xformers_enabled_vae():
         logging.info("Using xformers attention in VAE")
         return xformers_attention
-    elif pytorch_attention_enabled_vae():
+    elif model_management.pytorch_attention_enabled_vae():
         logging.info("Using pytorch attention in VAE")
         return pytorch_attention
     else:
