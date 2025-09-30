@@ -49,6 +49,15 @@ def load_torch_file(file_path: str, device: Optional[torch.device] = None, retur
         else:
             return state_dict
     
+    elif file_path.endswith('.pt') or file_path.endswith('.pth'):
+        # Handle PyTorch .pt/.pth files
+        state_dict = torch.load(file_path, map_location=device)
+        if return_metadata:
+            metadata = state_dict.get('metadata', {}) if isinstance(state_dict, dict) else {}
+            return state_dict, metadata
+        else:
+            return state_dict
+    
     else:
         raise ValueError(f"Unsupported file extension: {file_path}")
 

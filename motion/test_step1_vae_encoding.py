@@ -80,7 +80,7 @@ def test_step1_vae_encoding():
         if vae_model_path is None:
             print("⚠️  No VAE model found, creating dummy VAE state dict for testing")
             # Create a dummy VAE state dict for testing
-            dummy_vae_path = "dummy_vae.safetensors"
+            dummy_vae_path = "dummy_vae.pt"  # Use .pt instead of .safetensors
             dummy_state_dict = {
                 "decoder.middle.0.residual.0.gamma": torch.randn(96),
                 "decoder.conv_in.weight": torch.randn(16, 3, 3, 3),
@@ -266,8 +266,8 @@ def test_step1_vae_encoding():
         print("=" * 60)
         
         # Cleanup dummy VAE file if created
-        if vae_model_path == "dummy_vae.safetensors" and os.path.exists("dummy_vae.safetensors"):
-            os.remove("dummy_vae.safetensors")
+        if vae_model_path == "dummy_vae.pt" and os.path.exists("dummy_vae.pt"):
+            os.remove("dummy_vae.pt")
             print("🧹 Cleaned up dummy VAE file")
         
         return True

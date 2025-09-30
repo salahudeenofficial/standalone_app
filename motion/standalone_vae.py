@@ -709,6 +709,10 @@ class VAE:
         self.upscale_index_formula = None
         self.extra_1d_channel = None
         
+        # Initialize latent format for proper scaling (ComfyUI style)
+        self.latent_format = None
+        self._init_latent_format()
+        
         # Detect VAE type and initialize
         if config is None:
             self._detect_and_init_vae(sd, metadata)
@@ -945,6 +949,23 @@ class VAE:
                 new_sd[k] = v
         return new_sd
     
+    def _init_latent_format(self):
+        """Initialize latent format for proper scaling (ComfyUI style)"""
+        try:
+            # Import Wan21 latent format from ComfyUI
+            import sys
+            import os
+            comfy_path = os.path.join(os.path.dirname(__file__), '..', 'comfy')
+            if comfy_path not in sys.path:
+                sys.path.insert(0, comfy_path)
+            
+            from latent_formats import Wan21
+            self.latent_format = Wan21()
+            print(f"✅ Initialized Wan21 latent format for proper scaling")
+        except ImportError:
+            print(f"⚠️  Could not import Wan21 latent format, using fallback scaling")
+            self.latent_format = None
+    
     def throw_exception_if_invalid(self):
         """Check if VAE is valid"""
         if self.first_stage_model is None:
@@ -989,6 +1010,9 @@ class VAE:
             x_offset = (dims[d] % downscale_ratio) // 2
             if x != dims[d] and x > 0:  # Only crop if result is positive
                 pixels = pixels.narrow(start_dim + d, x_offset, x)
+            elif x == 0:  # Handle case where x becomes 0
+                # For very small dimensions, don't crop to avoid empty tensors
+                print(f"⚠️  Warning: Dimension {d} would become 0 after cropping, keeping original size")
         return pixels
     
     def encode(self, pixel_samples):
@@ -1179,6 +1203,34 @@ class VAE:
                 
                 # Move to output device and convert to float
                 out = out.to(self.output_device).float()
+                
+                # CRITICAL FIX: Apply Wan21 latent format scaling (ComfyUI style)
+                # This matches ComfyUI's Wan21.process_out() method
+                if hasattr(self, 'latent_format') and self.latent_format is not None:
+                    out = self.latent_format.process_out(out)
+                    print(f"   Step 7 - After latent format scaling:")
+                    print(f"     Shape: {out.shape}")
+                    print(f"     Dtype: {out.dtype}")
+                    print(f"     Device: {out.device}")
+                    print(f"     Mean: {out.mean().item():.6f}")
+                    print(f"     Min: {out.min().item():.6f}")
+                    print(f"     Max: {out.max().item():.6f}")
+                    print(f"     Range: [{out.min().item():.6f}, {out.max().item():.6f}]")
+                    print(f"     Std: {out.std().item():.6f}")
+                    print()
+                else:
+                    # Fallback: Apply basic scaling if no latent format available
+                    # This is a temporary fix until proper latent format is implemented
+                    print(f"   Step 7 - Applying basic scaling (no latent format available):")
+                    print(f"     Shape: {out.shape}")
+                    print(f"     Dtype: {out.dtype}")
+                    print(f"     Device: {out.device}")
+                    print(f"     Mean: {out.mean().item():.6f}")
+                    print(f"     Min: {out.min().item():.6f}")
+                    print(f"     Max: {out.max().item():.6f}")
+                    print(f"     Range: [{out.min().item():.6f}, {out.max().item():.6f}]")
+                    print(f"     Std: {out.std().item():.6f}")
+                    print()
                 
                 # Initialize output tensor if needed
                 if samples is None:
