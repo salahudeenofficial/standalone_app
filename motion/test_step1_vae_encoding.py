@@ -28,9 +28,14 @@ def test_step1_vae_encoding():
     try:
         # Import pipeline components
         try:
-            from pipeline import WanVideoPipeline
+            # Ensure we're importing from the motion directory
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("motion_pipeline", motion_dir / "pipeline.py")
+            motion_pipeline = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(motion_pipeline)
+            WanVideoPipeline = motion_pipeline.WanVideoPipeline
             print("✅ Imported WanVideoPipeline from motion/pipeline.py")
-        except ImportError as e:
+        except Exception as e:
             print(f"❌ Failed to import WanVideoPipeline: {e}")
             return False
             

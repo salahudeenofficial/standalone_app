@@ -114,7 +114,7 @@ class ReferenceVideoPipeline:
         self.setup_model_paths()
         
         # Initialize ComfyUI memory management system
-            initialize_comfy_memory_system()
+        initialize_comfy_memory_system()
             
         # ComfyUI handles all chunking automatically - no manual processor needed
         print("✅ ComfyUI memory management initialized")
