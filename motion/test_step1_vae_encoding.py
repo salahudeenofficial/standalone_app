@@ -35,12 +35,16 @@ def test_step1_vae_encoding():
         
         # Test parameters
         test_params = {
+            'vae_model_path': None,  # Will use default VAE loading
+            'positive_prompt': "test prompt",
+            'negative_prompt': "test negative prompt",
             'width': 832,
             'height': 480,
             'length': 37,  # Small length for testing
             'batch_size': 1,
             'control_video_path': None,  # Will create dummy video
             'reference_image_path': None,  # Will create dummy image
+            'strength': 1.0,
         }
         
         print(f"📋 Test parameters:")
