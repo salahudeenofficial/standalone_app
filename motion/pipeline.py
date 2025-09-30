@@ -433,13 +433,8 @@ class WanVideoPipeline:
             if reference_image_path and os.path.exists(reference_image_path):
                 reference_image = self.load_image(reference_image_path)
             
-            # Process control video using ComfyUI-compatible method
-            # if control_video is not None:
-            #     # Convert to float32 and normalize to [0, 1] range (exact match to ComfyUI VHS_LoadVideo)
-            #     if control_video.dtype == torch.uint8:
-            #         control_video = control_video.float() / 255.0
-            #         print(f"🔧 Normalized video from uint8 to float32 [0,1]: {control_video.dtype}, range: [{control_video.min().item():.3f}, {control_video.max().item():.3f}]")
-                
+            # Process control video using ComfyUI-compatible method (exact match to WanVaceToVideo)
+            if control_video is not None:
                 # Use ComfyUI's common_upscale with movedim (exact match to WanVaceToVideo)
                 control_video = common_upscale(
                     control_video[:length].movedim(-1, 1), 
@@ -509,20 +504,20 @@ class WanVideoPipeline:
             # Device verification: Ensure VAE model is on GPU
             self._verify_vae_device()
             
-            # Convert to 5D format for VAE encoding: [T, H, W, 3] -> [1, 3, T, H, W]
-            inactive_5d = inactive[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)
-            reactive_5d = reactive[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)
-            
+            # CRITICAL FIX: Use ComfyUI format [T, H, W, 3] directly (exact match to WanVaceToVideo)
+            # ComfyUI WanVaceToVideo passes [T, H, W, 3] directly to vae.encode(), not 5D format
             print(f"🔍 CALLING VAE.ENCODE() FOR INACTIVE TENSOR:")
-            print(f"   Input shape: {inactive_5d.shape}")
-            inactive_latent = self.vae.encode(inactive_5d)
+            print(f"   Input shape: {inactive[:, :, :, :3].shape}")
+            print(f"   Input format: [T, H, W, 3] (ComfyUI format)")
+            inactive_latent = self.vae.encode(inactive[:, :, :, :3])
             
             # GPU Monitoring: Check GPU state after first encode
             self._log_gpu_state("AFTER INACTIVE VAE ENCODE")
             
             print(f"🔍 CALLING VAE.ENCODE() FOR REACTIVE TENSOR:")
-            print(f"   Input shape: {reactive_5d.shape}")
-            reactive_latent = self.vae.encode(reactive_5d)
+            print(f"   Input shape: {reactive[:, :, :, :3].shape}")
+            print(f"   Input format: [T, H, W, 3] (ComfyUI format)")
+            reactive_latent = self.vae.encode(reactive[:, :, :, :3])
             
             # GPU Monitoring: Check GPU state after second encode
             self._log_gpu_state("AFTER REACTIVE VAE ENCODE")
@@ -590,12 +585,12 @@ class WanVideoPipeline:
                 print(f"   Std: {reference_image[:, :, :, :3].std().item():.6f}")
                 print()
                 
-                # Convert reference image to 5D format: [1, H, W, 3] -> [1, 3, 1, H, W]
-                reference_5d = reference_image[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)
-                
+                # CRITICAL FIX: Use ComfyUI format [1, H, W, 3] directly (exact match to WanVaceToVideo)
+                # ComfyUI WanVaceToVideo passes [1, H, W, 3] directly to vae.encode()
                 print(f"🔍 CALLING VAE.ENCODE() FOR REFERENCE IMAGE:")
-                print(f"   Input shape: {reference_5d.shape}")
-                reference_image_latent = self.vae.encode(reference_5d)
+                print(f"   Input shape: {reference_image[:, :, :, :3].shape}")
+                print(f"   Input format: [1, H, W, 3] (ComfyUI format)")
+                reference_image_latent = self.vae.encode(reference_image[:, :, :, :3])
                 
                 # GPU Monitoring: Check GPU state after reference image encoding
                 self._log_gpu_state("AFTER REFERENCE IMAGE VAE ENCODING")
@@ -612,13 +607,15 @@ class WanVideoPipeline:
                 print(f"   Std: {reference_image_latent.std().item():.6f}")
                 print()
             
-            # Add motion latent channels (WAN format) - exact match to ComfyUI
+            # Add motion latent channels (WAN format) - exact match to ComfyUI WanVaceToVideo
             try:
                 from wan_latent_format import Wan21_LatentFormat
                 wan21_format = Wan21_LatentFormat()
                 motion_channels = wan21_format.process_out(torch.zeros_like(reference_image_latent))
                 reference_image_latent = torch.cat([reference_image_latent, motion_channels], dim=1)
+                print(f"   ✅ Added WAN21 motion channels to reference image")
             except ImportError:
+                print(f"   ⚠️  Wan21_LatentFormat not available, using standard format")
                 pass  # Use standard format
         
         # Create final initial latent using ComfyUI-compatible method (exact match to WanVaceToVideo)
@@ -1736,6 +1733,15 @@ class WanVideoPipeline:
                 video = video[..., :3]
             elif video.shape[-1] == 1:
                 video = video.repeat(1, 1, 1, 3)
+            
+            # CRITICAL FIX: Normalize uint8 to [0,1] range (exact match to ComfyUI VHS_LoadVideo)
+            if video.dtype == torch.uint8:
+                print(f"   🔧 Normalizing video from uint8 to float32 [0,1] range")
+                video = video.float() / 255.0
+                print(f"   ✅ Video normalized: range [{video.min().item():.6f}, {video.max().item():.6f}], dtype: {video.dtype}")
+            elif video.dtype != torch.float32:
+                print(f"   🔧 Converting video to float32")
+                video = video.float()
             
             print(f"   📊 Loaded video tensor: {tuple(video.shape)} (T,H,W,C) - limited to {max_frames} frames")
             return video

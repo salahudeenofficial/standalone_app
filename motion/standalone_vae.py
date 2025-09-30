@@ -987,7 +987,7 @@ class VAE:
         for d in range(len(dims)):
             x = (dims[d] // downscale_ratio) * downscale_ratio
             x_offset = (dims[d] % downscale_ratio) // 2
-            if x != dims[d]:
+            if x != dims[d] and x > 0:  # Only crop if result is positive
                 pixels = pixels.narrow(start_dim + d, x_offset, x)
         return pixels
     
