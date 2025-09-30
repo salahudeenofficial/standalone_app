@@ -1,0 +1,107 @@
+VACE_FRAMES DIMENSION ANALYSIS
+==============================
+
+ISSUE: Getting [1, 32, 9, 104, 60] instead of [1, 32, 11, 104, 60]
+
+COMPARISON: Motion Pipeline vs ComfyUI WanVaceToVideo
+=====================================================
+
+1. LATENT LENGTH CALCULATION:
+   Motion Pipeline:
+   - latent_length = ((length - 1) // 4) + 1
+   - For length=37: ((37-1) // 4) + 1 = (36 // 4) + 1 = 9 + 1 = 10
+   
+   ComfyUI:
+   - latent_length = ((length - 1) // 4) + 1  
+   - For length=37: ((37-1) // 4) + 1 = (36 // 4) + 1 = 9 + 1 = 10
+   ✅ SAME
+
+2. REFERENCE IMAGE PROCESSING:
+   Motion Pipeline:
+   - reference_image_latent = vae.encode(reference_5d)  # [1, 16, 1, H//8, W//8]
+   - Add WAN21 motion channels: [1, 32, 1, H//8, W//8]
+   - Concatenate with control_video_latent: torch.cat((reference_image_latent, control_video_latent), dim=2)
+   - Result: [1, 32, 1 + 10, H//8, W//8] = [1, 32, 11, 104, 60]
+   
+   ComfyUI:
+   - reference_image = vae.encode(reference_image[:, :, :, :3])  # [1, 16, 1, H//8, W//8]
+   - Add WAN21 motion channels: [1, 32, 1, H//8, W//8]
+   - Concatenate with control_video_latent: torch.cat((reference_image, control_video_latent), dim=2)
+   - Result: [1, 32, 1 + 10, H//8, W//8] = [1, 32, 11, 104, 60]
+   ✅ SHOULD BE SAME
+
+3. CONTROL VIDEO LATENT:
+   Motion Pipeline:
+   - inactive_latent = vae.encode(inactive_5d)  # [1, 16, 10, H//8, W//8]
+   - reactive_latent = vae.encode(reactive_5d)  # [1, 16, 10, H//8, W//8]
+   - control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)  # [1, 32, 10, H//8, W//8]
+   
+   ComfyUI:
+   - inactive = vae.encode(inactive[:, :, :, :3])  # [1, 16, 10, H//8, W//8]
+   - reactive = vae.encode(reactive[:, :, :, :3])  # [1, 16, 10, H//8, W//8]
+   - control_video_latent = torch.cat((inactive, reactive), dim=1)  # [1, 32, 10, H//8, W//8]
+   ✅ SHOULD BE SAME
+
+4. FINAL CONCATENATION:
+   Motion Pipeline:
+   - initial_latent = control_video_latent  # [1, 32, 10, H//8, W//8]
+   - if reference_image_latent is not None:
+     initial_latent = torch.cat((reference_image_latent, control_video_latent), dim=2)
+     # [1, 32, 1, H//8, W//8] + [1, 32, 10, H//8, W//8] = [1, 32, 11, H//8, W//8]
+   
+   ComfyUI:
+   - control_video_latent = torch.cat((inactive, reactive), dim=1)  # [1, 32, 10, H//8, W//8]
+   - if reference_image is not None:
+     control_video_latent = torch.cat((reference_image, control_video_latent), dim=2)
+     # [1, 32, 1, H//8, W//8] + [1, 32, 10, H//8, W//8] = [1, 32, 11, H//8, W//8]
+   ✅ SHOULD BE SAME
+
+POTENTIAL ISSUES:
+=================
+
+1. REFERENCE IMAGE LATENT SHAPE:
+   - Motion Pipeline: reference_image_latent should be [1, 32, 1, H//8, W//8]
+   - If it's [1, 32, 0, H//8, W//8] or missing, concatenation would fail
+   
+2. CONTROL VIDEO LATENT SHAPE:
+   - Motion Pipeline: control_video_latent should be [1, 32, 10, H//8, W//8]
+   - If it's [1, 32, 9, H//8, W//8], then reference image concatenation would result in [1, 32, 10, H//8, W//8]
+   
+3. VAE ENCODING ISSUE:
+   - If VAE encoding is producing wrong temporal dimensions
+   - Check if inactive_latent and reactive_latent have correct temporal dimension
+
+4. REFERENCE IMAGE PROCESSING:
+   - Check if reference_image_latent is being processed correctly
+   - Verify WAN21 motion channels are added properly
+
+DEBUGGING STEPS:
+================
+
+1. Print shapes after each VAE encoding:
+   - inactive_latent.shape
+   - reactive_latent.shape  
+   - reference_image_latent.shape (before and after WAN21)
+
+2. Print shapes before concatenation:
+   - control_video_latent.shape
+   - reference_image_latent.shape
+
+3. Print final initial_latent.shape
+
+4. Check if reference_image_latent is None when it shouldn't be
+
+EXPECTED FLOW:
+==============
+
+For length=37:
+- latent_length = ((37-1) // 4) + 1 = 10
+- control_video_latent = [1, 32, 10, 104, 60]
+- reference_image_latent = [1, 32, 1, 104, 60] (after WAN21)
+- initial_latent = torch.cat((reference_image_latent, control_video_latent), dim=2) = [1, 32, 11, 104, 60]
+
+CURRENT RESULT: [1, 32, 9, 104, 60]
+This suggests either:
+- control_video_latent is [1, 32, 9, 104, 60] and reference_image_latent is [1, 32, 0, 104, 60]
+- OR control_video_latent is [1, 32, 8, 104, 60] and reference_image_latent is [1, 32, 1, 104, 60]
+- OR reference_image_latent is None and initial_latent = control_video_latent = [1, 32, 9, 104, 60]

@@ -564,6 +564,13 @@ class WanVideoPipeline:
             
             control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
             
+            # DEBUG: Print control video latent shape after concatenation
+            print(f"🔍 CONTROL VIDEO LATENT AFTER CONCATENATION:")
+            print(f"   Shape: {control_video_latent.shape}")
+            print(f"   Expected: [1, 32, {latent_length}, {height//8}, {width//8}]")
+            print(f"   Match: {'✅ YES' if control_video_latent.shape == (1, 32, latent_length, height//8, width//8) else '❌ NO'}")
+            print()
+            
         
         # Process reference image using ComfyUI-compatible method
         reference_image_latent = None
@@ -603,6 +610,19 @@ class WanVideoPipeline:
                 # CRITICAL FIX: Use float32 encoding for reference image
                 reference_image_latent = self.vae.encode(reference_5d)
                 
+                # DEBUG: Print reference image latent after VAE encoding (before WAN21)
+                print(f"🔍 REFERENCE IMAGE LATENT AFTER VAE ENCODING (before WAN21):")
+                print(f"   Shape: {reference_image_latent.shape}")
+                print(f"   Dtype: {reference_image_latent.dtype}")
+                print(f"   Device: {reference_image_latent.device}")
+                print(f"   Mean: {reference_image_latent.mean().item():.6f}")
+                print(f"   Range: [{reference_image_latent.min().item():.6f}, {reference_image_latent.max().item():.6f}]")
+                print(f"   Std: {reference_image_latent.std().item():.6f}")
+                flat_ref = reference_image_latent.flatten()
+                first_5_ref = [f"{flat_ref[i].item():.6f}" for i in range(min(5, len(flat_ref)))]
+                print(f"   First 5 elements: {first_5_ref}")
+                print()
+                
                 # GPU Monitoring: Check GPU state after reference image encoding
                 self._log_gpu_state("AFTER REFERENCE IMAGE VAE ENCODING")
                 
@@ -611,9 +631,39 @@ class WanVideoPipeline:
             try:
                 from wan_latent_format import Wan21_LatentFormat
                 wan21_format = Wan21_LatentFormat()
+                # CRITICAL FIX: Apply process_out to zeros_like(reference_image_latent) to get motion channels
                 motion_channels = wan21_format.process_out(torch.zeros_like(reference_image_latent))
+                
+                # DEBUG: Print motion channels before concatenation
+                print(f"🔍 WAN21 MOTION CHANNELS (before concatenation):")
+                print(f"   Shape: {motion_channels.shape}")
+                print(f"   Dtype: {motion_channels.dtype}")
+                print(f"   Device: {motion_channels.device}")
+                print(f"   Mean: {motion_channels.mean().item():.6f}")
+                print(f"   Range: [{motion_channels.min().item():.6f}, {motion_channels.max().item():.6f}]")
+                print(f"   Std: {motion_channels.std().item():.6f}")
+                flat_motion = motion_channels.flatten()
+                first_5_motion = [f"{flat_motion[i].item():.6f}" for i in range(min(5, len(flat_motion)))]
+                print(f"   First 5 elements: {first_5_motion}")
+                print()
+                
                 reference_image_latent = torch.cat([reference_image_latent, motion_channels], dim=1)
                 print(f"   ✅ Added WAN21 motion channels to reference image")
+                print(f"   📊 Reference image latent shape after WAN21: {reference_image_latent.shape}")
+                
+                # DEBUG: Print final reference image latent after WAN21 concatenation
+                print(f"🔍 FINAL REFERENCE IMAGE LATENT (after WAN21 concatenation):")
+                print(f"   Shape: {reference_image_latent.shape}")
+                print(f"   Dtype: {reference_image_latent.dtype}")
+                print(f"   Device: {reference_image_latent.device}")
+                print(f"   Mean: {reference_image_latent.mean().item():.6f}")
+                print(f"   Range: [{reference_image_latent.min().item():.6f}, {reference_image_latent.max().item():.6f}]")
+                print(f"   Std: {reference_image_latent.std().item():.6f}")
+                flat_final = reference_image_latent.flatten()
+                first_5_final = [f"{flat_final[i].item():.6f}" for i in range(min(5, len(flat_final)))]
+                print(f"   First 5 elements: {first_5_final}")
+                print()
+                
             except ImportError:
                 print(f"   ⚠️  Wan21_LatentFormat not available, using standard format")
                 pass  # Use standard format
@@ -624,12 +674,38 @@ class WanVideoPipeline:
         latent_width = width // vae_stride
         latent_length = ((length - 1) // 4) + 1
         
+        # DEBUG: Print latent length calculation
+        print(f"🔍 LATENT LENGTH CALCULATION:")
+        print(f"   length: {length}")
+        print(f"   latent_length = (({length} - 1) // 4) + 1 = {latent_length}")
+        print(f"   Expected control video latent: [1, 32, {latent_length}, {latent_height}, {latent_width}]")
+        print(f"   Expected final with reference: [1, 32, {latent_length + 1}, {latent_height}, {latent_width}]")
+        print()
+        
         # Start with control video latent
         initial_latent = control_video_latent
         
         # Add reference image if provided (exact match to ComfyUI)
         if reference_image_latent is not None:
+            # DEBUG: Print shapes before reference image concatenation
+            print(f"🔍 BEFORE REFERENCE IMAGE CONCATENATION:")
+            print(f"   reference_image_latent.shape: {reference_image_latent.shape}")
+            print(f"   control_video_latent.shape: {control_video_latent.shape}")
+            print(f"   Expected result: [1, 32, {reference_image_latent.shape[2] + control_video_latent.shape[2]}, {height//8}, {width//8}]")
+            
             initial_latent = torch.cat((reference_image_latent, control_video_latent), dim=2)
+            
+            # DEBUG: Print final initial_latent shape
+            print(f"🔍 AFTER REFERENCE IMAGE CONCATENATION:")
+            print(f"   initial_latent.shape: {initial_latent.shape}")
+            print(f"   Expected: [1, 32, 11, {height//8}, {width//8}]")
+            print(f"   Match: {'✅ YES' if initial_latent.shape == (1, 32, 11, height//8, width//8) else '❌ NO'}")
+            print()
+        else:
+            print(f"🔍 NO REFERENCE IMAGE - USING CONTROL VIDEO LATENT ONLY:")
+            print(f"   initial_latent.shape: {initial_latent.shape}")
+            print(f"   Expected: [1, 32, {latent_length}, {height//8}, {width//8}]")
+            print()
         
         # DETAILED RESULTS: Three VAE Encodes Analysis
         print(f"\n📊 THREE VAE ENCODES RESULTS:")
