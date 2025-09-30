@@ -491,6 +491,12 @@ class WanVideoPipeline:
     def _step_1_continue_encoding(self, control_video, reference_image, width, height, length, batch_size, start_time, positive_prompt, negative_prompt, strength):
         """Continue Step 1 VAE encoding process"""
         
+        # Calculate latent dimensions first (needed for debug output)
+        vae_stride = 8
+        latent_height = height // vae_stride
+        latent_width = width // vae_stride
+        latent_length = ((length - 1) // 4) + 1
+        
         # Create control mask using ComfyUI-compatible method (exact match to WanVaceToVideo)
         mask = torch.ones((length, height, width, 1), device=control_video.device)
         
@@ -556,6 +562,7 @@ class WanVideoPipeline:
             print(f"   inactive[:, :, :, :3].shape: {inactive[:, :, :, :3].shape}")
             print(f"   reactive[:, :, :, :3].shape: {reactive[:, :, :, :3].shape}")
             print(f"   Expected after encoding: [1, 16, {latent_length}, {height//8}, {width//8}]")
+            print(f"   Using 4D tensor encoding like ComfyUI WanVaceToVideo")
             print()
             
             inactive_latent = self.vae.encode(inactive[:, :, :, :3])
@@ -563,7 +570,7 @@ class WanVideoPipeline:
             # GPU Monitoring: Check GPU state after first encode
             self._log_gpu_state("AFTER INACTIVE VAE ENCODE")
             
-            reactive_latent = self.vae.encode(reactive_5d)
+            reactive_latent = self.vae.encode(reactive[:, :, :, :3])
             
             # GPU Monitoring: Check GPU state after second encode
             self._log_gpu_state("AFTER REACTIVE VAE ENCODE")
@@ -604,17 +611,24 @@ class WanVideoPipeline:
                 print(f"   Std: {reference_image[:, :, :, :3].std().item():.6f}")
                 print()
                 
-                # CRITICAL FIX: Convert to VAE format [1, 3, 1, H, W] (motion pipeline VAE expects this)
-                # Convert from [1, H, W, 3] to [1, 3, 1, H, W] for VAE encoding
-                reference_5d = reference_image[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)  # [1,H,W,3] -> [1,3,1,H,W]
+                # CRITICAL FIX: Use 4D tensor encoding like ComfyUI WanVaceToVideo
+                # ComfyUI uses: vae.encode(reference_image[:, :, :, :3]) directly
+                # Use 4D tensor encoding to match ComfyUI exactly
                 
                 # CRITICAL FIX: Ensure reference image is in float32 for VAE encoding
-                if reference_5d.dtype != torch.float32:
-                    print(f"🔧 Converting reference image from {reference_5d.dtype} to float32")
-                    reference_5d = reference_5d.float()
+                if reference_image[:, :, :, :3].dtype != torch.float32:
+                    print(f"🔧 Converting reference image from {reference_image[:, :, :, :3].dtype} to float32")
+                    reference_image = reference_image.float()
                 
-                # CRITICAL FIX: Use float32 encoding for reference image
-                reference_image_latent = self.vae.encode(reference_5d)
+                # DEBUG: Print reference image tensor shape before VAE encoding
+                print(f"🔍 REFERENCE IMAGE TENSOR SHAPE BEFORE VAE ENCODING:")
+                print(f"   reference_image[:, :, :, :3].shape: {reference_image[:, :, :, :3].shape}")
+                print(f"   Expected after encoding: [1, 16, 1, {height//8}, {width//8}]")
+                print(f"   Using 4D tensor encoding like ComfyUI WanVaceToVideo")
+                print()
+                
+                # CRITICAL FIX: Use 4D tensor encoding for reference image
+                reference_image_latent = self.vae.encode(reference_image[:, :, :, :3])
                 
                 # DEBUG: Print reference image latent after VAE encoding (before WAN21)
                 print(f"🔍 REFERENCE IMAGE LATENT AFTER VAE ENCODING (before WAN21):")
@@ -673,12 +687,6 @@ class WanVideoPipeline:
             except ImportError:
                 print(f"   ⚠️  Wan21_LatentFormat not available, using standard format")
                 pass  # Use standard format
-        
-        # Create final initial latent using ComfyUI-compatible method (exact match to WanVaceToVideo)
-        vae_stride = 8
-        latent_height = height // vae_stride
-        latent_width = width // vae_stride
-        latent_length = ((length - 1) // 4) + 1
         
         # DEBUG: Print latent length calculation
         print(f"🔍 LATENT LENGTH CALCULATION:")
