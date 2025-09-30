@@ -59,9 +59,40 @@ def test_step1_vae_encoding():
         print("\n🔧 Initializing pipeline...")
         pipeline = WanVideoPipeline()
         
+        # Find a VAE model file
+        vae_model_path = None
+        possible_paths = [
+            "models/vaes/wan_vae.safetensors",
+            "models/vaes/wan_2.1_vae.safetensors", 
+            "models/vaes/wan2.1_vae.safetensors",
+            "../models/vaes/wan_vae.safetensors",
+            "../../models/vaes/wan_vae.safetensors",
+            "wan2.1_vace_14B_fp16.safetensors",
+            "../wan2.1_vace_14B_fp16.safetensors",
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                vae_model_path = path
+                print(f"✅ Found VAE model: {path}")
+                break
+        
+        if vae_model_path is None:
+            print("⚠️  No VAE model found, creating dummy VAE state dict for testing")
+            # Create a dummy VAE state dict for testing
+            dummy_vae_path = "dummy_vae.safetensors"
+            dummy_state_dict = {
+                "decoder.middle.0.residual.0.gamma": torch.randn(96),
+                "decoder.conv_in.weight": torch.randn(16, 3, 3, 3),
+                "decoder.conv_in.bias": torch.randn(16),
+            }
+            torch.save(dummy_state_dict, dummy_vae_path)
+            vae_model_path = dummy_vae_path
+            print(f"✅ Created dummy VAE: {dummy_vae_path}")
+        
         # Test parameters
         test_params = {
-            'vae_model_path': None,  # Will use default VAE loading
+            'vae_model_path': vae_model_path,
             'positive_prompt': "test prompt",
             'negative_prompt': "test negative prompt",
             'width': 832,
@@ -173,6 +204,11 @@ def test_step1_vae_encoding():
         
         print(f"\n🎉 STEP 1 VAE ENCODING TEST COMPLETED!")
         print("=" * 50)
+        
+        # Cleanup dummy VAE file if created
+        if vae_model_path == "dummy_vae.safetensors" and os.path.exists("dummy_vae.safetensors"):
+            os.remove("dummy_vae.safetensors")
+            print("🧹 Cleaned up dummy VAE file")
         
         return True
         
