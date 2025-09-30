@@ -1,0 +1,14 @@
+VAE ENCODE MONITORING - KEY FIGURES
+=====================================
+
+Reference Image (Call #1):
+Input:  Mean: 0.610855, Range: [0.000000, 0.979059]
+Output: Mean: -0.061934, Range: [-4.281250, 3.281250]
+
+Inactive Video Frames (Call #2):
+Input:  Mean: 0.500000, Range: [0.500000, 0.500000]
+Output: Mean: -0.585274, Range: [-5.437500, 5.781250]
+
+Reactive Video Frames (Call #3):
+Input:  Mean: 0.620079, Range: [0.000000, 0.995968]
+Output: Mean: 0.025922, Range: [-7.906250, 7.406250]

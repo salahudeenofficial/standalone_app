@@ -975,12 +975,20 @@ class VAE:
         """Crop pixels to be divisible by downscale ratio"""
         downscale_ratio = self.spacial_compression_encode()
         
-        dims = pixels.shape[1:-1]
+        # For 5D input [B, C, T, H, W], we want spatial dims [T, H, W]
+        # For 4D input [B, H, W, C], we want spatial dims [H, W]
+        if pixels.ndim == 5:  # [B, C, T, H, W]
+            dims = pixels.shape[2:]  # [T, H, W] - spatial dimensions only
+            start_dim = 2  # Start from dimension 2 (T)
+        else:  # [B, H, W, C] or similar
+            dims = pixels.shape[1:-1]  # [H, W] - spatial dimensions only
+            start_dim = 1  # Start from dimension 1 (H)
+        
         for d in range(len(dims)):
             x = (dims[d] // downscale_ratio) * downscale_ratio
             x_offset = (dims[d] % downscale_ratio) // 2
             if x != dims[d]:
-                pixels = pixels.narrow(d + 1, x_offset, x)
+                pixels = pixels.narrow(start_dim + d, x_offset, x)
         return pixels
     
     def encode(self, pixel_samples):

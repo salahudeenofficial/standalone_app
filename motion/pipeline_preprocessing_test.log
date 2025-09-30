@@ -1,0 +1,169 @@
+WARNING:root:Torch version too old to set sdpa backend priority.
+Traceback (most recent call last):
+  File "/home/fashionx/v_pipe/standalone_app/motion/test_vae_encode_comparison.py", line 295, in test_comfyui_vae
+    from comfy.sd import VAE as ComfyVAE
+  File "/home/fashionx/comfy/ComfyUI/comfy/sd.py", line 29, in <module>
+    from . import model_detection
+  File "/home/fashionx/comfy/ComfyUI/comfy/model_detection.py", line 2, in <module>
+    import comfy.supported_models
+  File "/home/fashionx/comfy/ComfyUI/comfy/supported_models.py", line 16, in <module>
+    import comfy.text_encoders.hunyuan_video
+  File "/home/fashionx/comfy/ComfyUI/comfy/text_encoders/hunyuan_video.py", line 4, in <module>
+    from transformers import LlamaTokenizerFast
+ImportError: cannot import name 'LlamaTokenizerFast' from 'transformers' (/home/fashionx/miniconda3/envs/TeCH/lib/python3.10/site-packages/transformers/__init__.py)
+Traceback (most recent call last):
+  File "/home/fashionx/v_pipe/standalone_app/motion/test_vae_encode_comparison.py", line 295, in test_comfyui_vae
+    from comfy.sd import VAE as ComfyVAE
+  File "/home/fashionx/comfy/ComfyUI/comfy/sd.py", line 29, in <module>
+    from . import model_detection
+  File "/home/fashionx/comfy/ComfyUI/comfy/model_detection.py", line 2, in <module>
+    import comfy.supported_models
+  File "/home/fashionx/comfy/ComfyUI/comfy/supported_models.py", line 16, in <module>
+    import comfy.text_encoders.hunyuan_video
+  File "/home/fashionx/comfy/ComfyUI/comfy/text_encoders/hunyuan_video.py", line 4, in <module>
+    from transformers import LlamaTokenizerFast
+ImportError: cannot import name 'LlamaTokenizerFast' from 'transformers' (/home/fashionx/miniconda3/envs/TeCH/lib/python3.10/site-packages/transformers/__init__.py)
+🚀 VAE ENCODE COMPARISON TEST - PIPELINE PREPROCESSING
+======================================================================
+This script uses EXACT pipeline preprocessing to test both VAEs
+and verify the vae_encode_crop_pixels bug.
+
+📁 Current directory: /home/fashionx/v_pipe/standalone_app/motion
+📁 Parent directory: /home/fashionx/v_pipe/standalone_app
+📁 ComfyUI path: /home/fashionx/comfy/ComfyUI (exists: True)
+🔍 Searching for VAE model files...
+Current working directory: /home/fashionx/v_pipe/standalone_app/motion
+Checking: models/vaes/wan_vae.safetensors
+✅ Found model: models/vaes/wan_vae.safetensors
+📁 Loading VAE model: models/vaes/wan_vae.safetensors
+✅ Model loaded successfully with safetensors: 194 parameters
+🔍 VAE-related keys found: 190
+   Sample keys: ['decoder.conv1.bias', 'decoder.conv1.weight', 'decoder.head.0.gamma', 'decoder.head.2.bias', 'decoder.head.2.weight']
+
+🎬 Loading real video and processing...
+📹 Loading video from: safu.mp4
+❌ Failed to load safu.mp4: PyAV is not installed, and is necessary for the video operations in torchvision.
+See https://github.com/mikeboers/PyAV#installation for instructions on how to
+install PyAV on your system.
+
+📹 Loading video from: ../safu.mp4
+❌ Failed to load ../safu.mp4: PyAV is not installed, and is necessary for the video operations in torchvision.
+See https://github.com/mikeboers/PyAV#installation for instructions on how to
+install PyAV on your system.
+
+📹 Loading video from: ../motion/safu.mp4
+❌ Failed to load ../motion/safu.mp4: PyAV is not installed, and is necessary for the video operations in torchvision.
+See https://github.com/mikeboers/PyAV#installation for instructions on how to
+install PyAV on your system.
+
+❌ No video file found, creating dummy video
+✅ Video loaded:
+   Path: None
+   Shape: torch.Size([8, 256, 256, 3]) (T,H,W,C)
+   Dtype: torch.float32
+   Range: [-4.778604, 5.020328]
+   Mean: 0.000385
+   Memory: 6.00 MB
+
+🔧 Processing video into reactive/inactive tensors using PIPELINE preprocessing...
+✅ Processed tensors using PIPELINE preprocessing:
+   Control video (after -0.5):
+     Shape: torch.Size([8, 256, 256, 3])
+     Range: [-5.278604, 4.520328]
+     Mean: -0.499615
+   Reactive tensor:
+     Shape: torch.Size([8, 256, 256, 3])
+     Range: [-4.778604, 5.020328]
+     Mean: 0.000385
+   Inactive tensor:
+     Shape: torch.Size([8, 256, 256, 3])
+     Range: [0.500000, 0.500000]
+     Mean: 0.500000
+
+🔧 Preparing video tensor for VAE encoding...
+✅ Converted to VAE format:
+   Shape: torch.Size([1, 3, 8, 256, 256])
+   Range: [-4.778604, 5.020328]
+   Mean: 0.000385
+
+🔧 Preparing video tensor for VAE encoding...
+✅ Converted to VAE format:
+   Shape: torch.Size([1, 3, 8, 256, 256])
+   Range: [0.500000, 0.500000]
+   Mean: 0.500000
+
+🔧 TESTING WITH REACTIVE TENSOR (pipeline preprocessing)
+
+🔧 TESTING MOTION PIPELINE VAE
+------------------------------------------------------------
+✅ Imported standalone_vae
+✅ Motion VAE initialized: WanVAE
+
+🔍 DEBUGGING MOTION PROCESS_INPUT:
+   Input to process_input:
+     Shape: torch.Size([1, 3, 8, 256, 256])
+     Range: [-4.778604, 5.020328]
+     Mean: 0.000385
+     First 3 values: [2.1777195930480957, 0.9507442712783813, 0.06449770927429199]
+   Manual lambda result:
+     Range: [-10.557207, 9.040656]
+     Mean: -0.999230
+     First 3 values: [3.3554391860961914, 0.9014885425567627, -0.871004581451416]
+   VAE process_input result:
+     Range: [-10.557207, 9.040656]
+     Mean: -0.999230
+     First 3 values: [3.3554391860961914, 0.9014885425567627, -0.871004581451416]
+   Match with manual result: True
+
+🔧 Motion VAE Encoding...
+   Motion VAE dtype: torch.float16
+✅ Motion encode successful!
+   Encoded shape: torch.Size([1, 16, 2, 32, 32])
+   Encoded range: [-6.527344, 5.957031]
+   Encoded mean: 0.613281
+   Encoded std: 3.027344
+✅ Motion result ready for comparison
+
+🔧 TESTING COMFYUI VAE
+------------------------------------------------------------
+❌ ComfyUI VAE failed: cannot import name 'LlamaTokenizerFast' from 'transformers' (/home/fashionx/miniconda3/envs/TeCH/lib/python3.10/site-packages/transformers/__init__.py)
+
+🔧 TESTING WITH INACTIVE TENSOR (pipeline preprocessing)
+
+🔧 TESTING MOTION PIPELINE VAE
+------------------------------------------------------------
+✅ Imported standalone_vae
+✅ Motion VAE initialized: WanVAE
+
+🔍 DEBUGGING MOTION PROCESS_INPUT:
+   Input to process_input:
+     Shape: torch.Size([1, 3, 8, 256, 256])
+     Range: [0.500000, 0.500000]
+     Mean: 0.500000
+     First 3 values: [0.5, 0.5, 0.5]
+   Manual lambda result:
+     Range: [0.000000, 0.000000]
+     Mean: 0.000000
+     First 3 values: [0.0, 0.0, 0.0]
+   VAE process_input result:
+     Range: [0.000000, 0.000000]
+     Mean: 0.000000
+     First 3 values: [0.0, 0.0, 0.0]
+   Match with manual result: True
+
+🔧 Motion VAE Encoding...
+   Motion VAE dtype: torch.float16
+✅ Motion encode successful!
+   Encoded shape: torch.Size([1, 16, 2, 32, 32])
+   Encoded range: [-4.371094, 4.671875]
+   Encoded mean: -0.460449
+   Encoded std: 2.140625
+✅ Motion result ready for comparison
+
+🔧 TESTING COMFYUI VAE
+------------------------------------------------------------
+❌ ComfyUI VAE failed: cannot import name 'LlamaTokenizerFast' from 'transformers' (/home/fashionx/miniconda3/envs/TeCH/lib/python3.10/site-packages/transformers/__init__.py)
+
+❌ PIPELINE PREPROCESSING TEST FAILED!
+One or both VAEs failed to encode with pipeline preprocessing.
+This likely indicates the vae_encode_crop_pixels bug is present.
