@@ -467,10 +467,18 @@ class WanVideoPipeline:
         # Create control mask using ComfyUI-compatible method (exact match to WanVaceToVideo)
         mask = torch.ones((length, height, width, 1), device=control_video.device)
         
-        # Split control video by mask
-        control_video = control_video - 0.5  # Center around 0
-        inactive = (control_video * (1 - mask)) + 0.5  # Inactive regions
-        reactive = (control_video * mask) + 0.5        # Active/controlled regions
+        # CRITICAL FIX: Use proper control video processing (exact match to ComfyUI WanVaceToVideo)
+        # ComfyUI WanVaceToVideo does: control_video = control_video - 0.5, then splits by mask
+        control_video_centered = control_video - 0.5  # Center around 0
+        inactive = (control_video_centered * (1 - mask)) + 0.5  # Inactive regions
+        reactive = (control_video_centered * mask) + 0.5        # Active/controlled regions
+        
+        print(f"🔍 CONTROL VIDEO PROCESSING DEBUG:")
+        print(f"   Original control_video range: [{control_video.min().item():.6f}, {control_video.max().item():.6f}]")
+        print(f"   Centered control_video range: [{control_video_centered.min().item():.6f}, {control_video_centered.max().item():.6f}]")
+        print(f"   Inactive tensor range: [{inactive.min().item():.6f}, {inactive.max().item():.6f}]")
+        print(f"   Reactive tensor range: [{reactive.min().item():.6f}, {reactive.max().item():.6f}]")
+        print()
         
         # VAE encoding of control video (exact match to ComfyUI - pass same range)
         with torch.no_grad():
@@ -504,20 +512,23 @@ class WanVideoPipeline:
             # Device verification: Ensure VAE model is on GPU
             self._verify_vae_device()
             
-            # CRITICAL FIX: Use ComfyUI format [T, H, W, 3] directly (exact match to WanVaceToVideo)
-            # ComfyUI WanVaceToVideo passes [T, H, W, 3] directly to vae.encode(), not 5D format
+            # CRITICAL FIX: Convert to VAE format [1, 3, T, H, W] (motion pipeline VAE expects this)
+            # Convert from [T, H, W, 3] to [1, 3, T, H, W] for VAE encoding
+            inactive_5d = inactive[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)  # [T,H,W,3] -> [1,3,T,H,W]
+            reactive_5d = reactive[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)  # [T,H,W,3] -> [1,3,T,H,W]
+            
             print(f"🔍 CALLING VAE.ENCODE() FOR INACTIVE TENSOR:")
-            print(f"   Input shape: {inactive[:, :, :, :3].shape}")
-            print(f"   Input format: [T, H, W, 3] (ComfyUI format)")
-            inactive_latent = self.vae.encode(inactive[:, :, :, :3])
+            print(f"   Input shape: {inactive_5d.shape}")
+            print(f"   Input format: [1, 3, T, H, W] (motion pipeline VAE format)")
+            inactive_latent = self.vae.encode(inactive_5d)
             
             # GPU Monitoring: Check GPU state after first encode
             self._log_gpu_state("AFTER INACTIVE VAE ENCODE")
             
             print(f"🔍 CALLING VAE.ENCODE() FOR REACTIVE TENSOR:")
-            print(f"   Input shape: {reactive[:, :, :, :3].shape}")
-            print(f"   Input format: [T, H, W, 3] (ComfyUI format)")
-            reactive_latent = self.vae.encode(reactive[:, :, :, :3])
+            print(f"   Input shape: {reactive_5d.shape}")
+            print(f"   Input format: [1, 3, T, H, W] (motion pipeline VAE format)")
+            reactive_latent = self.vae.encode(reactive_5d)
             
             # GPU Monitoring: Check GPU state after second encode
             self._log_gpu_state("AFTER REACTIVE VAE ENCODE")
@@ -585,12 +596,14 @@ class WanVideoPipeline:
                 print(f"   Std: {reference_image[:, :, :, :3].std().item():.6f}")
                 print()
                 
-                # CRITICAL FIX: Use ComfyUI format [1, H, W, 3] directly (exact match to WanVaceToVideo)
-                # ComfyUI WanVaceToVideo passes [1, H, W, 3] directly to vae.encode()
+                # CRITICAL FIX: Convert to VAE format [1, 3, 1, H, W] (motion pipeline VAE expects this)
+                # Convert from [1, H, W, 3] to [1, 3, 1, H, W] for VAE encoding
+                reference_5d = reference_image[:, :, :, :3].permute(3, 0, 1, 2).unsqueeze(0)  # [1,H,W,3] -> [1,3,1,H,W]
+                
                 print(f"🔍 CALLING VAE.ENCODE() FOR REFERENCE IMAGE:")
-                print(f"   Input shape: {reference_image[:, :, :, :3].shape}")
-                print(f"   Input format: [1, H, W, 3] (ComfyUI format)")
-                reference_image_latent = self.vae.encode(reference_image[:, :, :, :3])
+                print(f"   Input shape: {reference_5d.shape}")
+                print(f"   Input format: [1, 3, 1, H, W] (motion pipeline VAE format)")
+                reference_image_latent = self.vae.encode(reference_5d)
                 
                 # GPU Monitoring: Check GPU state after reference image encoding
                 self._log_gpu_state("AFTER REFERENCE IMAGE VAE ENCODING")
