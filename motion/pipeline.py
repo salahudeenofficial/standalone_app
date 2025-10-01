@@ -31,7 +31,8 @@ from standalone_sd import load_state_dict_guess_config
 from lora import load_lora_for_models
 from model_sampling import ModelSamplingSD3
 from text_encoder import CLIPTextEncode
-from standalone_ksampler import StandaloneKSampler, prepare_noise
+from standalone_ksampler import StandaloneKSampler
+from sample import prepare_noise
 from memory_utils import safe_model_to_device, log_memory_usage, clear_cuda_memory, get_memory_info, safe_model_to_device_advanced
 
 def analyze_ksampler_inputs(positive_conditioning, negative_conditioning, initial_latent):
@@ -1276,11 +1277,9 @@ class WanVideoPipeline:
             analyze_ksampler_inputs(positive_conditioning, negative_conditioning, initial_latent)
             
             # Prepare noise for initial latent
-            try:
-                from comfy.sample import fix_empty_latent_channels
-                initial_latent = fix_empty_latent_channels(self.unet, initial_latent)
-            except ImportError:
-                pass  # Use original latent
+            # Use standalone motion pipeline sample module (following Disclaimer.txt guidelines)
+            from sample import fix_empty_latent_channels
+            initial_latent = fix_empty_latent_channels(self.unet, initial_latent)
             
             noise = prepare_noise(initial_latent, seed, noise_inds)
             
