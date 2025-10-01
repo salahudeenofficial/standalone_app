@@ -36,51 +36,58 @@ from memory_utils import safe_model_to_device, log_memory_usage, clear_cuda_memo
 
 def analyze_ksampler_inputs(positive_conditioning, negative_conditioning, initial_latent):
     """
-    Analyze K-Sampler inputs in detail
+    Analyze K-Sampler inputs in detail with enhanced tensor information
     
     Args:
         positive_conditioning: Positive conditioning with VACE
         negative_conditioning: Negative conditioning with VACE  
         initial_latent: Initial latent tensor or dict with 'samples'
     """
-    print("\n🎯 K-SAMPLER INPUT ANALYSIS:")
-    print("   📋 Analyzing inputs that will be used by K-Sampler:")
+    print("\n🎯 STEP 4 KSAMPLER INPUT ANALYSIS:")
+    print("="*70)
+    print("📋 Analyzing inputs that will be used by K-Sampler:")
     print()
     
     total_tensors = 0
     total_memory = 0
     
     # Analyze positive conditioning
-    print("   📋 Positive Conditioning (K-Sampler input):")
+    print("📋 POSITIVE CONDITIONING (K-Sampler input):")
     pos_tensors, pos_memory = _analyze_conditioning(positive_conditioning, "positive")
     total_tensors += pos_tensors
     total_memory += pos_memory
     print()
     
     # Analyze negative conditioning  
-    print("   📋 Negative Conditioning (K-Sampler input):")
+    print("📋 NEGATIVE CONDITIONING (K-Sampler input):")
     neg_tensors, neg_memory = _analyze_conditioning(negative_conditioning, "negative")
     total_tensors += neg_tensors
     total_memory += neg_memory
     print()
     
     # Analyze latent image
-    print("   📋 Latent Image (K-Sampler input):")
+    print("📋 LATENT IMAGE (K-Sampler input):")
     lat_tensors, lat_memory = _analyze_latent_image(initial_latent)
     total_tensors += lat_tensors
     total_memory += lat_memory
     print()
     
-    print(f"   ✅ K-Sampler inputs analyzed successfully")
+    # Summary
+    print("📊 INPUT SUMMARY:")
+    print(f"   Total tensors: {total_tensors}")
+    print(f"   Total memory: {total_memory / (1024**2):.2f} MB")
+    print(f"   Expected tensors: 7 (2 text + 2 VACE frames + 2 VACE masks + 1 latent)")
+    print(f"   Tensor count match: {'✅ YES' if total_tensors == 7 else '❌ NO'}")
+    print("="*70)
 
 def _analyze_conditioning(conditioning, name):
-    """Analyze conditioning structure in detail"""
+    """Analyze conditioning structure in detail with enhanced tensor information"""
     tensor_count = 0
     total_memory = 0
     
     if isinstance(conditioning, list):
-        print(f"      Type: list")
-        print(f"      List length: {len(conditioning)}")
+        print(f"   Type: list")
+        print(f"   List length: {len(conditioning)}")
         
         for i, item in enumerate(conditioning):
             if hasattr(item, 'shape'):
@@ -89,99 +96,100 @@ def _analyze_conditioning(conditioning, name):
                 memory = _get_tensor_memory(item)
                 total_memory += memory
                 
-                print(f"          Tensor {tensor_count}:")
-                _print_tensor_info(item, memory, indent="            ")
+                print(f"   📊 Tensor {tensor_count} (Direct tensor):")
+                _print_tensor_info(item, memory, indent="      ")
                 
             elif isinstance(item, dict):
                 # This is a dictionary, analyze each key
+                print(f"   📊 Dictionary item {i}:")
                 for key, value in item.items():
-                    print(f"          Key '{key}': {type(value).__name__}")
+                    print(f"      Key '{key}': {type(value).__name__}")
                     if hasattr(value, 'shape'):
                         # Direct tensor
                         tensor_count += 1
                         memory = _get_tensor_memory(value)
                         total_memory += memory
                         
-                        print(f"            -> Tensor with shape {value.shape}")
-                        print(f"                Tensor {tensor_count}:")
-                        _print_tensor_info(value, memory, indent="                  ")
+                        print(f"         📊 Tensor {tensor_count} (Direct tensor):")
+                        _print_tensor_info(value, memory, indent="            ")
                         
                     elif isinstance(value, list):
-                        print(f"            -> Contains {len(value)} items")
+                        print(f"         List with {len(value)} items")
                         for j, list_item in enumerate(value):
                             if hasattr(list_item, 'shape'):
                                 tensor_count += 1
                                 memory = _get_tensor_memory(list_item)
                                 total_memory += memory
                                 
-                                print(f"              Item {j}: Tensor with shape {list_item.shape}")
-                                print(f"                Tensor {tensor_count}:")
-                                _print_tensor_info(list_item, memory, indent="                  ")
+                                print(f"            📊 Tensor {tensor_count} (List item {j}):")
+                                _print_tensor_info(list_item, memory, indent="               ")
                             elif isinstance(list_item, (int, float, str)):
-                                print(f"              Item {j}: {type(list_item).__name__} = {list_item}")
+                                print(f"            Item {j}: {type(list_item).__name__} = {list_item}")
                                 if j >= 2:  # Limit output for long lists
-                                    print(f"              ... (and {len(value) - j - 1} more items)")
+                                    print(f"            ... (and {len(value) - j - 1} more items)")
                                     break
                     elif value is None:
-                        print(f"            -> None")
+                        print(f"         -> None")
                     else:
-                        print(f"            -> {type(value).__name__}")
+                        print(f"         -> {type(value).__name__}")
             else:
-                print(f"          Item {i}: {type(item).__name__}")
+                print(f"   Item {i}: {type(item).__name__}")
     
     elif isinstance(conditioning, dict):
-        print(f"      Type: dict")
-        print(f"      Dict keys: {list(conditioning.keys())}")
+        print(f"   Type: dict")
+        print(f"   Dict keys: {list(conditioning.keys())}")
         # Similar analysis for dict case...
     
     else:
-        print(f"      Type: {type(conditioning).__name__}")
+        print(f"   Type: {type(conditioning).__name__}")
     
-    print(f"      Total tensors found: {tensor_count}")
-    print(f"      Total memory: {total_memory / (1024**2):.2f} MB")
+    print(f"   📊 Total tensors found: {tensor_count}")
+    print(f"   📊 Total memory: {total_memory / (1024**2):.2f} MB")
     
     if tensor_count == 3:  # Expected: text + VACE frames + VACE mask
-        print(f"      ✅ VERIFIED: 3 tensors found (text + VACE frames + VACE mask)")
+        print(f"   ✅ VERIFIED: 3 tensors found (text + VACE frames + VACE mask)")
     else:
-        print(f"      ⚠️  Expected 3 tensors, found {tensor_count}")
+        print(f"   ⚠️  Expected 3 tensors, found {tensor_count}")
     
     return tensor_count, total_memory
 
 def _analyze_latent_image(latent_image):
-    """Analyze latent image structure"""
+    """Analyze latent image structure with enhanced tensor information"""
     tensor_count = 0
     total_memory = 0
     
     if isinstance(latent_image, dict):
-        print(f"      Type: dict")
-        print(f"      Dict keys: {list(latent_image.keys())}")
+        print(f"   Type: dict")
+        print(f"   Dict keys: {list(latent_image.keys())}")
         
         if 'samples' in latent_image:
             samples = latent_image['samples']
-            print(f"      Samples type: {type(samples).__name__}")
+            print(f"   Samples type: {type(samples).__name__}")
             
             if hasattr(samples, 'shape'):
                 tensor_count = 1
                 memory = _get_tensor_memory(samples)
                 total_memory = memory
                 
+                print(f"   📊 Latent Image Tensor:")
                 _print_tensor_info(samples, memory, indent="      ")
     
     elif hasattr(latent_image, 'shape'):
-        print(f"      Type: Tensor")
+        print(f"   Type: Tensor")
         tensor_count = 1
         memory = _get_tensor_memory(latent_image)
         total_memory = memory
         
+        print(f"   📊 Latent Image Tensor:")
         _print_tensor_info(latent_image, memory, indent="      ")
     
     else:
-        print(f"      Type: {type(latent_image).__name__}")
+        print(f"   Type: {type(latent_image).__name__}")
     
     return tensor_count, total_memory
 
 def _print_tensor_info(tensor, memory, indent=""):
-    """Print detailed tensor information"""
+    """Print detailed tensor information with enhanced analysis"""
     print(f"{indent}Shape: {tensor.shape}")
     print(f"{indent}Dtype: {tensor.dtype}")
     print(f"{indent}Device: {tensor.device}")
@@ -191,12 +199,29 @@ def _print_tensor_info(tensor, memory, indent=""):
     min_val = tensor.min().item()
     max_val = tensor.max().item()
     mean_val = tensor.mean().item()
-    print(f"{indent}Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
+    std_val = tensor.std().item()
+    print(f"{indent}Range: [{min_val:.6f}, {max_val:.6f}]")
+    print(f"{indent}Mean: {mean_val:.6f}")
+    print(f"{indent}Std: {std_val:.6f}")
     
     # Get first 5 values (flattened)
     flat_tensor = tensor.flatten()
-    first_values = [f"{flat_tensor[i].item():.4f}" for i in range(min(5, len(flat_tensor)))]
-    print(f"{indent}First 5 values: {first_values}")
+    first_values = [f"{flat_tensor[i].item():.6f}" for i in range(min(5, len(flat_tensor)))]
+    print(f"{indent}First 5 elements: {first_values}")
+    
+    # Additional analysis for specific tensor types
+    if len(tensor.shape) >= 2:
+        print(f"{indent}Num elements: {tensor.numel()}")
+        if len(tensor.shape) == 3 and tensor.shape[1] == 77:  # CLIP text embedding
+            print(f"{indent}Type: CLIP Text Embedding (77 tokens)")
+        elif len(tensor.shape) == 5 and tensor.shape[1] == 32:  # VACE frames
+            print(f"{indent}Type: VACE Frames (32 channels)")
+        elif len(tensor.shape) == 5 and tensor.shape[1] == 16:  # Video latent
+            print(f"{indent}Type: Video Latent (16 channels)")
+        elif len(tensor.shape) == 5 and tensor.shape[1] == 64:  # Mask
+            print(f"{indent}Type: VACE Mask (64 channels)")
+    
+    print(f"{indent}{'='*50}")
 
 def _get_tensor_memory(tensor):
     """Calculate tensor memory usage in bytes"""
@@ -662,73 +687,7 @@ class WanVideoPipeline:
             }
         ]
         
-        # DETAILED VACE_FRAMES ANALYSIS: Print tensor details for positive and negative conditioning
-        print(f"\n📊 VACE_FRAMES TENSOR ANALYSIS (control_video_latent):")
-        print("=" * 70)
-        
-        # Extract vace_frames tensor from positive conditioning
-        positive_vace_frames = positive[1]["vace_frames"][0]  # Get the tensor from the list
-        negative_vace_frames = negative[1]["vace_frames"][0]  # Get the tensor from the list
-        
-        # Verify both are the same tensor (they should be)
-        are_same_tensor = positive_vace_frames is negative_vace_frames
-        print(f"🔍 Tensor Identity Check: {'✅ SAME TENSOR' if are_same_tensor else '❌ DIFFERENT TENSORS'}")
-        
-        # Print detailed tensor information
-        print(f"\n📋 POSITIVE CONDITIONING VACE_FRAMES:")
-        print(f"   Shape: {positive_vace_frames.shape}")
-        print(f"   Dtype: {positive_vace_frames.dtype}")
-        print(f"   Device: {positive_vace_frames.device}")
-        print(f"   Mean: {positive_vace_frames.mean().item():.6f}")
-        print(f"   Range: [{positive_vace_frames.min().item():.6f}, {positive_vace_frames.max().item():.6f}]")
-        print(f"   Std: {positive_vace_frames.std().item():.6f}")
-        
-        # Get first 5 values (flattened)
-        flat_positive = positive_vace_frames.flatten()
-        first_5_positive = [f"{flat_positive[i].item():.6f}" for i in range(min(5, len(flat_positive)))]
-        print(f"   First 5 elements: {first_5_positive}")
-        
-        print(f"\n📋 NEGATIVE CONDITIONING VACE_FRAMES:")
-        print(f"   Shape: {negative_vace_frames.shape}")
-        print(f"   Dtype: {negative_vace_frames.dtype}")
-        print(f"   Device: {negative_vace_frames.device}")
-        print(f"   Mean: {negative_vace_frames.mean().item():.6f}")
-        print(f"   Range: [{negative_vace_frames.min().item():.6f}, {negative_vace_frames.max().item():.6f}]")
-        print(f"   Std: {negative_vace_frames.std().item():.6f}")
-        
-        # Get first 5 values (flattened)
-        flat_negative = negative_vace_frames.flatten()
-        first_5_negative = [f"{flat_negative[i].item():.6f}" for i in range(min(5, len(flat_negative)))]
-        print(f"   First 5 elements: {first_5_negative}")
-        
-        # Channel analysis (if tensor has channel dimension)
-        if len(positive_vace_frames.shape) >= 2:
-            channels = positive_vace_frames.shape[1]
-            print(f"\n📊 CHANNEL ANALYSIS (32 channels total):")
-            print(f"   Total Channels: {channels}")
-            print(f"   Channels 0-15: Inactive video latent")
-            print(f"   Channels 16-31: Reactive video latent")
-            
-            # Analyze first few channels
-            for i in range(min(4, channels)):
-                channel_data = positive_vace_frames[0, i, :, :, :]  # Get channel i
-                print(f"   Channel {i}: Mean={channel_data.mean().item():.6f}, Range=[{channel_data.min().item():.6f}, {channel_data.max().item():.6f}]")
-            
-            if channels > 4:
-                print(f"   ... (and {channels - 4} more channels)")
-        
-        # Temporal analysis (if tensor has temporal dimension)
-        if len(positive_vace_frames.shape) >= 3:
-            temporal_frames = positive_vace_frames.shape[2]
-            print(f"\n📊 TEMPORAL ANALYSIS:")
-            print(f"   Total Frames: {temporal_frames}")
-            if reference_image is not None:
-                print(f"   Frame 0: Reference image latent")
-                print(f"   Frames 1-{temporal_frames-1}: Control video latent")
-        else:
-                print(f"   Frames 0-{temporal_frames-1}: Control video latent")
-        
-        print("=" * 70)
+
         
         # Mark step complete and return results
         self.step_completed[1] = True
@@ -1378,6 +1337,41 @@ class WanVideoPipeline:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             
+            # DETAILED STEP 4 OUTPUT ANALYSIS
+            print(f"\n📊 STEP 4 OUTPUT ANALYSIS:")
+            print("="*70)
+            
+            # Analyze denoised latent
+            print(f"🎯 DENOISED LATENT (Main Output):")
+            denoised_memory = _get_tensor_memory(denoised_latent)
+            _print_tensor_info(denoised_latent, denoised_memory, indent="   ")
+            
+            # Analyze noise tensor
+            print(f"🎲 NOISE TENSOR:")
+            noise_memory = _get_tensor_memory(noise)
+            _print_tensor_info(noise, noise_memory, indent="   ")
+            
+            # Compare input vs output
+            print(f"🔄 INPUT vs OUTPUT COMPARISON:")
+            print(f"   Input latent shape: {initial_latent.shape}")
+            print(f"   Output latent shape: {denoised_latent.shape}")
+            print(f"   Shape match: {'✅ YES' if initial_latent.shape == denoised_latent.shape else '❌ NO'}")
+            print(f"   Input mean: {initial_latent.mean().item():.6f}")
+            print(f"   Output mean: {denoised_latent.mean().item():.6f}")
+            print(f"   Input range: [{initial_latent.min().item():.6f}, {initial_latent.max().item():.6f}]")
+            print(f"   Output range: [{denoised_latent.min().item():.6f}, {denoised_latent.max().item():.6f}]")
+            print(f"   Input std: {initial_latent.std().item():.6f}")
+            print(f"   Output std: {denoised_latent.std().item():.6f}")
+            
+            # Calculate difference
+            if initial_latent.shape == denoised_latent.shape:
+                diff = torch.abs(denoised_latent - initial_latent)
+                print(f"   Mean absolute difference: {diff.mean().item():.6f}")
+                print(f"   Max absolute difference: {diff.max().item():.6f}")
+                print(f"   Significant change: {'✅ YES' if diff.mean().item() > 0.001 else '❌ NO'}")
+            
+            print("="*70)
+            
             # Create results
             step_4_results = {
                 'denoised_latent': denoised_latent,
@@ -1395,6 +1389,15 @@ class WanVideoPipeline:
                 'timing': {
                     'denoising': denoising_time,
                     'total_step_time': time.time() - step_4_start
+                },
+                'analysis': {
+                    'input_shape': initial_latent.shape,
+                    'output_shape': denoised_latent.shape,
+                    'input_mean': initial_latent.mean().item(),
+                    'output_mean': denoised_latent.mean().item(),
+                    'input_std': initial_latent.std().item(),
+                    'output_std': denoised_latent.std().item(),
+                    'shape_match': initial_latent.shape == denoised_latent.shape
                 }
             }
             
