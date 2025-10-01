@@ -467,15 +467,15 @@ class WanVideoPipeline:
                     control_video[:length].movedim(-1, 1), 
                     width, height, "bilinear", "center"
                 ).movedim(1, -1)
-                
-                # Use ComfyUI's padding method (exact match to WanVaceToVideo)
-            if control_video.shape[0] < length:
+                if control_video.shape[0] < length:
                     control_video = torch.nn.functional.pad(
                         control_video, (0, 0, 0, 0, 0, 0, 0, length - control_video.shape[0]), 
                         value=0.5
                     )
             else:
                 control_video = torch.ones((length, height, width, 3)) * 0.5
+                
+       
             
             # Continue with encoding
             return self._step_1_continue_encoding(control_video, reference_image, 
@@ -492,10 +492,10 @@ class WanVideoPipeline:
         """Continue Step 1 VAE encoding process - exact mirror of ComfyUI WanVaceToVideo"""
         
         # Calculate latent dimensions first (needed for debug output)
-        vae_stride = 8
-        latent_height = height // vae_stride
-        latent_width = width // vae_stride
-        latent_length = ((length - 1) // 4) + 1
+        # vae_stride = 8
+        # latent_height = height // vae_stride
+        # latent_width = width // vae_stride
+        # latent_length = ((length - 1) // 4) + 1
         
         # Process reference image FIRST (exact match to ComfyUI WanVaceToVideo)
         if reference_image is not None:
@@ -529,62 +529,19 @@ class WanVideoPipeline:
         inactive = (control_video * (1 - mask)) + 0.5
         reactive = (control_video * mask) + 0.5
         
-        print(f"🔍 CONTROL VIDEO PROCESSING DEBUG:")
-        print(f"   Centered control_video range: [{control_video.min().item():.6f}, {control_video.max().item():.6f}]")
-        print(f"   Centered control_video mean: {control_video.mean().item():.6f}")
-        print(f"   Centered control_video std: {control_video.std().item():.6f}")
-        print(f"   Inactive tensor range: [{inactive.min().item():.6f}, {inactive.max().item():.6f}]")
-        print(f"   Inactive tensor mean: {inactive.mean().item():.6f}")
-        print(f"   Inactive tensor std: {inactive.std().item():.6f}")
-        print(f"   Reactive tensor range: [{reactive.min().item():.6f}, {reactive.max().item():.6f}]")
-        print(f"   Reactive tensor mean: {reactive.mean().item():.6f}")
-        print(f"   Reactive tensor std: {reactive.std().item():.6f}")
-        print()
         
         # VAE encoding of control video (exact match to ComfyUI - pass same range)
         with torch.no_grad():
             # GPU Monitoring: Check initial GPU state
             self._log_gpu_state("BEFORE VAE ENCODING")
-            
-            # DEBUG: Print tensor info before VAE encoding
-            print(f"🔍 CONTROL VIDEO TENSORS BEFORE VAE ENCODING:")
-            print(f"   Inactive tensor:")
-            print(f"     Shape: {inactive[:, :, :, :3].shape}")
-            print(f"     Dtype: {inactive[:, :, :, :3].dtype}")
-            print(f"     Device: {inactive[:, :, :, :3].device}")
-            print(f"     Mean: {inactive[:, :, :, :3].mean().item():.6f}")
-            print(f"     Min: {inactive[:, :, :, :3].min().item():.6f}")
-            print(f"     Max: {inactive[:, :, :, :3].max().item():.6f}")
-            print(f"     Range: [{inactive[:, :, :, :3].min().item():.6f}, {inactive[:, :, :, :3].max().item():.6f}]")
-            print(f"     Std: {inactive[:, :, :, :3].std().item():.6f}")
-            print()
-            
-            print(f"   Reactive tensor:")
-            print(f"     Shape: {reactive[:, :, :, :3].shape}")
-            print(f"     Dtype: {reactive[:, :, :, :3].dtype}")
-            print(f"     Device: {reactive[:, :, :, :3].device}")
-            print(f"     Mean: {reactive[:, :, :, :3].mean().item():.6f}")
-            print(f"     Min: {reactive[:, :, :, :3].min().item():.6f}")
-            print(f"     Max: {reactive[:, :, :, :3].max().item():.6f}")
-            print(f"     Range: [{reactive[:, :, :, :3].min().item():.6f}, {reactive[:, :, :, :3].max().item():.6f}]")
-            print(f"     Std: {reactive[:, :, :, :3].std().item():.6f}")
-            print()
-            
+          
             # Device verification: Ensure VAE model is on GPU
             self._verify_vae_device()
             
             # CRITICAL FIX: Use 4D tensor encoding like ComfyUI WanVaceToVideo
             # ComfyUI uses: vae.encode(inactive[:, :, :, :3]) directly
             # Use 4D tensor encoding to match ComfyUI exactly
-            
-            # DEBUG: Print tensor shapes before VAE encoding
-            print(f"🔍 TENSOR SHAPES BEFORE VAE ENCODING:")
-            print(f"   inactive[:, :, :, :3].shape: {inactive[:, :, :, :3].shape}")
-            print(f"   reactive[:, :, :, :3].shape: {reactive[:, :, :, :3].shape}")
-            print(f"   Expected after encoding: [1, 16, {latent_length}, {height//8}, {width//8}]")
-            print(f"   Using 4D tensor encoding like ComfyUI WanVaceToVideo")
-            print()
-            
+  
             inactive_latent = self.vae.encode(inactive[:, :, :, :3])
             
             # GPU Monitoring: Check GPU state after first encode
@@ -594,19 +551,15 @@ class WanVideoPipeline:
             
             # GPU Monitoring: Check GPU state after second encode
             self._log_gpu_state("AFTER REACTIVE VAE ENCODE")
-            
-            control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
-            
-            # DEBUG: Print control video latent shape after concatenation
-            print(f"🔍 CONTROL VIDEO LATENT AFTER CONCATENATION:")
-            print(f"   Shape: {control_video_latent.shape}")
-            print(f"   Expected: [1, 32, {latent_length}, {height//8}, {width//8}]")
-            print(f"   Match: {'✅ YES' if control_video_latent.shape == (1, 32, latent_length, height//8, width//8) else '❌ NO'}")
-            print()
         
-        # Concatenate reference image with control video latent (exact match to ComfyUI)
+        control_video_latent = torch.cat((inactive_latent, reactive_latent), dim=1)
+       
         if reference_image is not None:
             control_video_latent = torch.cat((reference_image, control_video_latent), dim=2)
+
+        # Create control mask using Com
+
+        
         
         # DEBUG: Print final latent shape
         print(f"🔍 FINAL LATENT SHAPE:")
@@ -659,13 +612,14 @@ class WanVideoPipeline:
         print("=" * 60)
         
         # Create control mask in latent space using ComfyUI-compatible method (exact match to WanVaceToVideo)
+        vae_stride = 8
+
         height_mask = height // vae_stride
         width_mask = width // vae_stride
         
         mask_latent = mask.view(length, height_mask, vae_stride, width_mask, vae_stride)
         mask_latent = mask_latent.permute(2, 4, 0, 1, 3)
         mask_latent = mask_latent.reshape(vae_stride * vae_stride, length, height_mask, width_mask)
-        
         # Interpolate mask to latent temporal resolution using ComfyUI method
         mask_latent = torch.nn.functional.interpolate(
             mask_latent.unsqueeze(0), 
