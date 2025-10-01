@@ -517,10 +517,10 @@ class WanVideoPipeline:
         """Continue Step 1 VAE encoding process - exact mirror of ComfyUI WanVaceToVideo"""
         
         # Calculate latent dimensions first (needed for debug output)
-        # vae_stride = 8
-        # latent_height = height // vae_stride
-        # latent_width = width // vae_stride
-        # latent_length = ((length - 1) // 4) + 1
+        vae_stride = 8
+        latent_height = height // vae_stride
+        latent_width = width // vae_stride
+        latent_length = ((length - 1) // 4) + 1
         
         # Process reference image FIRST (exact match to ComfyUI WanVaceToVideo)
         if reference_image is not None:
