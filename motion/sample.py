@@ -77,14 +77,32 @@ def fix_empty_latent_channels(model, latent_image):
     """
     try:
         # Try to get latent format from model
+        latent_format = None
+        
         if hasattr(model, 'get_model_object'):
-            latent_format = model.get_model_object("latent_format")
+            try:
+                latent_format = model.get_model_object("latent_format")
+            except:
+                pass
         elif hasattr(model, 'model') and hasattr(model.model, 'latent_format'):
             latent_format = model.model.latent_format
-        else:
-            # Fallback: assume standard latent format
-            logger.warning("Could not get latent_format from model, using fallback")
-            return latent_image
+        elif hasattr(model, 'latent_format'):
+            latent_format = model.latent_format
+        elif hasattr(model, '_latent_format'):
+            latent_format = model._latent_format
+        
+        if latent_format is None:
+            # Special handling for PureVaceWanModel and similar models
+            if hasattr(model, '__class__') and 'Vace' in model.__class__.__name__:
+                # Assume WAN format: 16 channels, 3D latent
+                latent_format = type('LatentFormat', (), {
+                    'latent_channels': 16,
+                    'latent_dimensions': 3
+                })()
+            else:
+                # Fallback: assume standard latent format
+                logger.warning("Could not get latent_format from model, using fallback")
+                return latent_image
             
         # Fix channel count if needed
         if latent_format.latent_channels != latent_image.shape[1] and torch.count_nonzero(latent_image) == 0:

@@ -1,0 +1,243 @@
+STEP 4 KSAMPLER COMPREHENSIVE TESTING PLAN
+=============================================
+
+PURPOSE: Systematic testing of Step 4 K-Sampling components with dependency-first approach
+
+GUIDING PRINCIPLE: Test independent components first, then dependencies, then integrations
+REASONING: Isolates failures, enables faster debugging, validates prerequisites
+
+================================================================================
+
+PHASE 1: INDEPENDENT COMPONENTS TESTING (No External Dependencies)
+==================================================================
+
+1.1 INPUT VALIDATION PIPELINE
+------------------------------
+Status: Ready for testing
+Priority: HIGH
+Components:
+├─ analyze_ksampler_inputs() - Analyzes conditioning structure and tensor properties
+├─ fix_empty_latent_channels() - Corrects latent tensor channel count for model compatibility
+└─ prepare_noise() - Generates reproducible random noise for sampling
+
+Test Strategy:
+- Mock data inputs
+- Validate tensor shapes, devices, memory usage
+- Test edge cases (malformed inputs, device mismatches)
+
+Expected Outcome: All input processing functions work with mock data
+
+1.2 SCHEDULER LOGIC TESTING  
+---------------------------
+Status: Ready for testing
+Priority: HIGH (Core mathematical component)
+Components:
+├─ simple_scheduler() - Linear noise scheduling algorithm
+├─ ddim_scheduler() - DDIM uniform timestep scheduling algorithm
+└─ calculate_sigmas() - Master sigmas calculation function
+
+Test Strategy:
+- Create mock model_sampling with sigmas attribute
+- Test with different step counts (1, 4, 8, 20)
+- Validate sigma schedules: decreasing order, proper range
+- Test scheduler selection logic
+
+Expected Outcome: All schedulers produce valid sigma schedules
+Validation: DDIM produces uniform distribution, Simple produces linear decay
+
+================================================================================
+
+PHASE 2: MODEL INTEGRATION TESTING (Single Dependency: Model Interface)
+=======================================================================
+
+2.1 MODEL INTERFACE TESTING
+----------------------------
+Status: REQUIRED before CFG testing
+Priority: HIGH (Prerequisite for CFG)
+Components:
+├─ Direct model calling - model(x, timestep, conditioning)
+├─ Device management - Ensure model on correct device
+└─ Model wrapper testing - ModelPatcher compatibility
+
+Test Strategy:
+- Create mock model with forward() method
+- Test calling patterns: model(x, timestep), model(x, timestep, cond)
+- Test device consistency
+- Test with both tensor inputs and conditioning dictionaries
+
+Expected Outcome: Model interface works reliably
+Validation: Model calls return expected shapes, devices match
+
+2.2 CFG GUIDANCE TESTING (with known-good model)
+-------------------------------------------------
+Status: Depends on 2.1
+Priority: HIGH (Core CFG mathematics)
+Components:
+├─ sampling_function() - Core CFG sampling function (ComfyUI compatible)
+├─ cfg_function() - Applies CFG guidance to model predictions
+└─ CFGGuider class - Full CFG implementation
+
+Test Strategy:
+- Use mock model from 2.1
+- Test CFG math: result = uncond + (cond - uncond) * cfg_scale
+- Test different CFG scales: 1.0, 7.0, 12.0, 20.0
+- Test CFG edge cases: scale=1.0 (no guidance), scale=20.0 (strong guidance)
+- Verify conditioning format handling
+
+Expected Outcome: CFG calculations are mathematically correct
+Validation: CFG=1.0 gives unconditional result, CFG>1.0 amplifies conditional
+
+================================================================================
+
+PHASE 3: SAMPLER INTEGRATION TESTING (Multiple Dependencies)
+=============================================================
+
+3.1 EULER SAMPLER TESTING (with scheduler + CFG + model)
+----------------------------------------------------------
+Status: Depends on Phase 1 + 2
+Priority: HIGH (Core sampling algorithm)
+Components:
+├─ EulerSampler.sample() - Euler integration sampling algorithm
+├─ Step-by-step denoising - Individual denoising steps
+├─ Convergence verification - Numerical accuracy checks
+└─ Sigma utilization - Proper sigma schedule usage
+
+Test Strategy:
+- Use schedulers from Phase 1
+- Use CFG and model from Phase 2
+- Test step-by-step: x_new = x + Δt * direction
+- Test convergence: noise should reduce over steps
+- Verify sigma usage: each step uses correct σ value from scheduler
+
+Expected Outcome: Euler sampler converges correctly
+Validation: Final result is less noisy than input, follows sigma schedule
+
+3.2 DPMSOLVER SAMPLER TESTING (Alternative algorithm)
+------------------------------------------------------
+Status: Depends on Phase 1 + 2
+Priority: MEDIUM (Alternative sampler)
+Components:
+├─ DPMSolverSampler.sample() - Higher-order sampling algorithm
+├─ Linear combination logic - Improved accuracy calculations
+└─ Convergence comparison - Versus Euler sampler
+
+Test Strategy:
+- Use same setup as Euler testing
+- Test second-order accuracy improvements
+- Compare convergence speed vs Euler
+- Test edge cases and numerical stability
+
+Expected Outcome: DPM-Solver produces similar results to Euler but potentially faster
+Validation: Results match Euler but may converge in fewer steps
+
+================================================================================
+
+PHASE 4: END-TO-END INTEGRATION TESTING
+=======================================
+
+4.1 COMPLETE K-SAMPLER INTEGRATION
+-----------------------------------
+Status: Depends on all previous phases
+Priority: HIGH (Full system validation)
+Components:
+├─ StandaloneKSampler.__init__() - Complete KSampler initialization
+├─ StandaloneKSampler.sample() - Full sampling orchestration
+├─ Memory management - GPU memory handling and cleanup
+└─ Error handling - Comprehensive error recovery
+
+Test Strategy:
+- Test with real pipeline data
+- Test various parameter combinations
+- Test memory efficiency and cleanup
+- Test error scenarios and recovery
+
+Expected Outcome: Complete Step 4 K-Sampling works reliably
+Validation: Produces valid denoised latents ready for VAE decoding
+
+4.2 PERFORMANCE AND ROBUSTNESS TESTING
+---------------------------------------
+Status: Final validation
+Priority: MEDIUM (Optimization phase)
+Components:
+├─ Memory efficiency testing
+├─ Batch size optimization
+├─ Device management verification
+└─ Error recovery testing
+
+Test Strategy:
+- Large tensor testing
+- Memory leak detection
+- Performance benchmarking
+- Stress testing with edge cases
+
+Expected Outcome: System is production-ready
+Validation: Stable performance, efficient memory usage
+
+================================================================================
+
+TESTING METHODOLOGY AND BEST PRACTICES
+=======================================
+
+IMPLEMENTATION APPROACH:
+- Test one component at a time
+- Use mock data/models when possible
+- Validate prerequisites before testing dependents
+- Keep tests isolated and repeatable
+
+MOCK DATA STRATEGY:
+- Use tensor.randn() for realistic patterns
+- Fixed seeds for reproducibility
+- Appropriate shapes: [B, C, T, H, W] for video latents
+- Mean=0, std=1 for realistic noise
+
+VALIDATION CHECKPOINTS:
+- Phase 1: All algorithms work with mock data
+- Phase 2: Model interface reliable, CFG math correct
+- Phase 3: Samplers converge and produce valid results
+- Phase 4: Complete pipeline produces production-quality output
+
+ERROR HANDLING STRATEGY:
+- Catch and log specific errors
+- Identify whether failures are algorithmic or implementation
+- Provide clear debugging information
+- Suggest fixes for common issues
+
+================================================================================
+
+EXPECTED TIMELINE AND PRIORITIES
+=================================
+
+CRITICAL PATH (Must Complete):
+1. Phase 1.2: Scheduler Testing (1 day) - Core algorithm validation
+2. Phase 2.1: Model Interface Testing (1 day) - Prerequisite validation
+3. Phase 2.2: CFG Testing (1 day) - Core CFG mathematics
+4. Phase 3.1: Euler Sampler Testing (1 day) - Core sampling algorithm
+5. Phase 4.1: Complete Integration Testing (1 day) - End-to-end validation
+
+OPTIONAL ENHANCEMENTS:
+6. Phase 1.1: Input Validation (if issues arise)
+7. Phase 3.2: DPM-Solver Testing (for optimization)
+8. Phase 4.2: Performance Testing (for optimization)
+
+TOTAL EFORT: 5 days for critical path, +2-3 days for comprehensive coverage
+
+================================================================================
+
+SUCCESS CRITERIA
+================
+
+PHASE 1 SUCCESS: All algorithms produce mathematically correct results with mock data
+PHASE 2 SUCCESS: Model calling works reliably, CFG calculations are accurate
+PHASE 3 SUCCESS: Samplers converge and produce valid denoised latents
+PHASE 4 SUCCESS: Complete Step 4 pipeline produces production-ready output
+
+Overall Success: Step 4 K-Sampling is reliable, accurate, and integrated with the motion pipeline
+
+================================================================================
+
+NOTES:
+- This plan addresses the original user's insight (scheduler → CFG → sampler) while adding essential prerequisites
+- Model interface testing is critical - CFG cannot be tested without a working model
+- Each phase builds on the previous, ensuring dependencies are validated
+- Focus on mathematical correctness first, then integration complexity
+- Plan enables systematic debugging by isolating component failures

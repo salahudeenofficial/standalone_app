@@ -532,11 +532,21 @@ class StandaloneCFGGuider:
                     self.inner_model = self.model_patcher
             
             # Use ComfyUI's sampling function
+            # Extract conditioning from the stored format
+            pos_cond = self.conds.get("positive", None)
+            neg_cond = self.conds.get("negative", None)
+            
+            # Convert conditioning format for sampling_function
+            # sampling_function expects individual conditioning, not list format
+            if isinstance(pos_cond, list) and len(pos_cond) > 0:
+                pos_cond = pos_cond[0]  # Extract first tensor
+            
+            if isinstance(neg_cond, list) and len(neg_cond) > 0:
+                neg_cond = neg_cond[0]  # Extract first tensor
+            
             noise_pred = sampling_function(
                 self.inner_model, x, timestep,
-                self.conds.get("negative", None),
-                self.conds.get("positive", None),
-                self.cfg, model_options=merged_options, seed=seed
+                neg_cond, pos_cond, self.cfg, model_options=merged_options, seed=seed
             )
             
         except Exception as e:
@@ -1216,6 +1226,7 @@ class StandaloneSchedulers:
     # Scheduler registry
     SCHEDULERS = {
         "simple": simple_scheduler.__func__,
+        "normal": simple_scheduler.__func__,  # Alias for simple
         "ddim_uniform": ddim_scheduler.__func__, 
         "karras": karras_scheduler.__func__,
         "exponential": exponential_scheduler.__func__
