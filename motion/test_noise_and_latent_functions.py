@@ -9,7 +9,7 @@ This script tests both functions with:
 3. Comprehensive validation and error handling
 
 Usage:
-    python test_noise_and_latent_functions.py
+    cd motion && python test_noise_and_latent_functions.py
 
 Requirements:
     - Motion pipeline must be properly configured
@@ -23,10 +23,7 @@ import numpy as np
 import time
 from pathlib import Path
 
-    # Add motion pipeline to path
-sys.path.insert(0, str(Path(__file__).parent / "motion"))
-
-# Import motion pipeline modules
+# Import motion pipeline modules (already in motion directory)
 from sample import prepare_noise, fix_empty_latent_channels
 from pipeline import WanVideoPipeline
 from standalone_sd import load_state_dict_guess_config
@@ -241,9 +238,9 @@ def load_vace_unet_model():
     print("=" * 50)
     
     try:
-        # Model paths
-        unet_model_path = "/home/fashionx/v_pipe/standalone_app/motion/models/diffusion_models/wan_2.1_diffusion_model.safetensors"
-        clip_model_path = "/home/fashionx/v_pipe/standalone_app/motion/models/text_encoders/wan_clip_model.safetensors"
+        # Model paths (relative to motion directory)
+        unet_model_path = "models/diffusion_models/wan_2.1_diffusion_model.safetensors"
+        clip_model_path = "models/text_encoders/wan_clip_model.safetensors"
         
         # Check if models exist
         missing_models = []
