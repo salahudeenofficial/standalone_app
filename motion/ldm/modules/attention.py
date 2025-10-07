@@ -615,7 +615,7 @@ elif xformers_enabled():
 elif flash_attention_enabled():
     logging.info("Using Flash Attention")
     optimized_attention = attention_flash
-elif model_management.pytorch_attention_enabled():
+elif pytorch_attention_enabled():
     logging.info("Using pytorch attention")
     optimized_attention = attention_pytorch
 else:
@@ -630,7 +630,7 @@ optimized_attention_masked = optimized_attention
 
 def optimized_attention_for_device(device, mask=False, small_input=False):
     if small_input:
-        if model_management.pytorch_attention_enabled():
+        if pytorch_attention_enabled():
             return attention_pytorch #TODO: need to confirm but this is probably slightly faster for small inputs in all cases
         else:
             return attention_basic
