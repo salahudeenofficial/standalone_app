@@ -562,12 +562,14 @@ class CLIPLoader:
         self.device = device
 
     def load_clip(self):
+        clip_type = getattr(motion.standalone_sd.CLIPType, type.upper(), motion.standalone_sd.CLIPType.STABLE_DIFFUSION)
+
         clip_path = os.path.join("./models/text_encoders", self.clip_name)
         print(clip_path)
         if not os.path.exists(clip_path):
             raise FileNotFoundError(f"CLIP model not found: {clip_path}")
-        wan_clip = motion.standalone_sd.load_clip([clip_path])
-        clip = wan_clip.load_model()
+        model_options = {}
+        clip = motion.standalone_sd.load_clip([clip_path], clip_type=clip_type, model_options=model_options)
         return clip
 class CLIPTextEncode:
     def __init__(self,clip):

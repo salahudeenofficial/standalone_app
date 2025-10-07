@@ -274,7 +274,7 @@ def main():
     #     traceback.print_exc()
     #     return None
     from motion.comps import CLIPLoader,CLIPTextEncode
-    clip = CLIPLoader("wan_clip_model.safetensors",type=13).load_clip()
+    clip = CLIPLoader("wan_clip_model.safetensors").load_clip()
     clip_encode = CLIPTextEncode(clip)
     clip_encode.encode("a beautiful woman")
 
