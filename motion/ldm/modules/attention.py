@@ -13,8 +13,8 @@ from .diffusionmodules.util import AlphaBlender, timestep_embedding
 from .sub_quadratic_attention import efficient_dot_product_attention
 
 # Motion Pipeline External Dependencies (ComfyUI compatible)
-from model_management_standalone import *
-from cli_args import args
+from motion.model_management_standalone import *
+from motion.cli_args import args
 import wan_vae_components.ops
 ops = wan_vae_components.ops.disable_weight_init
 
