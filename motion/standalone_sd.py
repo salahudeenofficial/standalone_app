@@ -635,74 +635,74 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
                 clip_target.clip = sdxl_clip.StableCascadeClipModel
                 clip_target.tokenizer = sdxl_clip.StableCascadeTokenizer
             elif clip_type == CLIPType.SD3:
-                clip_target.clip = comfy.text_encoders.sd3_clip.sd3_clip(clip_l=False, clip_g=True, t5=False)
-                clip_target.tokenizer = comfy.text_encoders.sd3_clip.SD3Tokenizer
+                clip_target.clip = motion.text_encoders.sd3_clip.sd3_clip(clip_l=False, clip_g=True, t5=False)
+                clip_target.tokenizer = motion.text_encoders.sd3_clip.SD3Tokenizer
             elif clip_type == CLIPType.HIDREAM:
-                clip_target.clip = comfy.text_encoders.hidream.hidream_clip(clip_l=False, clip_g=True, t5=False, llama=False, dtype_t5=None, dtype_llama=None, t5xxl_scaled_fp8=None, llama_scaled_fp8=None)
-                clip_target.tokenizer = comfy.text_encoders.hidream.HiDreamTokenizer
+                clip_target.clip = motion.text_encoders.hidream.hidream_clip(clip_l=False, clip_g=True, t5=False, llama=False, dtype_t5=None, dtype_llama=None, t5xxl_scaled_fp8=None, llama_scaled_fp8=None)
+                clip_target.tokenizer = motion.text_encoders.hidream.HiDreamTokenizer
             else:
                 clip_target.clip = sdxl_clip.SDXLRefinerClipModel
                 clip_target.tokenizer = sdxl_clip.SDXLTokenizer
         elif te_model == TEModel.CLIP_H:
-            clip_target.clip = comfy.text_encoders.sd2_clip.SD2ClipModel
-            clip_target.tokenizer = comfy.text_encoders.sd2_clip.SD2Tokenizer
+            clip_target.clip = motion.text_encoders.sd2_clip.SD2ClipModel
+            clip_target.tokenizer = motion.text_encoders.sd2_clip.SD2Tokenizer
         elif te_model == TEModel.T5_XXL:
             if clip_type == CLIPType.SD3:
-                clip_target.clip = comfy.text_encoders.sd3_clip.sd3_clip(clip_l=False, clip_g=False, t5=True, **t5xxl_detect(clip_data))
-                clip_target.tokenizer = comfy.text_encoders.sd3_clip.SD3Tokenizer
+                clip_target.clip = motion.text_encoders.sd3_clip.sd3_clip(clip_l=False, clip_g=False, t5=True, **t5xxl_detect(clip_data))
+                clip_target.tokenizer = motion.text_encoders.sd3_clip.SD3Tokenizer
             elif clip_type == CLIPType.LTXV:
-                clip_target.clip = comfy.text_encoders.lt.ltxv_te(**t5xxl_detect(clip_data))
-                clip_target.tokenizer = comfy.text_encoders.lt.LTXVT5Tokenizer
+                clip_target.clip = motion.text_encoders.lt.ltxv_te(**t5xxl_detect(clip_data))
+                clip_target.tokenizer = motion.text_encoders.lt.LTXVT5Tokenizer
             elif clip_type == CLIPType.PIXART or clip_type == CLIPType.CHROMA:
-                clip_target.clip = comfy.text_encoders.pixart_t5.pixart_te(**t5xxl_detect(clip_data))
-                clip_target.tokenizer = comfy.text_encoders.pixart_t5.PixArtTokenizer
+                clip_target.clip = motion.text_encoders.pixart_t5.pixart_te(**t5xxl_detect(clip_data))
+                clip_target.tokenizer = motion.text_encoders.pixart_t5.PixArtTokenizer
             elif clip_type == CLIPType.WAN:
-                clip_target.clip = comfy.text_encoders.wan.te(**t5xxl_detect(clip_data))
-                clip_target.tokenizer = comfy.text_encoders.wan.WanT5Tokenizer
+                clip_target.clip = motion.text_encoders.wan.te(**t5xxl_detect(clip_data))
+                clip_target.tokenizer = motion.text_encoders.wan.WanT5Tokenizer
                 tokenizer_data["spiece_model"] = clip_data[0].get("spiece_model", None)
             elif clip_type == CLIPType.HIDREAM:
-                clip_target.clip = comfy.text_encoders.hidream.hidream_clip(**t5xxl_detect(clip_data),
+                clip_target.clip = motion.text_encoders.hidream.hidream_clip(**t5xxl_detect(clip_data),
                                                                         clip_l=False, clip_g=False, t5=True, llama=False, dtype_llama=None, llama_scaled_fp8=None)
-                clip_target.tokenizer = comfy.text_encoders.hidream.HiDreamTokenizer
+                clip_target.tokenizer = motion.text_encoders.hidream.HiDreamTokenizer
             else: #CLIPType.MOCHI
-                clip_target.clip = comfy.text_encoders.genmo.mochi_te(**t5xxl_detect(clip_data))
-                clip_target.tokenizer = comfy.text_encoders.genmo.MochiT5Tokenizer
+                clip_target.clip = motion.text_encoders.genmo.mochi_te(**t5xxl_detect(clip_data))
+                clip_target.tokenizer = motion.text_encoders.genmo.MochiT5Tokenizer
         elif te_model == TEModel.T5_XXL_OLD:
-            clip_target.clip = comfy.text_encoders.cosmos.te(**t5xxl_detect(clip_data))
-            clip_target.tokenizer = comfy.text_encoders.cosmos.CosmosT5Tokenizer
+            clip_target.clip = motion.text_encoders.cosmos.te(**t5xxl_detect(clip_data))
+            clip_target.tokenizer = motion.text_encoders.cosmos.CosmosT5Tokenizer
         elif te_model == TEModel.T5_XL:
-            clip_target.clip = comfy.text_encoders.aura_t5.AuraT5Model
-            clip_target.tokenizer = comfy.text_encoders.aura_t5.AuraT5Tokenizer
+            clip_target.clip = motion.text_encoders.aura_t5.AuraT5Model
+            clip_target.tokenizer = motion.text_encoders.aura_t5.AuraT5Tokenizer
         elif te_model == TEModel.T5_BASE:
             if clip_type == CLIPType.ACE or "spiece_model" in clip_data[0]:
-                clip_target.clip = comfy.text_encoders.ace.AceT5Model
-                clip_target.tokenizer = comfy.text_encoders.ace.AceT5Tokenizer
+                clip_target.clip = motion.text_encoders.ace.AceT5Model
+                clip_target.tokenizer = motion.text_encoders.ace.AceT5Tokenizer
                 tokenizer_data["spiece_model"] = clip_data[0].get("spiece_model", None)
             else:
-                clip_target.clip = comfy.text_encoders.sa_t5.SAT5Model
-                clip_target.tokenizer = comfy.text_encoders.sa_t5.SAT5Tokenizer
+                clip_target.clip = motion.text_encoders.sa_t5.SAT5Model
+                clip_target.tokenizer = motion.text_encoders.sa_t5.SAT5Tokenizer
         elif te_model == TEModel.GEMMA_2_2B:
-            clip_target.clip = comfy.text_encoders.lumina2.te(**llama_detect(clip_data))
-            clip_target.tokenizer = comfy.text_encoders.lumina2.LuminaTokenizer
+            clip_target.clip = motion.text_encoders.lumina2.te(**llama_detect(clip_data))
+            clip_target.tokenizer = motion.text_encoders.lumina2.LuminaTokenizer
             tokenizer_data["spiece_model"] = clip_data[0].get("spiece_model", None)
         elif te_model == TEModel.LLAMA3_8:
-            clip_target.clip = comfy.text_encoders.hidream.hidream_clip(**llama_detect(clip_data),
+            clip_target.clip = motion.text_encoders.hidream.hidream_clip(**llama_detect(clip_data),
                                                                         clip_l=False, clip_g=False, t5=False, llama=True, dtype_t5=None, t5xxl_scaled_fp8=None)
-            clip_target.tokenizer = comfy.text_encoders.hidream.HiDreamTokenizer
+            clip_target.tokenizer = motion.text_encoders.hidream.HiDreamTokenizer
         elif te_model == TEModel.QWEN25_3B:
-            clip_target.clip = comfy.text_encoders.omnigen2.te(**llama_detect(clip_data))
-            clip_target.tokenizer = comfy.text_encoders.omnigen2.Omnigen2Tokenizer
+            clip_target.clip = motion.text_encoders.omnigen2.te(**llama_detect(clip_data))
+            clip_target.tokenizer = motion.text_encoders.omnigen2.Omnigen2Tokenizer
         elif te_model == TEModel.QWEN25_7B:
-            clip_target.clip = comfy.text_encoders.qwen_image.te(**llama_detect(clip_data))
-            clip_target.tokenizer = comfy.text_encoders.qwen_image.QwenImageTokenizer
+            clip_target.clip = motion.text_encoders.qwen_image.te(**llama_detect(clip_data))
+            clip_target.tokenizer = motion.text_encoders.qwen_image.QwenImageTokenizer
         else:
             # clip_l
             if clip_type == CLIPType.SD3:
-                clip_target.clip = comfy.text_encoders.sd3_clip.sd3_clip(clip_l=True, clip_g=False, t5=False)
-                clip_target.tokenizer = comfy.text_encoders.sd3_clip.SD3Tokenizer
+                clip_target.clip = motion.text_encoders.sd3_clip.sd3_clip(clip_l=True, clip_g=False, t5=False)
+                clip_target.tokenizer = motion.text_encoders.sd3_clip.SD3Tokenizer
             elif clip_type == CLIPType.HIDREAM:
-                clip_target.clip = comfy.text_encoders.hidream.hidream_clip(clip_l=True, clip_g=False, t5=False, llama=False, dtype_t5=None, dtype_llama=None, t5xxl_scaled_fp8=None, llama_scaled_fp8=None)
-                clip_target.tokenizer = comfy.text_encoders.hidream.HiDreamTokenizer
+                clip_target.clip = motion.text_encoders.hidream.hidream_clip(clip_l=True, clip_g=False, t5=False, llama=False, dtype_t5=None, dtype_llama=None, t5xxl_scaled_fp8=None, llama_scaled_fp8=None)
+                clip_target.tokenizer = motion.text_encoders.hidream.HiDreamTokenizer
             else:
                 clip_target.clip = sd1_clip.SD1ClipModel
                 clip_target.tokenizer = sd1_clip.SD1Tokenizer
