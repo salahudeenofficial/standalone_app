@@ -18,81 +18,6 @@ def step_1_vae_and_latent_creation(vae_model_path: str, positive_prompt: str = "
     print("="*80)
     
     try:
-        # Check if VAE model file exists
-        if not os.path.exists(vae_model_path):
-            print(f"⚠️  VAE model file not found: {vae_model_path}")
-            print("🔧 Creating mock Step 1 results for testing...")
-            
-            # Create mock results for testing
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            
-            # Create mock VACE frames tensor
-            vace_frames = torch.randn(1, 32, 10, 104, 60, device=device, dtype=torch.float32)
-            
-            # Create mock conditioning
-            empty_text_tensor = torch.zeros([1, 77, 4096], device=device, dtype=torch.float32)
-            positive = [
-                empty_text_tensor,
-                {
-                    "pooled_output": None,
-                    "vace_frames": [vace_frames],
-                    "vace_mask": [torch.ones(1, 64, 10, 104, 60, device=device)],
-                    "vace_strength": [strength]
-                }
-            ]
-            
-            negative = [
-                empty_text_tensor,
-                {
-                    "pooled_output": None,
-                    "vace_frames": [vace_frames],
-                    "vace_mask": [torch.ones(1, 64, 10, 104, 60, device=device)],
-                    "vace_strength": [strength]
-                }
-            ]
-            
-            # Create mock output latent
-            latent_height = height // 8
-            latent_width = width // 8
-            latent_length = ((length - 1) // 4) + 1
-            output_latent = torch.zeros([batch_size, 16, latent_length, latent_height, latent_width], 
-                                       device=device, dtype=torch.float32)
-            out_latent = {"samples": output_latent}
-            
-            results = {
-                'positive': positive,
-                'negative': negative,
-                'out_latent': out_latent,
-                'trim_latent': 0,
-                'vae': None,
-                'control_video_latent': vace_frames,
-                'reference_image_latent': None,
-                'control_mask': torch.ones(1, 64, 10, 104, 60, device=device),
-                'strength': strength,
-                'prompts': {
-                    'positive_prompt': positive_prompt,
-                    'negative_prompt': negative_prompt
-                },
-                'latent_dimensions': {
-                    'batch_size': batch_size,
-                    'channels': 16,
-                    'length': latent_length,
-                    'height': latent_height,
-                    'width': latent_width
-                },
-                'vae_info': {
-                    'vae_type': 'MockVAE',
-                    'latent_channels': 16,
-                    'device': str(device),
-                    'dtype': 'torch.float32'
-                },
-                'processing_time': 0.1,
-                'step_completed': True
-            }
-            
-            print(f"✅ STEP 1 COMPLETED SUCCESSFULLY (MOCK MODE)!")
-            return results
-        
         from motion.comps import Initial_latent
         
         initial_latent = Initial_latent()
@@ -123,64 +48,12 @@ def step_2_unet_clip_lora_loading(unet_model_path: str, clip_model_path: str,
     print("="*80)
     
     try:
-        # Check if model files exist
-        if not os.path.exists(unet_model_path) or not os.path.exists(clip_model_path):
-            print(f"⚠️  Model files not found:")
-            print(f"   UNet: {unet_model_path}")
-            print(f"   CLIP: {clip_model_path}")
-            print("🔧 Creating mock Step 2 results for testing...")
-            
-            # Create mock models
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            
-            class MockUNet:
-                def __init__(self):
-                    self.load_device = device
-                    self.offload_device = device
-                    self.patches_uuid = "mock-unet-uuid"
-                
-                def to(self, device):
-                    return self
-                
-                def eval(self):
-                    return self
-            
-            class MockCLIP:
-                def __init__(self):
-                    self.load_device = device
-                    self.offload_device = device
-                    self.patches_uuid = "mock-clip-uuid"
-                
-                def to(self, device):
-                    return self
-                
-                def eval(self):
-                    return self
-            
-            unet = MockUNet()
-            clip = MockCLIP()
-            
-            step_2_results = {
-                'unet': unet,
-                'clip': clip,
-                'lora_applied': False,
-                'model_info': {
-                    'unet_type': 'MockUNet',
-                    'clip_type': 'MockCLIP',
-                    'unet_path': unet_model_path,
-                    'clip_path': clip_model_path
-                }
-            }
-            
-            print(f"✅ STEP 2 COMPLETED SUCCESSFULLY (MOCK MODE)!")
-            return step_2_results
-        
         from motion.comps import UNETLoader
         from motion.standalone_sd import load_wan_clip
         
         # Load UNet
-        unet_loader = UNETLoader(os.path.basename(unet_model_path), "default")
-        unet = unet_loader.load_unet()
+        unet_loader = UNETLoader(os.path.dirname(unet_model_path), "default")
+        unet = unet_loader.load_unet(os.path.basename(unet_model_path), "default")
         
         # Load CLIP
         clip = load_wan_clip(clip_model_path)
@@ -215,45 +88,13 @@ def step_3_model_sampling_and_text_encoding(positive_prompt: str, negative_promp
     print("="*80)
     
     try:
+        from motion.standalone_ksampler import CLIPTextEncode
+        from motion.model_sampling import ModelSamplingSD3
+        
         # Get models from global state (set by step 2)
         global unet_model, clip_model
         if 'unet_model' not in globals() or 'clip_model' not in globals():
-            print("⚠️  Models not available from Step 2, creating mock Step 3 results...")
-            
-            # Create mock conditioning
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            
-            # Create mock text conditioning
-            positive_conditioning = torch.randn(1, 77, 4096, device=device, dtype=torch.float32)
-            negative_conditioning = torch.randn(1, 77, 4096, device=device, dtype=torch.float32)
-            
-            # Combine with VACE conditioning if provided
-            if vace_positive_conditioning is not None and vace_negative_conditioning is not None:
-                positive_conditioning = vace_positive_conditioning.copy()
-                positive_conditioning[0] = positive_conditioning[0] if isinstance(positive_conditioning, list) else positive_conditioning
-                
-                negative_conditioning = vace_negative_conditioning.copy()
-                negative_conditioning[0] = negative_conditioning[0] if isinstance(negative_conditioning, list) else negative_conditioning
-            
-            step_3_results = {
-                'positive_conditioning': positive_conditioning,
-                'negative_conditioning': negative_conditioning,
-                'unet_patched': None,
-                'clip_model': None,
-                'sampling_applied': True,
-                'model_info': {
-                    'shift': shift,
-                    'multiplier': multiplier,
-                    'positive_prompt': positive_prompt,
-                    'negative_prompt': negative_prompt
-                }
-            }
-            
-            print(f"✅ STEP 3 COMPLETED SUCCESSFULLY (MOCK MODE)!")
-            return step_3_results
-        
-        from motion.standalone_ksampler import CLIPTextEncode
-        from motion.model_sampling import ModelSamplingSD3
+            raise RuntimeError("Step 2 must be run before Step 3")
         
         # Apply ModelSamplingSD3
         model_sampling = ModelSamplingSD3()
@@ -300,10 +141,10 @@ def main():
     print("🎬 MOTION PIPELINE - STEPS 1, 2, 3 + STEP 4 INPUT ANALYSIS")
     print("="*80)
     
-    # Model paths - using available dummy models
-    vae_model_path = "/home/fashionx/v_pipe/standalone_app/dummy_vae.safetensors"
-    unet_model_path = "/home/fashionx/v_pipe/standalone_app/dummy_vae.safetensors"  # Using dummy for now
-    clip_model_path = "/home/fashionx/v_pipe/standalone_app/dummy_vae.safetensors"  # Using dummy for now
+    # Model paths
+    vae_model_path = "/home/fashionx/v_pipe/standalone_app/models/wan_2.1_vae.safetensors"
+    unet_model_path = "/home/fashionx/v_pipe/standalone_app/models/diffusion_models/wan_2.1_diffusion_model.safetensors"
+    clip_model_path = "/home/fashionx/v_pipe/standalone_app/models/text_encoders/wan_clip_model.safetensors"
     
     # Prompts
     positive_prompt = "very cinematic video"
