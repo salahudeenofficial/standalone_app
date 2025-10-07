@@ -142,10 +142,9 @@ def main():
     print("="*80)
     
     # Model paths
-    vae_model_path = "/home/fashionx/v_pipe/standalone_app/models/vaes/wan_2.1_vae.safetensors"
-    unet_model_path = "/home/fashionx/v_pipe/standalone_app/models/diffusion_models/wan_2.1_diffusion_model.safetensors"
-    clip_model_path = "/home/fashionx/v_pipe/standalone_app/models/text_encoders/wan_clip_model.safetensors"
-    
+    vae_model_path = "./models/vaes/wan_2.1_vae.safetensors"
+    unet_model_path = "./models/diffusion_models/wan_2.1_diffusion_model.safetensors"
+    clip_model_path = "./models/text_encoders/wan_clip_model.safetensors"
     # Prompts
     positive_prompt = "very cinematic video"
     negative_prompt = "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量"
