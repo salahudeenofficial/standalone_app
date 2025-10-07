@@ -562,7 +562,7 @@ class CLIPLoader:
         self.device = device
 
     def load_clip(self):
-        clip_type = getattr(motion.standalone_sd.CLIPType, type.upper(), motion.standalone_sd.CLIPType.STABLE_DIFFUSION)
+        clip_type = getattr(motion.standalone_sd.CLIPType, self.type.upper(), motion.standalone_sd.CLIPType.STABLE_DIFFUSION)
 
         clip_path = os.path.join("./models/text_encoders", self.clip_name)
         print(clip_path)
