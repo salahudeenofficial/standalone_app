@@ -566,7 +566,7 @@ class CLIPLoader:
         print(clip_path)
         if not os.path.exists(clip_path):
             raise FileNotFoundError(f"CLIP model not found: {clip_path}")
-        wan_clip = motion.standalone_sd.load_clip(clip_path)
+        wan_clip = motion.standalone_sd.load_clip([clip_path])
         clip = wan_clip.load_model()
         return clip
 class CLIPTextEncode:
