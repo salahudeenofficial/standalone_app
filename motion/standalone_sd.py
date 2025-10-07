@@ -629,7 +629,7 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
     if len(clip_data) == 1:
         te_model = detect_te_model(clip_data[0])
         print(te_model)
-        print("loading wan clip")
+        print(clip_type)
         if te_model == TEModel.CLIP_G:
             if clip_type == CLIPType.STABLE_CASCADE:
                 clip_target.clip = sdxl_clip.StableCascadeClipModel
