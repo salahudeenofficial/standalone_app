@@ -15,8 +15,8 @@ from .sub_quadratic_attention import efficient_dot_product_attention
 # Motion Pipeline External Dependencies (ComfyUI compatible)
 from motion.model_management_standalone import *
 from motion.cli_args import args
-import wan_vae_components.ops
-ops = wan_vae_components.ops.disable_weight_init
+import motion.wan_vae_components.ops
+ops = motion.wan_vae_components.ops.disable_weight_init
 
 FORCE_UPCAST_ATTENTION_DTYPE = force_upcast_attention_dtype()
 
