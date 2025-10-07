@@ -710,6 +710,10 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
     for c in clip_data:
         parameters += motion.utils.calculate_parameters(c)
         tokenizer_data, model_options = model_options_long_clip(c, tokenizer_data, model_options)
+        
+        # Extract spiece_model for WAN tokenizer
+        if 'spiece_model' in c:
+            tokenizer_data['spiece_model'] = c['spiece_model']
 
     clip = CLIP(clip_target, embedding_directory=embedding_directory, parameters=parameters, tokenizer_data=tokenizer_data, model_options=model_options)
     for c in clip_data:
