@@ -625,12 +625,8 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
     clip_target = EmptyClass()
     clip_target.params = {}
     if len(clip_data) == 1:
-        te_model = detect_te_model(clip_data[0])
-        if clip_type == CLIPType.WAN:
-            clip_target.clip = motion.text_encoders.wan.te(**t5xxl_detect(clip_data))
-            clip_target.tokenizer = motion.text_encoders.wan.WanT5Tokenizer
-        else:
-            raise ValueError(f"Unsupported clip type: {clip_type}")
+        clip_target.clip = motion.text_encoders.wan.te(**t5xxl_detect(clip_data))
+        clip_target.tokenizer = motion.text_encoders.wan.WanT5Tokenizer
     parameters = 0
     for c in clip_data:
         parameters += motion.utils.calculate_parameters(c)
