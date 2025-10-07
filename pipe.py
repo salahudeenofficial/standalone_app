@@ -52,8 +52,8 @@ def step_2_unet_clip_lora_loading(unet_model_path: str, clip_model_path: str,
         from motion.standalone_sd import load_wan_clip
         
         # Load UNet
-        unet_loader = UNETLoader(os.path.dirname(unet_model_path), "default")
-        unet = unet_loader.load_unet(os.path.basename(unet_model_path), "default")
+        unet_loader = UNETLoader("wan_2.1_diffusion_model.safetensors", "default")
+        unet = unet_loader.load_unet()
         
         # Load CLIP
         clip = load_wan_clip(clip_model_path)
