@@ -461,16 +461,21 @@ def load_embed(embedding_name, embedding_directory, embedding_size, embed_key=No
 
 class SDTokenizer:
     def __init__(self, tokenizer_path=None, max_length=77, pad_with_end=True, embedding_directory=None, embedding_size=768, embedding_key='clip_l', tokenizer_class=CLIPTokenizer, has_start_token=True, has_end_token=True, pad_to_max_length=True, min_length=None, pad_token=None, end_token=None, min_padding=None, tokenizer_data={}, tokenizer_args={}):
-        # Handle case where tokenizer_path is actually tokenizer data (tensor)
+        # Resolve tokenizer source: prefer inline bytes from tokenizer_data if path is missing or a directory
         if tokenizer_path is None:
             tokenizer_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "sd1_tokenizer")
-        
-        # Check if tokenizer_path is actually tokenizer data (tensor or bytes)
-        if torch.is_tensor(tokenizer_path) or isinstance(tokenizer_path, bytes):
-            # This is tokenizer data, not a file path
+
+        # If a directory path is given (e.g., default fallback), but we have inline bytes, use them
+        try:
+            if (isinstance(tokenizer_path, str) and os.path.isdir(tokenizer_path)) and ("spiece_model" in tokenizer_data):
+                tokenizer_path = tokenizer_data.get("spiece_model")
+        except Exception:
+            pass
+
+        # Support passing raw bytes/tensors directly
+        if torch.is_tensor(tokenizer_path) or isinstance(tokenizer_path, (bytes, bytearray)):
             self.tokenizer = tokenizer_class.from_pretrained(tokenizer_path, **tokenizer_args)
         else:
-            # This is a file path
             self.tokenizer = tokenizer_class.from_pretrained(tokenizer_path, **tokenizer_args)
         self.max_length = tokenizer_data.get("{}_max_length".format(embedding_key), max_length)
         self.min_length = tokenizer_data.get("{}_min_length".format(embedding_key), min_length)
