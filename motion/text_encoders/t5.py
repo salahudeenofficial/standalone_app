@@ -13,7 +13,7 @@ class T5LayerNorm(torch.nn.Module):
     def forward(self, x):
         variance = x.pow(2).mean(-1, keepdim=True)
         x = x * torch.rsqrt(variance + self.variance_epsilon)
-        return comfy.ops.cast_to_input(self.weight, x) * x
+        return motion.ops.cast_to_input(self.weight, x) * x
 
 activations = {
     "gelu_pytorch_tanh": lambda a: torch.nn.functional.gelu(a, approximate="tanh"),

@@ -15,7 +15,7 @@ class T5XXLModel(sd1_clip.SDClipModel):
             model_options["scaled_fp8"] = t5xxl_scaled_fp8
 
         model_options = {**model_options, "model_name": "t5xxl"}
-        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config, dtype=dtype, special_tokens={"end": 1, "pad": 0}, model_class=comfy.text_encoders.t5.T5, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
+        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config, dtype=dtype, special_tokens={"end": 1, "pad": 0}, model_class=motion.text_encoders.t5.T5, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
 
 
 def t5_xxl_detect(state_dict, prefix=""):
