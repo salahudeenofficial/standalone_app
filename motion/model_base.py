@@ -10,6 +10,7 @@ import motion.conds
 import motion.ops
 import motion.latent_format 
 import motion.model_sampling 
+import motion.ldm.wan.model
 import math
 
 
