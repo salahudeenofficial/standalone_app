@@ -643,6 +643,29 @@ class CLIP:
             all_hooks.reset()
         return all_cond_pooled
 
+    def encode(self, text):
+        tokens = self.tokenize(text)
+        return self.encode_from_tokens(tokens)
+
+    def load_sd(self, sd, full_model=False):
+        if full_model:
+            return self.cond_stage_model.load_state_dict(sd, strict=False)
+        else:
+            return self.cond_stage_model.load_sd(sd)
+
+    def get_sd(self):
+        sd_clip = self.cond_stage_model.state_dict()
+        sd_tokenizer = self.tokenizer.state_dict()
+        for k in sd_tokenizer:
+            sd_clip[k] = sd_tokenizer[k]
+        return sd_clip
+
+    def load_model(self):
+        model_management.load_model_gpu(self.patcher)
+        return self.patcher
+
+    def get_key_patches(self):
+        return self.patcher.get_key_patches()
 
 def detect_te_model(sd):
     if "text_model.encoder.layers.30.mlp.fc1.weight" in sd:
