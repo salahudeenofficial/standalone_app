@@ -711,9 +711,20 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
         parameters += motion.utils.calculate_parameters(c)
         tokenizer_data, model_options = model_options_long_clip(c, tokenizer_data, model_options)
         
-        # Extract spiece_model for WAN tokenizer
-        if 'spiece_model' in c:
+        # Extract spiece_model for WAN tokenizer (robust scan)
+        if 'spiece_model' in c and tokenizer_data.get('spiece_model') is None:
             tokenizer_data['spiece_model'] = c['spiece_model']
+        # Fallback: search any key that likely contains sentencepiece model bytes
+        if tokenizer_data.get('spiece_model') is None:
+            for k, v in c.items():
+                try:
+                    if isinstance(k, str) and ('spiece' in k.lower() or 'sentencepiece' in k.lower() or k.endswith('spiece_model')):
+                        # Accept tensors or bytes-like values only
+                        if torch.is_tensor(v) or isinstance(v, (bytes, bytearray)):
+                            tokenizer_data['spiece_model'] = v
+                            break
+                except Exception:
+                    pass
 
     clip = CLIP(clip_target, embedding_directory=embedding_directory, parameters=parameters, tokenizer_data=tokenizer_data, model_options=model_options)
     for c in clip_data:
