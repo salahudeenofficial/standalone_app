@@ -99,9 +99,9 @@ def step_3_model_sampling_and_text_encoding(positive_prompt: str, negative_promp
         patched_unet = model_sampling.patch(unet_model, shift=shift, multiplier=multiplier)
         
         # Text encoding
-        text_encoder = CLIPTextEncode()
-        positive_conditioning = text_encoder.encode(clip_model, positive_prompt)
-        negative_conditioning = text_encoder.encode(clip_model, negative_prompt)
+        text_encoder = CLIPTextEncode(clip_model)
+        positive_conditioning = text_encoder.encode(positive_prompt)
+        negative_conditioning = text_encoder.encode(negative_prompt)
         
         # Combine with VACE conditioning if provided
         if vace_positive_conditioning is not None and vace_negative_conditioning is not None:
