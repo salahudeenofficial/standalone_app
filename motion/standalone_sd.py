@@ -602,7 +602,7 @@ def t5xxl_detect(clip_data):
 
 
 
-def load_clip(ckpt_paths, embedding_directory=None, clip_type="wan", model_options={}):
+def load_clip(ckpt_paths, embedding_directory=None, clip_type="13", model_options={}):
     """Load CLIP model from checkpoint paths"""
     clip_data = []
     for p in ckpt_paths:
