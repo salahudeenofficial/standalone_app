@@ -273,10 +273,23 @@ def main():
     #     import traceback
     #     traceback.print_exc()
     #     return None
-    from motion.comps import CLIPLoader,CLIPTextEncode
-    clip = CLIPLoader("wan_clip_model.safetensors").load_clip()
-    clip_encode = CLIPTextEncode(clip)
-    clip_encode.encode("a beautiful woman")
+    # Simple CLIP loading using ComfyUI
+    import sys
+    sys.path.append('/home/fashionx/comfy/ComfyUI')
+    import comfy.sd as comfy_sd
+    
+    print("🔧 Loading CLIP using ComfyUI...")
+    clip_path = "./models/text_encoders/wan_clip_model.safetensors"
+    if os.path.exists(clip_path):
+        clip = comfy_sd.load_clip([clip_path], clip_type=comfy_sd.CLIPType.SD3)
+        print("✅ CLIP loaded successfully using ComfyUI")
+        
+        # Test encoding
+        clip_encode = comfy_sd.CLIPTextEncode()
+        encoded = clip_encode.encode(clip, "a beautiful woman")
+        print(f"✅ Text encoded successfully: {encoded[0].shape}")
+    else:
+        print(f"⚠️  CLIP model not found: {clip_path}")
 
 if __name__ == "__main__":
     main()
