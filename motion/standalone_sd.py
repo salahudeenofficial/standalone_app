@@ -467,7 +467,7 @@
 import torch
 import logging
 import os
-import motion.model_management_standalone
+import motion.model_management_standalone as model_management
 import motion.model_patcher
 import motion.utils
 import motion.model_detection
@@ -482,49 +482,56 @@ class CLIPType(Enum):
 class TEModel(Enum):
     T5_XXL = 4
 
-def load_wan_clip(ckpt_path, model_options={}):
-    """Load WAN text encoder from single checkpoint path"""
-    clip_data = [motion.utils.load_torch_file(ckpt_path, safe_load=True)]
-    return load_wan_text_encoder_state_dict(clip_data, model_options=model_options)
+class CLIP:
+    def __init__(self, target=None, embedding_directory=None, no_init=False, tokenizer_data={}, parameters=0, model_options={}):
+        if no_init:
+            return
+        
+        params = target.params.copy()
+        clip = target.clip
+        tokenizer = target.tokenizer
 
-def load_wan_text_encoder_state_dict(clip_data, model_options={}):
-    """Load WAN text encoder from state dictionary"""
-    
-    # Process state dictionary
-    if "transformer.resblocks.0.ln_1.weight" in clip_data[0]:
-        clip_data[0] = motion.utils.clip_text_transformers_convert(clip_data[0], "", "")
-    
-    # WAN uses T5-XXL model
-    te_model = detect_te_model(clip_data[0])
-    if te_model != TEModel.T5_XXL:
-        raise RuntimeError(f"Expected T5-XXL model for WAN, got {te_model}")
-    
-    # Get T5 detection parameters
-    t5_params = t5xxl_detect(clip_data)
-    
-    # Configure WAN text encoder
-    class EmptyClass:
-        pass
-    
-    clip_target = EmptyClass()
-    clip_target.clip = motion.text_encoders.wan.te(**t5_params)
-    clip_target.tokenizer = motion.text_encoders.wan.WanT5Tokenizer
-    clip_target.params = {}
-    
-    # Tokenizer data for WAN
-    tokenizer_data = {"spiece_model": clip_data[0].get("spiece_model", None)}
-    
-    # Calculate parameters
-    parameters = motion.utils.calculate_parameters(clip_data[0])
-    
-    # Create CLIP instance
-    clip = CLIP(clip_target, parameters=parameters, tokenizer_data=tokenizer_data, model_options=model_options)
-    
-    # Load weights
-    clip.load_sd(clip_data[0])
-    
-    return clip
+        load_device = model_options.get("load_device", model_management.text_encoder_device())
+        offload_device = model_options.get("offload_device", model_management.text_encoder_offload_device())
+        dtype = model_options.get("dtype", None)
+        if dtype is None:
+            dtype = model_management.text_encoder_dtype(load_device)
 
+        params['dtype'] = dtype
+        params['device'] = model_options.get("initial_device", model_management.text_encoder_initial_device(load_device, offload_device, parameters * model_management.dtype_size(dtype)))
+        params['model_options'] = model_options
+
+        self.cond_stage_model = clip(**(params))
+        
+        # Initialize tokenizer
+        self.tokenizer = tokenizer(tokenizer_data)
+        
+        # Create model patcher
+        self.patcher = model_management.ModelPatcher(self.cond_stage_model, load_device=load_device, offload_device=offload_device)
+
+    def load_sd(self, sd, full_model=False):
+        """Load state dictionary"""
+        if full_model:
+            return self.cond_stage_model.load_state_dict(sd, strict=False)
+        else:
+            return self.cond_stage_model.load_sd(sd)
+
+    def get_sd(self):
+        """Get state dictionary"""
+        sd_clip = self.cond_stage_model.state_dict()
+        sd_tokenizer = self.tokenizer.state_dict()
+        for k in sd_tokenizer:
+            sd_clip[k] = sd_tokenizer[k]
+        return sd_clip
+
+    def load_model(self):
+        """Load model to GPU"""
+        model_management.load_model_gpu(self.patcher)
+        return self.patcher
+
+    def get_key_patches(self):
+        """Get key patches"""
+        return self.patcher.get_key_patches()
 
 def detect_te_model(sd):
     """Detect if this is a T5-XXL model (required for WAN)"""
@@ -533,6 +540,8 @@ def detect_te_model(sd):
         if weight.shape[-1] == 4096:
             return TEModel.T5_XXL
     return None
+
+
 
 def t5xxl_detect(clip_data):
     """Detect T5-XXL parameters for WAN"""
@@ -544,110 +553,93 @@ def t5xxl_detect(clip_data):
     
     return {}
 
-class CLIP:
-    """Simplified CLIP wrapper for WAN"""
-    def __init__(self, target, parameters=0, tokenizer_data={}, model_options={}):
-        self.target = target
-        self.parameters = parameters
-        self.tokenizer_data = tokenizer_data
-        self.model_options = model_options
-        
-        # Initialize model and tokenizer
-        load_device = model_options.get("load_device", motion.model_management_standalone.text_encoder_device())
-        offload_device = model_options.get("offload_device", motion.model_management_standalone.text_encoder_offload_device())
-        dtype = model_options.get("dtype", None)
-        
-        self.clip = target.clip(device=load_device, dtype=dtype, model_options=model_options)
-        self.tokenizer = target.tokenizer(embedding_directory=None, tokenizer_data=tokenizer_data)
-        
-        # Wrap in ModelPatcher
-        self.patcher = motion.model_patcher.ModelPatcher(
-            self.clip, 
-            load_device=load_device, 
-            offload_device=offload_device
-        )
-    
-    def load_sd(self, sd):
-        """Load state dictionary into the model"""
-        self.patcher.add_patches(sd)
-    
-    def load_model(self):
-        """Return the model patcher"""
-        return self.patcher
-def load_diffusion_model(unet_path, model_options={}):
-    """Load diffusion model from file path"""
-    sd = motion.utils.load_torch_file(unet_path)
-    model = load_diffusion_model_state_dict(sd, model_options=model_options)
-    if model is None:
-        logging.error("ERROR UNSUPPORTED DIFFUSION MODEL {}".format(unet_path))
-        raise RuntimeError("ERROR: Could not detect model type of: {}\n{}".format(unet_path, model_detection_error_hint(unet_path, sd)))
-    return model
 
-def load_diffusion_model_state_dict(sd, model_options={}):
-    """Load diffusion model from state dictionary"""
-    dtype = model_options.get("dtype", None)
-    
-    # Extract UNet from checkpoint if needed
-    diffusion_model_prefix = motion.model_detection.unet_prefix_from_state_dict(sd)
-    temp_sd = motion.utils.state_dict_prefix_replace(sd, {diffusion_model_prefix: ""}, filter_keys=True)
-    if len(temp_sd) > 0:
-        sd = temp_sd
-    
-    # Analyze model parameters
-    parameters = motion.utils.calculate_parameters(sd)
-    weight_dtype = motion.utils.weight_dtype(sd)
-    
-    # Get device configuration
-    load_device = motion.model_management_standalone.get_torch_device()
-    model_config = motion.model_detection.model_config_from_unet(sd, "")
-    
-    # Handle different model formats (diffusers, etc.)
-    if model_config is None:
-        new_sd = motion.model_detection.convert_diffusers_mmdit(sd, "")
-        if new_sd is not None:
-            model_config = motion.model_detection.model_config_from_unet(new_sd, "")
+
+def load_clip(ckpt_paths, embedding_directory=None, clip_type="wan", model_options={}):
+    """Load CLIP model from checkpoint paths"""
+    clip_data = []
+    for p in ckpt_paths:
+        clip_data.append(motion.utils.load_torch_file(p, safe_load=True))
+    return load_text_encoder_state_dicts(clip_data, embedding_directory=embedding_directory, clip_type=clip_type, model_options=model_options)
+
+def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip_type="wan", model_options={}):
+    """Load text encoder from state dictionaries"""
+    clip_data = state_dicts
+
+    class EmptyClass:
+        pass
+
+    # Convert transformer format if needed
+    for i in range(len(clip_data)):
+        if "transformer.resblocks.0.ln_1.weight" in clip_data[i]:
+            clip_data[i] = motion.utils.clip_text_transformers_convert(clip_data[i], "", "")
         else:
-            model_config = motion.model_detection.model_config_from_diffusers_unet(sd)
-    
-    if model_config is None:
-        return None
-    
-    # Configure model dtype and device
-    offload_device = motion.model_management_standalone.unet_offload_device()
-    unet_weight_dtype = list(model_config.supported_inference_dtypes)
-    
-    if dtype is None:
-        unet_dtype = motion.model_management_standalone.unet_dtype(
-            model_params=parameters, 
-            supported_dtypes=unet_weight_dtype, 
-            weight_dtype=weight_dtype
-        )
-    else:
-        unet_dtype = dtype
-    
-    manual_cast_dtype = motion.model_management_standalone.unet_manual_cast(
-        unet_dtype, load_device, model_config.supported_inference_dtypes
-    )
-    
-    # Configure model
-    model_config.set_inference_dtype(unet_dtype, manual_cast_dtype)
-    model_config.custom_operations = model_options.get("custom_operations", model_config.custom_operations)
-    
-    # Create and load model
-    model = model_config.get_model(sd, "")
-    model = model.to(offload_device)
-    model.load_model_weights(sd, "")
-    
-    # Return wrapped model
-    return motion.model_patcher.ModelPatcher(
-        model, 
-        load_device=load_device, 
-        offload_device=offload_device
-    )
+            if "text_projection" in clip_data[i]:
+                clip_data[i]["text_projection.weight"] = clip_data[i]["text_projection"].transpose(0, 1)
 
-def model_detection_error_hint(path, state_dict):
-    """Helper function for error messages"""
-    filename = os.path.basename(path)
-    if 'lora' in filename.lower():
-        return "\nHINT: This seems to be a Lora file and Lora files should be put in the lora folder and loaded with a lora loader node.."
-    return ""
+    tokenizer_data = {}
+    clip_target = EmptyClass()
+    clip_target.params = {}
+    
+    if len(clip_data) == 1:
+        te_model = detect_te_model(clip_data[0])
+        from motion import sdxl_clip
+        # Model-specific loading logic
+        if te_model == TEModel.CLIP_G:
+            if clip_type == CLIPType.STABLE_CASCADE:
+                clip_target.clip = sdxl_clip.StableCascadeClipModel
+                clip_target.tokenizer = sdxl_clip.StableCascadeTokenizer
+            elif clip_type == CLIPType.SD3:
+                clip_target.clip = motion.text_encoders.sd3_clip.sd3_clip(clip_l=False, clip_g=True, t5=False)
+                clip_target.tokenizer = motion.text_encoders.sd3_clip.SD3Tokenizer
+            # ... (additional model type handling)
+        
+        elif te_model == TEModel.T5_XXL:
+            if clip_type == CLIPType.SD3:
+                clip_target.clip = motion.text_encoders.sd3_clip.sd3_clip(clip_l=False, clip_g=False, t5=True, **t5xxl_detect(clip_data))
+                clip_target.tokenizer = motion.text_encoders.sd3_clip.SD3Tokenizer
+            elif clip_type == CLIPType.WAN:
+                clip_target.clip = motion.text_encoders.wan.te(**t5xxl_detect(clip_data))
+                clip_target.tokenizer = motion.text_encoders.wan.WanT5Tokenizer
+                tokenizer_data["spiece_model"] = clip_data[0].get("spiece_model", None)
+            # ... (additional T5 model handling)
+
+
+    parameters = 0
+    for c in clip_target.clip_data:
+        parameters += motion.utils.calculate_parameters(c)
+        tokenizer_data, model_options = model_options_long_clip(c, tokenizer_data, model_options)
+ 
+    # Create CLIP instance
+    clip = CLIP(target=clip_target, embedding_directory=embedding_directory, tokenizer_data=tokenizer_data, parameters=parameters, model_options=model_options)
+    
+    # Load state dicts
+    for c in clip_target.clip_data:
+        clip.load_sd(c)
+    
+    return clip    
+def model_options_long_clip(sd, tokenizer_data, model_options):
+    w = sd.get("clip_l.text_model.embeddings.position_embedding.weight", None)
+    if w is None:
+        w = sd.get("clip_g.text_model.embeddings.position_embedding.weight", None)
+    else:
+        model_name = "clip_g"
+
+    if w is None:
+        w = sd.get("text_model.embeddings.position_embedding.weight", None)
+        if w is not None:
+            if "text_model.encoder.layers.30.mlp.fc1.weight" in sd:
+                model_name = "clip_g"
+            elif "text_model.encoder.layers.1.mlp.fc1.weight" in sd:
+                model_name = "clip_l"
+    else:
+        model_name = "clip_l"
+
+    if w is not None:
+        tokenizer_data = tokenizer_data.copy()
+        model_options = model_options.copy()
+        model_config = model_options.get("model_config", {})
+        model_config["max_position_embeddings"] = w.shape[0]
+        model_options["{}_model_config".format(model_name)] = model_config
+        tokenizer_data["{}_max_length".format(model_name)] = w.shape[0]
+    return tokenizer_data, model_options    

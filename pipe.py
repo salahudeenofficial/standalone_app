@@ -1,3 +1,4 @@
+from pydoc import cli
 import sys
 import os
 import torch
@@ -135,143 +136,147 @@ def step_3_model_sampling_and_text_encoding(positive_prompt: str, negative_promp
         return None
 
 def main():
-    """Main function to run Steps 1, 2, 3 and print Step 4 inputs"""
-    print("🎬 MOTION PIPELINE - STEPS 1, 2, 3 + STEP 4 INPUT ANALYSIS")
-    print("="*80)
+    # """Main function to run Steps 1, 2, 3 and print Step 4 inputs"""
+    # print("🎬 MOTION PIPELINE - STEPS 1, 2, 3 + STEP 4 INPUT ANALYSIS")
+    # print("="*80)
     
-    # Model paths
-    vae_model_path = "./models/vaes/wan_vae.safetensors"
-    unet_model_path = "./models/diffusion_models/wan_2.1_diffusion_model.safetensors"
-    clip_model_path = "./models/text_encoders/wan_clip_model.safetensors"
-    # Prompts
-    positive_prompt = "very cinematic video"
-    negative_prompt = "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量"
+    # # Model paths
+    # vae_model_path = "./models/vaes/wan_vae.safetensors"
+    # unet_model_path = "./models/diffusion_models/wan_2.1_diffusion_model.safetensors"
+    # clip_model_path = "./models/text_encoders/wan_clip_model.safetensors"
+    # # Prompts
+    # positive_prompt = "very cinematic video"
+    # negative_prompt = "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量"
     
-    try:
-        # Step 1: VAE Loading and Latent Creation
-        print("🎬 STEP 1: VAE LOADING AND LATENT CREATION")
-        step_1_results = step_1_vae_and_latent_creation(
-            vae_model_path=vae_model_path,
-            positive_prompt=positive_prompt,
-            negative_prompt=negative_prompt,
-            control_video_path="safu.mp4" if os.path.exists("safu.mp4") else None,
-            reference_image_path="safu.jpg" if os.path.exists("safu.jpg") else None,
-            width=480, height=832, length=37, batch_size=1, strength=1.0
-        )
+    # try:
+    #     # Step 1: VAE Loading and Latent Creation
+    #     print("🎬 STEP 1: VAE LOADING AND LATENT CREATION")
+    #     step_1_results = step_1_vae_and_latent_creation(
+    #         vae_model_path=vae_model_path,
+    #         positive_prompt=positive_prompt,
+    #         negative_prompt=negative_prompt,
+    #         control_video_path="safu.mp4" if os.path.exists("safu.mp4") else None,
+    #         reference_image_path="safu.jpg" if os.path.exists("safu.jpg") else None,
+    #         width=480, height=832, length=37, batch_size=1, strength=1.0
+    #     )
         
-        if not step_1_results:
-            print("❌ Step 1 failed, cannot continue")
-            return None
+    #     if not step_1_results:
+    #         print("❌ Step 1 failed, cannot continue")
+    #         return None
         
-        # Step 2: UNet + CLIP Loading
-        print("\n🧠 STEP 2: UNET + CLIP LOADING")
-        step_2_results = step_2_unet_clip_lora_loading(
-            unet_model_path=unet_model_path,
-            clip_model_path=clip_model_path,
-            lora_model_path=None,
-            strength_model=1.0, strength_clip=0.0
-        )
+    #     # Step 2: UNet + CLIP Loading
+    #     print("\n🧠 STEP 2: UNET + CLIP LOADING")
+    #     step_2_results = step_2_unet_clip_lora_loading(
+    #         unet_model_path=unet_model_path,
+    #         clip_model_path=clip_model_path,
+    #         lora_model_path=None,
+    #         strength_model=1.0, strength_clip=0.0
+    #     )
         
-        if not step_2_results:
-            print("❌ Step 2 failed, cannot continue")
-            return None
+    #     if not step_2_results:
+    #         print("❌ Step 2 failed, cannot continue")
+    #         return None
         
-        # Set global models for step 3
-        global unet_model, clip_model
-        unet_model = step_2_results['unet']
-        clip_model = step_2_results['clip']
+    #     # Set global models for step 3
+    #     global unet_model, clip_model
+    #     unet_model = step_2_results['unet']
+    #     clip_model = step_2_results['clip']
         
-        # Step 3: Model Sampling + Text Encoding
-        print("\n📝 STEP 3: MODEL SAMPLING + TEXT ENCODING")
-        step_3_results = step_3_model_sampling_and_text_encoding(
-            positive_prompt=positive_prompt,
-            negative_prompt=negative_prompt,
-            vace_positive_conditioning=step_1_results['positive'],
-            vace_negative_conditioning=step_1_results['negative'],
-            shift=8.0, multiplier=1000
-        )
+    #     # Step 3: Model Sampling + Text Encoding
+    #     print("\n📝 STEP 3: MODEL SAMPLING + TEXT ENCODING")
+    #     step_3_results = step_3_model_sampling_and_text_encoding(
+    #         positive_prompt=positive_prompt,
+    #         negative_prompt=negative_prompt,
+    #         vace_positive_conditioning=step_1_results['positive'],
+    #         vace_negative_conditioning=step_1_results['negative'],
+    #         shift=8.0, multiplier=1000
+    #     )
         
-        if not step_3_results:
-            print("❌ Step 3 failed, cannot continue")
-            return None
+    #     if not step_3_results:
+    #         print("❌ Step 3 failed, cannot continue")
+    #         return None
         
-        # Prepare Step 4 inputs
-        print("\n🎯 STEP 4 INPUT ANALYSIS")
-        print("="*80)
+    #     # Prepare Step 4 inputs
+    #     print("\n🎯 STEP 4 INPUT ANALYSIS")
+    #     print("="*80)
         
-        step_4_inputs = {
-            'initial_latent': step_1_results['out_latent']['samples'],
-            'positive_conditioning': step_3_results['positive_conditioning'],
-            'negative_conditioning': step_3_results['negative_conditioning'],
-            'seed': 42,
-            'steps': 4,
-            'cfg': 7.0,
-            'sampler_name': 'euler',
-            'scheduler': 'normal',
-            'denoise': 1.0,
-            'noise_inds': None
-        }
+    #     step_4_inputs = {
+    #         'initial_latent': step_1_results['out_latent']['samples'],
+    #         'positive_conditioning': step_3_results['positive_conditioning'],
+    #         'negative_conditioning': step_3_results['negative_conditioning'],
+    #         'seed': 42,
+    #         'steps': 4,
+    #         'cfg': 7.0,
+    #         'sampler_name': 'euler',
+    #         'scheduler': 'normal',
+    #         'denoise': 1.0,
+    #         'noise_inds': None
+    #     }
         
-        # Print Step 4 input analysis
-        print("📊 STEP 4 INPUT TENSOR ANALYSIS:")
-        print("="*60)
+    #     # Print Step 4 input analysis
+    #     print("📊 STEP 4 INPUT TENSOR ANALYSIS:")
+    #     print("="*60)
         
-        # Initial latent analysis
-        initial_latent = step_4_inputs['initial_latent']
-        print(f"✅ Initial Latent:")
-        print(f"   Shape: {initial_latent.shape}")
-        print(f"   Dtype: {initial_latent.dtype}")
-        print(f"   Device: {initial_latent.device}")
-        print(f"   Mean: {initial_latent.mean().item():.6f}")
-        print(f"   Range: [{initial_latent.min().item():.6f}, {initial_latent.max().item():.6f}]")
+    #     # Initial latent analysis
+    #     initial_latent = step_4_inputs['initial_latent']
+    #     print(f"✅ Initial Latent:")
+    #     print(f"   Shape: {initial_latent.shape}")
+    #     print(f"   Dtype: {initial_latent.dtype}")
+    #     print(f"   Device: {initial_latent.device}")
+    #     print(f"   Mean: {initial_latent.mean().item():.6f}")
+    #     print(f"   Range: [{initial_latent.min().item():.6f}, {initial_latent.max().item():.6f}]")
         
-        # Positive conditioning analysis
-        pos_cond = step_4_inputs['positive_conditioning']
-        if isinstance(pos_cond, (list, tuple)) and len(pos_cond) > 0:
-            pos_tensor = pos_cond[0]
-            print(f"\n✅ Positive Conditioning:")
-            print(f"   Shape: {pos_tensor.shape}")
-            print(f"   Dtype: {pos_tensor.dtype}")
-            print(f"   Device: {pos_tensor.device}")
-            print(f"   Mean: {pos_tensor.mean().item():.6f}")
-            print(f"   Range: [{pos_tensor.min().item():.6f}, {pos_tensor.max().item():.6f}]")
+    #     # Positive conditioning analysis
+    #     pos_cond = step_4_inputs['positive_conditioning']
+    #     if isinstance(pos_cond, (list, tuple)) and len(pos_cond) > 0:
+    #         pos_tensor = pos_cond[0]
+    #         print(f"\n✅ Positive Conditioning:")
+    #         print(f"   Shape: {pos_tensor.shape}")
+    #         print(f"   Dtype: {pos_tensor.dtype}")
+    #         print(f"   Device: {pos_tensor.device}")
+    #         print(f"   Mean: {pos_tensor.mean().item():.6f}")
+    #         print(f"   Range: [{pos_tensor.min().item():.6f}, {pos_tensor.max().item():.6f}]")
         
-        # Negative conditioning analysis
-        neg_cond = step_4_inputs['negative_conditioning']
-        if isinstance(neg_cond, (list, tuple)) and len(neg_cond) > 0:
-            neg_tensor = neg_cond[0]
-            print(f"\n✅ Negative Conditioning:")
-            print(f"   Shape: {neg_tensor.shape}")
-            print(f"   Dtype: {neg_tensor.dtype}")
-            print(f"   Device: {neg_tensor.device}")
-            print(f"   Mean: {neg_tensor.mean().item():.6f}")
-            print(f"   Range: [{neg_tensor.min().item():.6f}, {neg_tensor.max().item():.6f}]")
+    #     # Negative conditioning analysis
+    #     neg_cond = step_4_inputs['negative_conditioning']
+    #     if isinstance(neg_cond, (list, tuple)) and len(neg_cond) > 0:
+    #         neg_tensor = neg_cond[0]
+    #         print(f"\n✅ Negative Conditioning:")
+    #         print(f"   Shape: {neg_tensor.shape}")
+    #         print(f"   Dtype: {neg_tensor.dtype}")
+    #         print(f"   Device: {neg_tensor.device}")
+    #         print(f"   Mean: {neg_tensor.mean().item():.6f}")
+    #         print(f"   Range: [{neg_tensor.min().item():.6f}, {neg_tensor.max().item():.6f}]")
         
-        # Step 4 parameters
-        print(f"\n📋 STEP 4 PARAMETERS:")
-        print(f"   Seed: {step_4_inputs['seed']}")
-        print(f"   Steps: {step_4_inputs['steps']}")
-        print(f"   CFG: {step_4_inputs['cfg']}")
-        print(f"   Sampler: {step_4_inputs['sampler_name']}")
-        print(f"   Scheduler: {step_4_inputs['scheduler']}")
-        print(f"   Denoise: {step_4_inputs['denoise']}")
+    #     # Step 4 parameters
+    #     print(f"\n📋 STEP 4 PARAMETERS:")
+    #     print(f"   Seed: {step_4_inputs['seed']}")
+    #     print(f"   Steps: {step_4_inputs['steps']}")
+    #     print(f"   CFG: {step_4_inputs['cfg']}")
+    #     print(f"   Sampler: {step_4_inputs['sampler_name']}")
+    #     print(f"   Scheduler: {step_4_inputs['scheduler']}")
+    #     print(f"   Denoise: {step_4_inputs['denoise']}")
         
-        print(f"\n🎉 STEPS 1, 2, 3 COMPLETED SUCCESSFULLY!")
-        print(f"📊 Step 4 inputs prepared and analyzed")
-        print("="*80)
+    #     print(f"\n🎉 STEPS 1, 2, 3 COMPLETED SUCCESSFULLY!")
+    #     print(f"📊 Step 4 inputs prepared and analyzed")
+    #     print("="*80)
         
-        return {
-            'step_1_results': step_1_results,
-            'step_2_results': step_2_results,
-            'step_3_results': step_3_results,
-            'step_4_inputs': step_4_inputs
-        }
+    #     return {
+    #         'step_1_results': step_1_results,
+    #         'step_2_results': step_2_results,
+    #         'step_3_results': step_3_results,
+    #         'step_4_inputs': step_4_inputs
+    #     }
         
-    except Exception as e:
-        print(f"❌ PIPELINE FAILED: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return None
+    # except Exception as e:
+    #     print(f"❌ PIPELINE FAILED: {str(e)}")
+    #     import traceback
+    #     traceback.print_exc()
+    #     return None
+    from comps import CLIPLoader,CLIPTextEncode
+    clip = CLIPLoader()
+    clip_encode = CLIPTextEncode(clip)
+    clip_encode.encode("a beautiful woman")
 
 if __name__ == "__main__":
     main()
