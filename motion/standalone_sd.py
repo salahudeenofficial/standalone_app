@@ -529,8 +529,8 @@ class CLIP:
 
         self.cond_stage_model = clip(**(params))
         
-        # Initialize tokenizer
-        self.tokenizer = tokenizer(tokenizer_data)
+        # Initialize tokenizer (pass tokenizer_data by keyword to avoid arg mixup)
+        self.tokenizer = tokenizer(tokenizer_data=tokenizer_data)
         
         # Create model patcher
         self.patcher = model_management.ModelPatcher(self.cond_stage_model, load_device=load_device, offload_device=offload_device)
