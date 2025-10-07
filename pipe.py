@@ -142,7 +142,7 @@ def main():
     print("="*80)
     
     # Model paths
-    vae_model_path = "/home/fashionx/v_pipe/standalone_app/models/wan_2.1_vae.safetensors"
+    vae_model_path = "/home/fashionx/v_pipe/standalone_app/models/vaes/wan_2.1_vae.safetensors"
     unet_model_path = "/home/fashionx/v_pipe/standalone_app/models/diffusion_models/wan_2.1_diffusion_model.safetensors"
     clip_model_path = "/home/fashionx/v_pipe/standalone_app/models/text_encoders/wan_clip_model.safetensors"
     
