@@ -644,6 +644,31 @@ class CLIP:
             all_hooks.reset()
         return all_cond_pooled
 
+    def encode_from_tokens(self, tokens, return_pooled=False, return_dict=False):
+        self.cond_stage_model.reset_clip_options()
+
+        if self.layer_idx is not None:
+            self.cond_stage_model.set_clip_options({"layer": self.layer_idx})
+
+        if return_pooled == "unprojected":
+            self.cond_stage_model.set_clip_options({"projected_pooled": False})
+
+        self.load_model()
+        o = self.cond_stage_model.encode_token_weights(tokens)
+        cond, pooled = o[:2]
+        if return_dict:
+            out = {"cond": cond, "pooled_output": pooled}
+            if len(o) > 2:
+                for k in o[2]:
+                    out[k] = o[2][k]
+            self.add_hooks_to_dict(out)
+            return out
+
+        if return_pooled:
+            return cond, pooled
+        return cond
+
+
     def encode(self, text):
         tokens = self.tokenize(text)
         return self.encode_from_tokens(tokens)
