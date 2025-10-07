@@ -574,8 +574,9 @@ class CLIP:
 
     def tokenize(self, text, return_word_ids=False, **kwargs):
         cliptokenizer_options = kwargs.get("tokenizer_options", {})
+        tokenizer_options = cliptokenizer_options
         if len(self.tokenizer_options) > 0:
-            tokenizer_options = {**self.tokenizer_options, **tokenizer_options}
+            tokenizer_options = {**self.tokenizer_options, **cliptokenizer_options}
         if len(tokenizer_options) > 0:
             kwargs["tokenizer_options"] = tokenizer_options
         return self.tokenizer.tokenize_with_weights(text, return_word_ids, **kwargs)
