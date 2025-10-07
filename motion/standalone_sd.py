@@ -569,7 +569,7 @@ class CLIP:
     
     def load_sd(self, sd):
         """Load state dictionary into the model"""
-        self.patcher.load_model_weights(sd)
+        self.patcher.add_patches(sd)
     
     def load_model(self):
         """Return the model patcher"""
