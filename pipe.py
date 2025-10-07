@@ -88,9 +88,7 @@ def step_3_model_sampling_and_text_encoding(positive_prompt: str, negative_promp
     print("="*80)
     
     try:
-        from motion.standalone_ksampler import CLIPTextEncode
-        from motion.model_sampling import ModelSamplingSD3
-        
+        from comps import CLIPTextEncode ,ModelSamplingSD3        
         # Get models from global state (set by step 2)
         global unet_model, clip_model
         if 'unet_model' not in globals() or 'clip_model' not in globals():
