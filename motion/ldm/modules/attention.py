@@ -12,7 +12,7 @@ import logging
 from .diffusionmodules.util import AlphaBlender, timestep_embedding
 from .sub_quadratic_attention import efficient_dot_product_attention
 
-# Motion Pipeline External Dependencies (ComfyUI compatible)
+# Motion Pipeline External Dependencies (motionUI compatible)
 from motion.model_management_standalone import *
 from motion.cli_args import args
 import motion.wan_vae_components.ops
@@ -42,7 +42,7 @@ if flash_attention_enabled():
         logging.error(f"\n\nTo use the `--use-flash-attention` feature, the `flash-attn` package must be installed first.\ncommand:\n\t{sys.executable} -m pip install flash-attn")
         exit(-1)
 
-# After this point, copy the rest of ComfyUI's attention.py code (lines 43-1036)
+# After this point, copy the rest of motionUI's attention.py code (lines 43-1036)
 # No further import changes needed!
 
 
@@ -479,20 +479,22 @@ def attention_pytorch(q, k, v, heads, mask=None, attn_precision=None, skip_resha
             mask = mask.unsqueeze(1)
 
     if SDP_BATCH_LIMIT >= b:
-        out = comfy.ops.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False)
+        from motion import ops as motion_ops
+        out = motion_ops.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False)
         if not skip_output_reshape:
             out = (
                 out.transpose(1, 2).reshape(b, -1, heads * dim_head)
             )
     else:
         out = torch.empty((b, q.shape[2], heads * dim_head), dtype=q.dtype, layout=q.layout, device=q.device)
+        from motion import ops as motion_ops
         for i in range(0, b, SDP_BATCH_LIMIT):
             m = mask
             if mask is not None:
                 if mask.shape[0] > 1:
                     m = mask[i : i + SDP_BATCH_LIMIT]
 
-            out[i : i + SDP_BATCH_LIMIT] = comfy.ops.scaled_dot_product_attention(
+            out[i : i + SDP_BATCH_LIMIT] = motion_ops.scaled_dot_product_attention(
                 q[i : i + SDP_BATCH_LIMIT],
                 k[i : i + SDP_BATCH_LIMIT],
                 v[i : i + SDP_BATCH_LIMIT],
