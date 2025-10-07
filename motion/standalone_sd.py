@@ -477,12 +477,37 @@ import motion.text_encoders.wan
 import motion.text_encoders.sd3_clip
 
 class CLIPType(Enum):
+    STABLE_DIFFUSION = 1
+    STABLE_CASCADE = 2
+    SD3 = 3
+    STABLE_AUDIO = 4
+    HUNYUAN_DIT = 5
+    FLUX = 6
+    MOCHI = 7
+    LTXV = 8
+    HUNYUAN_VIDEO = 9
+    PIXART = 10
+    COSMOS = 11
+    LUMINA2 = 12
     WAN = 13
-    CLIP_G = 3
+    HIDREAM = 14
+    CHROMA = 15
+    ACE = 16
+    OMNIGEN2 = 17
+    QWEN_IMAGE = 18
 
 class TEModel(Enum):
+    CLIP_L = 1
+    CLIP_H = 2
+    CLIP_G = 3
     T5_XXL = 4
-
+    T5_XL = 5
+    T5_BASE = 6
+    LLAMA3_8 = 7
+    T5_XXL_OLD = 8
+    GEMMA_2_2B = 9
+    QWEN25_3B = 10
+    QWEN25_7B = 11
 class CLIP:
     def __init__(self, target=None, embedding_directory=None, no_init=False, tokenizer_data={}, parameters=0, model_options={}):
         if no_init:
