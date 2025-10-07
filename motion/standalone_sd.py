@@ -630,7 +630,7 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
     parameters = 0
     for c in clip_data:
         parameters += motion.utils.calculate_parameters(c)
-        tokenizer_data, model_options = motion.text_encoders.long_clipl.model_options_long_clip(c, tokenizer_data, model_options)
+        tokenizer_data, model_options = model_options_long_clip(c, tokenizer_data, model_options)
 
     clip = CLIP(clip_target, embedding_directory=embedding_directory, parameters=parameters, tokenizer_data=tokenizer_data, model_options=model_options)
     for c in clip_data:
