@@ -563,6 +563,7 @@ class CLIPLoader:
 
     def load_clip(self):
         clip_path = os.path.join("./models/text_encoders", self.clip_name)
+        print(clip_path)
         if not os.path.exists(clip_path):
             raise FileNotFoundError(f"CLIP model not found: {clip_path}")
         wan_clip = motion.standalone_sd.load_clip(clip_path)
