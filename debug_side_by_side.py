@@ -110,7 +110,8 @@ def debug_side_by_side():
         
         try:
             print("Testing Motion SPieceTokenizer...")
-            motion_tokenizer = motion_spiece.SPieceTokenizer(spiece_data)
+            from motion.text_encoders.spiece_tokenizer import SPieceTokenizer as MotionSPieceTokenizer
+            motion_tokenizer = MotionSPieceTokenizer(spiece_data)
             print("✅ Motion SPieceTokenizer created")
             
             # Test tokenization
@@ -124,7 +125,8 @@ def debug_side_by_side():
         
         try:
             print("Testing ComfyUI SPieceTokenizer...")
-            comfy_tokenizer = comfy_spiece.SPieceTokenizer(spiece_data)
+            from comfy.text_encoders.spiece_tokenizer import SPieceTokenizer as ComfySPieceTokenizer
+            comfy_tokenizer = ComfySPieceTokenizer(spiece_data)
             print("✅ ComfyUI SPieceTokenizer created")
             
             # Test tokenization
@@ -242,8 +244,67 @@ def debug_side_by_side():
         print(f"❌ Motion exact sequence failed: {e}")
         traceback.print_exc()
     
-    # Step 9: Code Comparison
-    print("\n📋 STEP 9: Code Comparison")
+    # Step 9: SPieceTokenizer Detailed Debug
+    print("\n📋 STEP 9: SPieceTokenizer Detailed Debug")
+    
+    if 'spiece_model' in motion_clip_data:
+        spiece_data = motion_clip_data['spiece_model']
+        
+        print("Testing SPieceTokenizer with detailed debugging...")
+        print(f"spiece_data type: {type(spiece_data)}")
+        print(f"spiece_data shape: {spiece_data.shape if hasattr(spiece_data, 'shape') else 'N/A'}")
+        print(f"spiece_data dtype: {spiece_data.dtype if hasattr(spiece_data, 'dtype') else 'N/A'}")
+        
+        # Test Motion SPieceTokenizer with detailed error handling
+        try:
+            from motion.text_encoders.spiece_tokenizer import SPieceTokenizer as MotionSPieceTokenizer
+            print("Creating Motion SPieceTokenizer...")
+            print(f"Passing spiece_data: {type(spiece_data)}")
+            
+            # Check what the constructor receives
+            print("Calling MotionSPieceTokenizer.__init__...")
+            motion_tokenizer = MotionSPieceTokenizer(spiece_data)
+            print("✅ Motion SPieceTokenizer created successfully")
+            
+        except Exception as e:
+            print(f"❌ Motion SPieceTokenizer failed: {e}")
+            print("Let's debug the SPieceTokenizer constructor...")
+            
+            # Let's manually debug the constructor
+            try:
+                import sentencepiece
+                print("sentencepiece imported successfully")
+                
+                # Convert tensor to bytes
+                if torch.is_tensor(spiece_data):
+                    spiece_bytes = spiece_data.numpy().tobytes()
+                    print(f"Converted to bytes: {len(spiece_bytes)} bytes")
+                    
+                    # Try to create SentencePieceProcessor directly
+                    processor = sentencepiece.SentencePieceProcessor(model_proto=spiece_bytes)
+                    print("✅ SentencePieceProcessor created successfully")
+                    
+                    # Test encoding
+                    result = processor.encode("hello world")
+                    print(f"✅ Encoding test successful: {result}")
+                    
+            except Exception as e2:
+                print(f"❌ Manual SentencePiece test failed: {e2}")
+                traceback.print_exc()
+        
+        # Test ComfyUI SPieceTokenizer with detailed error handling
+        try:
+            from comfy.text_encoders.spiece_tokenizer import SPieceTokenizer as ComfySPieceTokenizer
+            print("Creating ComfyUI SPieceTokenizer...")
+            comfy_tokenizer = ComfySPieceTokenizer(spiece_data)
+            print("✅ ComfyUI SPieceTokenizer created successfully")
+            
+        except Exception as e:
+            print(f"❌ ComfyUI SPieceTokenizer failed: {e}")
+            traceback.print_exc()
+    
+    # Step 10: Code Comparison
+    print("\n📋 STEP 10: Code Comparison")
     
     print("Comparing UMT5XXlTokenizer constructors...")
     
