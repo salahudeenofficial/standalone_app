@@ -1,6 +1,7 @@
-# import torch
-# import logging
-# import motion.model_management_standalone as model_management
+import torch
+import logging
+from motion import model_management_standalone as model_management
+from motion.model_patcher import ModelPatcher
 # from motion.model_management_standalone import get_torch_device, unet_offload_device, unet_dtype, unet_manual_cast, unet_inital_load_device, load_models_gpu
 # from standalone_model_patcher import create_model_patcher
 # from utils import calculate_parameters, weight_dtype, state_dict_prefix_replace, load_torch_file
@@ -533,7 +534,7 @@ class CLIP:
         self.tokenizer = tokenizer(tokenizer_data=tokenizer_data)
         
         # Create model patcher
-        self.patcher = model_management.ModelPatcher(self.cond_stage_model, load_device=load_device, offload_device=offload_device)
+        self.patcher = ModelPatcher(self.cond_stage_model, load_device=load_device, offload_device=offload_device)
 
     def load_sd(self, sd, full_model=False):
         """Load state dictionary"""
