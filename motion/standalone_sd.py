@@ -509,11 +509,14 @@ class TEModel(Enum):
     GEMMA_2_2B = 9
     QWEN25_3B = 10
     QWEN25_7B = 11
+from motion.utils import ProgressBar
+import motion.model_patcher
+import motion.hooks
+
 class CLIP:
     def __init__(self, target=None, embedding_directory=None, no_init=False, tokenizer_data={}, parameters=0, model_options={}):
         if no_init:
             return
-        
         params = target.params.copy()
         clip = target.clip
         tokenizer = target.tokenizer
@@ -529,36 +532,117 @@ class CLIP:
         params['model_options'] = model_options
 
         self.cond_stage_model = clip(**(params))
-        
-        # Initialize tokenizer (pass tokenizer_data by keyword to avoid arg mixup)
-        self.tokenizer = tokenizer(tokenizer_data=tokenizer_data)
-        
-        # Create model patcher
-        self.patcher = ModelPatcher(self.cond_stage_model, load_device=load_device, offload_device=offload_device)
 
-    def load_sd(self, sd, full_model=False):
-        """Load state dictionary"""
-        if full_model:
-            return self.cond_stage_model.load_state_dict(sd, strict=False)
+        for dt in self.cond_stage_model.dtypes:
+            if not model_management.supports_cast(load_device, dt):
+                load_device = offload_device
+                if params['device'] != offload_device:
+                    self.cond_stage_model.to(offload_device)
+                    logging.warning("Had to shift TE back.")
+
+        self.tokenizer = tokenizer(embedding_directory=embedding_directory, tokenizer_data=tokenizer_data)
+        self.patcher = comfy.model_patcher.ModelPatcher(self.cond_stage_model, load_device=load_device, offload_device=offload_device)
+        self.patcher.hook_mode = comfy.hooks.EnumHookMode.MinVram
+        self.patcher.is_clip = True
+        self.apply_hooks_to_conds = None
+        if params['device'] == load_device:
+            model_management.load_models_gpu([self.patcher], force_full_load=True)
+        self.layer_idx = None
+        self.use_clip_schedule = False
+        logging.info("CLIP/text encoder model load device: {}, offload device: {}, current: {}, dtype: {}".format(load_device, offload_device, params['device'], dtype))
+        self.tokenizer_options = {}
+
+    def clone(self):
+        n = CLIP(no_init=True)
+        n.patcher = self.patcher.clone()
+        n.cond_stage_model = self.cond_stage_model
+        n.tokenizer = self.tokenizer
+        n.layer_idx = self.layer_idx
+        n.tokenizer_options = self.tokenizer_options.copy()
+        n.use_clip_schedule = self.use_clip_schedule
+        n.apply_hooks_to_conds = self.apply_hooks_to_conds
+        return n
+
+    def add_patches(self, patches, strength_patch=1.0, strength_model=1.0):
+        return self.patcher.add_patches(patches, strength_patch, strength_model)
+
+    def set_tokenizer_option(self, option_name, value):
+        self.tokenizer_options[option_name] = value
+
+    def clip_layer(self, layer_idx):
+        self.layer_idx = layer_idx
+
+    def tokenize(self, text, return_word_ids=False, **kwargs):
+        cliptokenizer_options = kwargs.get("tokenizer_options", {})
+        if len(self.tokenizer_options) > 0:
+            tokenizer_options = {**self.tokenizer_options, **tokenizer_options}
+        if len(tokenizer_options) > 0:
+            kwargs["tokenizer_options"] = tokenizer_options
+        return self.tokenizer.tokenize_with_weights(text, return_word_ids, **kwargs)
+
+    def add_hooks_to_dict(self, pooled_dict: dict[str]):
+        if self.apply_hooks_to_conds:
+            pooled_dict["hooks"] = self.apply_hooks_to_conds
+        return pooled_dict
+
+    def encode_from_tokens_scheduled(self, tokens, unprojected=False, add_dict: dict[str]={}, show_pbar=True):
+        all_cond_pooled: list[tuple[torch.Tensor, dict[str]]] = []
+        all_hooks = self.patcher.forced_hooks
+        if all_hooks is None or not self.use_clip_schedule:
+            # if no hooks or shouldn't use clip schedule, do unscheduled encode_from_tokens and perform add_dict
+            return_pooled = "unprojected" if unprojected else True
+            pooled_dict = self.encode_from_tokens(tokens, return_pooled=return_pooled, return_dict=True)
+            cond = pooled_dict.pop("cond")
+            # add/update any keys with the provided add_dict
+            pooled_dict.update(add_dict)
+            all_cond_pooled.append([cond, pooled_dict])
         else:
-            return self.cond_stage_model.load_sd(sd)
+            scheduled_keyframes = all_hooks.get_hooks_for_clip_schedule()
 
-    def get_sd(self):
-        """Get state dictionary"""
-        sd_clip = self.cond_stage_model.state_dict()
-        sd_tokenizer = self.tokenizer.state_dict()
-        for k in sd_tokenizer:
-            sd_clip[k] = sd_tokenizer[k]
-        return sd_clip
+            self.cond_stage_model.reset_clip_options()
+            if self.layer_idx is not None:
+                self.cond_stage_model.set_clip_options({"layer": self.layer_idx})
+            if unprojected:
+                self.cond_stage_model.set_clip_options({"projected_pooled": False})
 
-    def load_model(self):
-        """Load model to GPU"""
-        model_management.load_model_gpu(self.patcher)
-        return self.patcher
+            self.load_model()
+            all_hooks.reset()
+            self.patcher.patch_hooks(None)
+            if show_pbar:
+                pbar = ProgressBar(len(scheduled_keyframes))
 
-    def get_key_patches(self):
-        """Get key patches"""
-        return self.patcher.get_key_patches()
+            for scheduled_opts in scheduled_keyframes:
+                t_range = scheduled_opts[0]
+                # don't bother encoding any conds outside of start_percent and end_percent bounds
+                if "start_percent" in add_dict:
+                    if t_range[1] < add_dict["start_percent"]:
+                        continue
+                if "end_percent" in add_dict:
+                    if t_range[0] > add_dict["end_percent"]:
+                        continue
+                hooks_keyframes = scheduled_opts[1]
+                for hook, keyframe in hooks_keyframes:
+                    hook.hook_keyframe._current_keyframe = keyframe
+                # apply appropriate hooks with values that match new hook_keyframe
+                self.patcher.patch_hooks(all_hooks)
+                # perform encoding as normal
+                o = self.cond_stage_model.encode_token_weights(tokens)
+                cond, pooled = o[:2]
+                pooled_dict = {"pooled_output": pooled}
+                # add clip_start_percent and clip_end_percent in pooled
+                pooled_dict["clip_start_percent"] = t_range[0]
+                pooled_dict["clip_end_percent"] = t_range[1]
+                # add/update any keys with the provided add_dict
+                pooled_dict.update(add_dict)
+                # add hooks stored on clip
+                self.add_hooks_to_dict(pooled_dict)
+                all_cond_pooled.append([cond, pooled_dict])
+                if show_pbar:
+                    pbar.update(1)
+                model_management.throw_exception_if_processing_interrupted()
+            all_hooks.reset()
+        return all_cond_pooled
+
 
 def detect_te_model(sd):
     if "text_model.encoder.layers.30.mlp.fc1.weight" in sd:
