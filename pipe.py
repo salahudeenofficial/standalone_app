@@ -274,7 +274,7 @@ def main():
     #     traceback.print_exc()
     #     return None
     from comps import CLIPLoader,CLIPTextEncode
-    clip = CLIPLoader()
+    clip = CLIPLoader().load_clip("./models/text_encoders/wan_clip_model.safetensors")
     clip_encode = CLIPTextEncode(clip)
     clip_encode.encode("a beautiful woman")
 
