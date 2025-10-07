@@ -281,7 +281,7 @@ def main():
     print("🔧 Loading CLIP using ComfyUI...")
     clip_path = "./models/text_encoders/wan_clip_model.safetensors"
     if os.path.exists(clip_path):
-        clip = comfy_sd.load_clip([clip_path], clip_type=comfy_sd.CLIPType.SD3)
+        clip = comfy_sd.load_clip([clip_path], clip_type=comfy_sd.CLIPType.WAN)
         print("✅ CLIP loaded successfully using ComfyUI")
         
         # Test encoding
