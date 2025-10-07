@@ -3,6 +3,7 @@ import torch
 import math
 import struct
 import motion.checkpoint_pickle
+import safetensors
 
 import numpy as np
 from PIL import Image
