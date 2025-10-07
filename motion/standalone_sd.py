@@ -176,7 +176,7 @@
 #         return noise_pred
 
 # class T5CLIPModel(nn.Module):
-#     """T5-XXL CLIP model class - ComfyUI-style implementation"""
+#     """T5-XXL CLIP model class - motionUI-style implementation"""
     
 #     def __init__(self, state_dict):
 #         super().__init__()
@@ -229,7 +229,7 @@
 #         # Create layer norm
 #         self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
         
-#         # Create dummy parameter for compatibility (ComfyUI pattern)
+#         # Create dummy parameter for compatibility (motionUI pattern)
 #         self.dummy_param = nn.Parameter(torch.randn(1))
         
 #         # Store dimensions
@@ -478,6 +478,7 @@ import motion.text_encoders.sd3_clip
 
 class CLIPType(Enum):
     WAN = 13
+    CLIP_G = 3
 
 class TEModel(Enum):
     T5_XXL = 4
@@ -534,11 +535,32 @@ class CLIP:
         return self.patcher.get_key_patches()
 
 def detect_te_model(sd):
-    """Detect if this is a T5-XXL model (required for WAN)"""
+    if "text_model.encoder.layers.30.mlp.fc1.weight" in sd:
+        return TEModel.CLIP_G
+    if "text_model.encoder.layers.22.mlp.fc1.weight" in sd:
+        return TEModel.CLIP_H
+    if "text_model.encoder.layers.0.mlp.fc1.weight" in sd:
+        return TEModel.CLIP_L
     if "encoder.block.23.layer.1.DenseReluDense.wi_1.weight" in sd:
         weight = sd["encoder.block.23.layer.1.DenseReluDense.wi_1.weight"]
         if weight.shape[-1] == 4096:
             return TEModel.T5_XXL
+        elif weight.shape[-1] == 2048:
+            return TEModel.T5_XL
+    if 'encoder.block.23.layer.1.DenseReluDense.wi.weight' in sd:
+        return TEModel.T5_XXL_OLD
+    if "encoder.block.0.layer.0.SelfAttention.k.weight" in sd:
+        return TEModel.T5_BASE
+    if 'model.layers.0.post_feedforward_layernorm.weight' in sd:
+        return TEModel.GEMMA_2_2B
+    if 'model.layers.0.self_attn.k_proj.bias' in sd:
+        weight = sd['model.layers.0.self_attn.k_proj.bias']
+        if weight.shape[0] == 256:
+            return TEModel.QWEN25_3B
+        if weight.shape[0] == 512:
+            return TEModel.QWEN25_7B
+    if "model.layers.0.post_attention_layernorm.weight" in sd:
+        return TEModel.LLAMA3_8
     return None
 
 
@@ -561,30 +583,24 @@ def load_clip(ckpt_paths, embedding_directory=None, clip_type="wan", model_optio
     for p in ckpt_paths:
         clip_data.append(motion.utils.load_torch_file(p, safe_load=True))
     return load_text_encoder_state_dicts(clip_data, embedding_directory=embedding_directory, clip_type=clip_type, model_options=model_options)
-
-def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip_type="wan", model_options={}):
-    """Load text encoder from state dictionaries"""
+def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip_type=CLIPType.STABLE_DIFFUSION, model_options={}):
     clip_data = state_dicts
 
     class EmptyClass:
         pass
 
-    # Convert transformer format if needed
     for i in range(len(clip_data)):
         if "transformer.resblocks.0.ln_1.weight" in clip_data[i]:
             clip_data[i] = motion.utils.clip_text_transformers_convert(clip_data[i], "", "")
         else:
             if "text_projection" in clip_data[i]:
-                clip_data[i]["text_projection.weight"] = clip_data[i]["text_projection"].transpose(0, 1)
+                clip_data[i]["text_projection.weight"] = clip_data[i]["text_projection"].transpose(0, 1) #old models saved with the CLIPSave node
 
     tokenizer_data = {}
     clip_target = EmptyClass()
     clip_target.params = {}
-    
     if len(clip_data) == 1:
         te_model = detect_te_model(clip_data[0])
-        from motion import sdxl_clip
-        # Model-specific loading logic
         if te_model == TEModel.CLIP_G:
             if clip_type == CLIPType.STABLE_CASCADE:
                 clip_target.clip = sdxl_clip.StableCascadeClipModel
@@ -592,32 +608,132 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
             elif clip_type == CLIPType.SD3:
                 clip_target.clip = motion.text_encoders.sd3_clip.sd3_clip(clip_l=False, clip_g=True, t5=False)
                 clip_target.tokenizer = motion.text_encoders.sd3_clip.SD3Tokenizer
-            # ... (additional model type handling)
-        
+            elif clip_type == CLIPType.HIDREAM:
+                clip_target.clip = motion.text_encoders.hidream.hidream_clip(clip_l=False, clip_g=True, t5=False, llama=False, dtype_t5=None, dtype_llama=None, t5xxl_scaled_fp8=None, llama_scaled_fp8=None)
+                clip_target.tokenizer = motion.text_encoders.hidream.HiDreamTokenizer
+            else:
+                clip_target.clip = sdxl_clip.SDXLRefinerClipModel
+                clip_target.tokenizer = sdxl_clip.SDXLTokenizer
+        elif te_model == TEModel.CLIP_H:
+            clip_target.clip = motion.text_encoders.sd2_clip.SD2ClipModel
+            clip_target.tokenizer = motion.text_encoders.sd2_clip.SD2Tokenizer
         elif te_model == TEModel.T5_XXL:
             if clip_type == CLIPType.SD3:
                 clip_target.clip = motion.text_encoders.sd3_clip.sd3_clip(clip_l=False, clip_g=False, t5=True, **t5xxl_detect(clip_data))
                 clip_target.tokenizer = motion.text_encoders.sd3_clip.SD3Tokenizer
+            elif clip_type == CLIPType.LTXV:
+                clip_target.clip = motion.text_encoders.lt.ltxv_te(**t5xxl_detect(clip_data))
+                clip_target.tokenizer = motion.text_encoders.lt.LTXVT5Tokenizer
+            elif clip_type == CLIPType.PIXART or clip_type == CLIPType.CHROMA:
+                clip_target.clip = motion.text_encoders.pixart_t5.pixart_te(**t5xxl_detect(clip_data))
+                clip_target.tokenizer = motion.text_encoders.pixart_t5.PixArtTokenizer
             elif clip_type == CLIPType.WAN:
                 clip_target.clip = motion.text_encoders.wan.te(**t5xxl_detect(clip_data))
                 clip_target.tokenizer = motion.text_encoders.wan.WanT5Tokenizer
                 tokenizer_data["spiece_model"] = clip_data[0].get("spiece_model", None)
-            # ... (additional T5 model handling)
+            elif clip_type == CLIPType.HIDREAM:
+                clip_target.clip = motion.text_encoders.hidream.hidream_clip(**t5xxl_detect(clip_data),
+                                                                        clip_l=False, clip_g=False, t5=True, llama=False, dtype_llama=None, llama_scaled_fp8=None)
+                clip_target.tokenizer = motion.text_encoders.hidream.HiDreamTokenizer
+            else: #CLIPType.MOCHI
+                clip_target.clip = motion.text_encoders.genmo.mochi_te(**t5xxl_detect(clip_data))
+                clip_target.tokenizer = motion.text_encoders.genmo.MochiT5Tokenizer
+        elif te_model == TEModel.T5_XXL_OLD:
+            clip_target.clip = motion.text_encoders.cosmos.te(**t5xxl_detect(clip_data))
+            clip_target.tokenizer = motion.text_encoders.cosmos.CosmosT5Tokenizer
+        elif te_model == TEModel.T5_XL:
+            clip_target.clip = motion.text_encoders.aura_t5.AuraT5Model
+            clip_target.tokenizer = motion.text_encoders.aura_t5.AuraT5Tokenizer
+        elif te_model == TEModel.T5_BASE:
+            if clip_type == CLIPType.ACE or "spiece_model" in clip_data[0]:
+                clip_target.clip = motion.text_encoders.ace.AceT5Model
+                clip_target.tokenizer = motion.text_encoders.ace.AceT5Tokenizer
+                tokenizer_data["spiece_model"] = clip_data[0].get("spiece_model", None)
+            else:
+                clip_target.clip = motion.text_encoders.sa_t5.SAT5Model
+                clip_target.tokenizer = motion.text_encoders.sa_t5.SAT5Tokenizer
+        elif te_model == TEModel.GEMMA_2_2B:
+            clip_target.clip = motion.text_encoders.lumina2.te(**llama_detect(clip_data))
+            clip_target.tokenizer = motion.text_encoders.lumina2.LuminaTokenizer
+            tokenizer_data["spiece_model"] = clip_data[0].get("spiece_model", None)
+        elif te_model == TEModel.LLAMA3_8:
+            clip_target.clip = motion.text_encoders.hidream.hidream_clip(**llama_detect(clip_data),
+                                                                        clip_l=False, clip_g=False, t5=False, llama=True, dtype_t5=None, t5xxl_scaled_fp8=None)
+            clip_target.tokenizer = motion.text_encoders.hidream.HiDreamTokenizer
+        elif te_model == TEModel.QWEN25_3B:
+            clip_target.clip = motion.text_encoders.omnigen2.te(**llama_detect(clip_data))
+            clip_target.tokenizer = motion.text_encoders.omnigen2.Omnigen2Tokenizer
+        elif te_model == TEModel.QWEN25_7B:
+            clip_target.clip = motion.text_encoders.qwen_image.te(**llama_detect(clip_data))
+            clip_target.tokenizer = motion.text_encoders.qwen_image.QwenImageTokenizer
+        else:
+            # clip_l
+            if clip_type == CLIPType.SD3:
+                clip_target.clip = motion.text_encoders.sd3_clip.sd3_clip(clip_l=True, clip_g=False, t5=False)
+                clip_target.tokenizer = motion.text_encoders.sd3_clip.SD3Tokenizer
+            elif clip_type == CLIPType.HIDREAM:
+                clip_target.clip = motion.text_encoders.hidream.hidream_clip(clip_l=True, clip_g=False, t5=False, llama=False, dtype_t5=None, dtype_llama=None, t5xxl_scaled_fp8=None, llama_scaled_fp8=None)
+                clip_target.tokenizer = motion.text_encoders.hidream.HiDreamTokenizer
+            else:
+                clip_target.clip = sd1_clip.SD1ClipModel
+                clip_target.tokenizer = sd1_clip.SD1Tokenizer
+    elif len(clip_data) == 2:
+        if clip_type == CLIPType.SD3:
+            te_models = [detect_te_model(clip_data[0]), detect_te_model(clip_data[1])]
+            clip_target.clip = motion.text_encoders.sd3_clip.sd3_clip(clip_l=TEModel.CLIP_L in te_models, clip_g=TEModel.CLIP_G in te_models, t5=TEModel.T5_XXL in te_models, **t5xxl_detect(clip_data))
+            clip_target.tokenizer = motion.text_encoders.sd3_clip.SD3Tokenizer
+        elif clip_type == CLIPType.HUNYUAN_DIT:
+            clip_target.clip = motion.text_encoders.hydit.HyditModel
+            clip_target.tokenizer = motion.text_encoders.hydit.HyditTokenizer
+        elif clip_type == CLIPType.FLUX:
+            clip_target.clip = motion.text_encoders.flux.flux_clip(**t5xxl_detect(clip_data))
+            clip_target.tokenizer = motion.text_encoders.flux.FluxTokenizer
+        elif clip_type == CLIPType.HUNYUAN_VIDEO:
+            clip_target.clip = motion.text_encoders.hunyuan_video.hunyuan_video_clip(**llama_detect(clip_data))
+            clip_target.tokenizer = motion.text_encoders.hunyuan_video.HunyuanVideoTokenizer
+        elif clip_type == CLIPType.HIDREAM:
+            # Detect
+            hidream_dualclip_classes = []
+            for hidream_te in clip_data:
+                te_model = detect_te_model(hidream_te)
+                hidream_dualclip_classes.append(te_model)
 
+            clip_l = TEModel.CLIP_L in hidream_dualclip_classes
+            clip_g = TEModel.CLIP_G in hidream_dualclip_classes
+            t5 = TEModel.T5_XXL in hidream_dualclip_classes
+            llama = TEModel.LLAMA3_8 in hidream_dualclip_classes
+
+            # Initialize t5xxl_detect and llama_detect kwargs if needed
+            t5_kwargs = t5xxl_detect(clip_data) if t5 else {}
+            llama_kwargs = llama_detect(clip_data) if llama else {}
+
+            clip_target.clip = motion.text_encoders.hidream.hidream_clip(clip_l=clip_l, clip_g=clip_g, t5=t5, llama=llama, **t5_kwargs, **llama_kwargs)
+            clip_target.tokenizer = motion.text_encoders.hidream.HiDreamTokenizer
+        else:
+            clip_target.clip = sdxl_clip.SDXLClipModel
+            clip_target.tokenizer = sdxl_clip.SDXLTokenizer
+    elif len(clip_data) == 3:
+        clip_target.clip = motion.text_encoders.sd3_clip.sd3_clip(**t5xxl_detect(clip_data))
+        clip_target.tokenizer = motion.text_encoders.sd3_clip.SD3Tokenizer
+    elif len(clip_data) == 4:
+        clip_target.clip = motion.text_encoders.hidream.hidream_clip(**t5xxl_detect(clip_data), **llama_detect(clip_data))
+        clip_target.tokenizer = motion.text_encoders.hidream.HiDreamTokenizer
 
     parameters = 0
-    for c in clip_target.clip_data:
+    for c in clip_data:
         parameters += motion.utils.calculate_parameters(c)
-        tokenizer_data, model_options = model_options_long_clip(c, tokenizer_data, model_options)
- 
-    # Create CLIP instance
-    clip = CLIP(target=clip_target, embedding_directory=embedding_directory, tokenizer_data=tokenizer_data, parameters=parameters, model_options=model_options)
-    
-    # Load state dicts
-    for c in clip_target.clip_data:
-        clip.load_sd(c)
-    
-    return clip    
+        tokenizer_data, model_options = motion.text_encoders.long_clipl.model_options_long_clip(c, tokenizer_data, model_options)
+
+    clip = CLIP(clip_target, embedding_directory=embedding_directory, parameters=parameters, tokenizer_data=tokenizer_data, model_options=model_options)
+    for c in clip_data:
+        m, u = clip.load_sd(c)
+        if len(m) > 0:
+            logging.warning("clip missing: {}".format(m))
+
+        if len(u) > 0:
+            logging.debug("clip unexpected: {}".format(u))
+    return clip
+
 def model_options_long_clip(sd, tokenizer_data, model_options):
     w = sd.get("clip_l.text_model.embeddings.position_embedding.weight", None)
     if w is None:
