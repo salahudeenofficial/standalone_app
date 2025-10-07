@@ -557,6 +557,15 @@ class PureVaceWanModel(PureWanModel):
                  dtype=None):
 
         super().__init__(model_type='t2v', patch_size=patch_size, text_len=text_len, in_dim=in_dim, dim=dim, ffn_dim=ffn_dim, freq_dim=freq_dim, text_dim=text_dim, out_dim=out_dim, num_heads=num_heads, num_layers=num_layers, window_size=window_size, qk_norm=qk_norm, cross_attn_norm=cross_attn_norm, eps=eps, flf_pos_embed_token_number=flf_pos_embed_token_number, image_model=image_model, device=device, dtype=dtype)
+        
+        # Add latent_format attribute for compatibility with fix_empty_latent_channels()
+        class VaceLatentFormat:
+            """Latent format for VACE WAN models"""
+            def __init__(self):
+                self.latent_channels = 16  # WAN format uses 16 channels
+                self.latent_dimensions = 3  # 3D latents: [B, C, T, H, W]
+        
+        self.latent_format = VaceLatentFormat()
 
         # VACE-specific components
         if vace_layers is not None:

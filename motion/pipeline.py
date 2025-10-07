@@ -25,7 +25,8 @@ os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
 # Import motion modules
 from standalone_vae import VAE, create_vae
-from wan_vae_components.model_management import get_torch_device, unet_offload_device
+import motion.model_management_standalone as model_management
+from motion.model_management_standalone import get_torch_device, unet_offload_device
 from utils import load_torch_file, calculate_parameters
 from standalone_sd import load_state_dict_guess_config
 from lora import load_lora_for_models
@@ -461,28 +462,28 @@ class WanVideoPipeline:
             control_video = None
             if control_video_path and os.path.exists(control_video_path):
                 control_video = self.load_video(control_video_path)
-            else:
+                else:
                 # Use real video file for testing (safu.mp4)
                 real_video_path = "safu.mp4"
                 if os.path.exists(real_video_path):
                     print(f"🎬 Using real video file: {real_video_path}")
                     control_video = self.load_video(real_video_path)
-                else:
+            else:
                     print(f"⚠️  Real video file not found: {real_video_path}")
                     print(f"   Creating dummy control video for testing")
-                    control_video = torch.rand(length, height, width, 3)
+                control_video = torch.rand(length, height, width, 3)
             
             # Load reference image
             reference_image = None
             if reference_image_path and os.path.exists(reference_image_path):
                 reference_image = self.load_image(reference_image_path)
-            else:
+                else:
                 # Use real reference image for testing (safu.jpg)
                 real_image_path = "safu.jpg"
                 if os.path.exists(real_image_path):
                     print(f"🖼️  Using real reference image: {real_image_path}")
                     reference_image = self.load_image(real_image_path)
-                else:
+            else:
                     print(f"⚠️  Real reference image not found: {real_image_path}")
                     print(f"   No reference image will be used")
             
@@ -493,7 +494,7 @@ class WanVideoPipeline:
                     control_video[:length].movedim(-1, 1), 
                     width, height, "bilinear", "center"
                 ).movedim(1, -1)
-                if control_video.shape[0] < length:
+            if control_video.shape[0] < length:
                     control_video = torch.nn.functional.pad(
                         control_video, (0, 0, 0, 0, 0, 0, 0, length - control_video.shape[0]), 
                         value=0.5
@@ -1279,7 +1280,7 @@ class WanVideoPipeline:
             # Prepare noise for initial latent
             # Use standalone motion pipeline sample module (following Disclaimer.txt guidelines)
             from sample import fix_empty_latent_channels
-            initial_latent = fix_empty_latent_channels(self.unet, initial_latent)
+                initial_latent = fix_empty_latent_channels(self.unet, initial_latent)
             
             noise = prepare_noise(initial_latent, seed, noise_inds)
             
@@ -1334,7 +1335,7 @@ class WanVideoPipeline:
             
             # Clear CUDA cache
             if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
             
             # DETAILED STEP 4 OUTPUT ANALYSIS
             print(f"\n📊 STEP 4 OUTPUT ANALYSIS:")

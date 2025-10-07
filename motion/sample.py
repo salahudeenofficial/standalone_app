@@ -11,7 +11,8 @@ import math
 from typing import Optional, Union, Callable, Any
 
 # Import motion utilities
-from wan_vae_components.model_management import get_torch_device, unet_offload_device
+import motion.model_management_standalone as model_management
+from motion.model_management_standalone import get_torch_device, unet_offload_device
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -95,6 +96,14 @@ def fix_empty_latent_channels(model, latent_image):
             # Special handling for PureVaceWanModel and similar models
             if hasattr(model, '__class__') and 'Vace' in model.__class__.__name__:
                 # Assume WAN format: 16 channels, 3D latent
+                latent_format = type('LatentFormat', (), {
+                    'latent_channels': 16,
+                    'latent_dimensions': 3
+                })()
+            # Special handling for ModelPatcher containing PureVaceWanModel
+            elif (hasattr(model, 'model') and hasattr(model.model, '__class__') 
+                  and 'Vace' in model.model.__class__.__name__):
+                # ModelPatcher contains PureVaceWanModel - assume WAN format
                 latent_format = type('LatentFormat', (), {
                     'latent_channels': 16,
                     'latent_dimensions': 3

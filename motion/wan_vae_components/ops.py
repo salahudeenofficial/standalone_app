@@ -7,9 +7,10 @@ import torch
 import torch.nn as nn
 import contextlib
 from typing import Optional, List, Callable
-from .model_management import cast_to, get_offload_stream, device_supports_non_blocking, sync_stream, supports_fp8_compute
+import motion.model_management_standalone as model_management
+from motion.model_management_standalone import cast_to, get_offload_stream, device_supports_non_blocking, sync_stream, supports_fp8_compute
 from .float import stochastic_rounding
-from .rmsnorm import RMSNorm
+from motion.ops import RMSNorm
 
 
 class CastWeightBiasOp:

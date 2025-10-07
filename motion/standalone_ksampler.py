@@ -14,7 +14,8 @@ from typing import Dict, Any, Optional, Callable, Tuple, Union
 from functools import partial
 
 # Import motion modules
-from wan_vae_components.model_management import get_torch_device, unet_offload_device, empty_cache, get_free_memory
+import motion.model_management_standalone as model_management
+from motion.model_management_standalone import get_torch_device, unet_offload_device, empty_cache, get_free_memory
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

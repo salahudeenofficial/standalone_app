@@ -999,7 +999,8 @@ class VAE:
             memory_used = self.memory_used_encode(pixel_samples.shape, self.vae_dtype)
             
             # Load models to GPU (ComfyUI style)
-            from wan_vae_components.model_management import load_models_gpu, get_free_memory
+            import motion.model_management_standalone as model_management
+            from motion.model_management_standalone import load_models_gpu, get_free_memory
             load_models_gpu([self.patcher], memory_required=memory_used, force_full_load=self.disable_offload)
             free_memory = get_free_memory(self.device)
             batch_number = int(free_memory / max(1, memory_used))

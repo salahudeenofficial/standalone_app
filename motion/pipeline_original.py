@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent / "comfy"))
 
 # NOW import ComfyUI modules AFTER setting argv and environment
 import comfy.cli_args
-import comfy.model_management
+import motion.model_management_standalone as model_management
 
 # Initialize ComfyUI CLI arguments system
 comfy.cli_args.args = comfy.cli_args.parser.parse_args()
@@ -171,7 +171,7 @@ class ReferenceVideoPipeline:
             
             # Import ComfyUI's model loading functions
             import comfy.sd
-            import comfy.model_management
+            import motion.model_management_standalone as model_management
             # Load UNET with proper WAN model detection
             print("1a. Loading UNET with automatic WAN detection...")
             unet_state_dict = comfy.utils.load_torch_file(unet_model_path)
@@ -417,10 +417,10 @@ class ReferenceVideoPipeline:
 
             # Force all models out of GPU memory before VAE encoding
             print("🔧 Forcing all models out of GPU memory before VAE encoding...")
-            import comfy.model_management
+            import motion.model_management_standalone as model_management
 
 
-            comfy.model_management.free_memory(0, "cuda")  # Free all memory on GPU 0
+            model_management.free_memory(0, "cuda")  # Free all memory on GPU 0
             torch.cuda.empty_cache()
             
             # Check available memory after cleanup
@@ -465,7 +465,7 @@ class ReferenceVideoPipeline:
             negative_cond = node_helpers.conditioning_set_values(negative_cond, {"vace_frames": [control_video_latent], "vace_mask": [mask], "vace_strength": [strength]}, append=True)
 
             # Allocate output latent (container) on intermediate device - exactly like WAN VAE-to-Video node
-            latent = torch.zeros([batch_size, 16, latent_length, height // 8, width // 8], device=comfy.model_management.intermediate_device())
+            latent = torch.zeros([batch_size, 16, latent_length, height // 8, width // 8], device=model_management.intermediate_device())
             out_latent = {"samples": latent}
 
             # Preserve variable names used later if any logging expects them

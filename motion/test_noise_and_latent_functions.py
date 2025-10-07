@@ -354,12 +354,15 @@ def load_vace_unet_model():
                 # Try alternative approach for PureVaceWanModel
                 if hasattr(unet_model, 'model') and 'Vace' in unet_model.model.__class__.__name__:
                     print(f"   🔄 Detected PureVaceWanModel - using alternative approach")
-                    # Create mock latent format for testing
-                    class MockLatentFormat:
+                    # Create a proper latent format object for PureVaceWanModel
+                    class PureVaceLatentFormat:
                         def __init__(self):
                             self.latent_channels = 16
                             self.latent_dimensions = 3
-                    unet_model._mock_latent_format = MockLatentFormat()
+                    
+                    # Store as a proper latent format for get_model_object
+                    unet_model._latent_format = PureVaceLatentFormat()
+                    print(f"   ✅ Created PureVace latent format: 16 channels, 3D")
             
             print(f"   ✅ ModelPatcher interface tested successfully")
         else:
