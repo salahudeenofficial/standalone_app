@@ -62,3 +62,6 @@ class WAN21_Vace(WAN21_T2V):
     def get_model(self, state_dict, prefix="", device=None):
         out = motion.model_base.WAN21_Vace(self, image_to_video=False, device=device)
         return out
+
+# List of all supported models for model detection
+models = [WAN21_T2V, WAN21_Vace]
