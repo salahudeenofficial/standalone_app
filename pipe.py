@@ -273,10 +273,13 @@ def main():
     #     import traceback
     #     traceback.print_exc()
     #     return None
-    from motion.comps import CLIPLoader,CLIPTextEncode
-    clip = CLIPLoader("wan_clip_model.safetensors").load_clip()
-    clip_encode = CLIPTextEncode(clip)
-    clip_encode.encode("a beautiful woman")
+    # from motion.comps import CLIPLoader,CLIPTextEncode
+    # clip = CLIPLoader("wan_clip_model.safetensors").load_clip()
+    # clip_encode = CLIPTextEncode(clip)
+    # clip_encode.encode("a beautiful woman")
+    from motion.comps import UNETLoader
+    unet_loader = UNETLoader("wan_2.1_diffusion_model.safetensors", "default")
+    unet = unet_loader.load_unet()
 
 if __name__ == "__main__":
     main()
