@@ -21,9 +21,27 @@ class UNETLoader:
         elif self.weight_dtype == "fp8_e5m2":
             model_options["dtype"] = torch.float8_e5m2
 
-        unet_path = os.path.join("./models/diffusion_models", self.model_path)
-        if not os.path.exists(unet_path):
-            print(f"⚠️  UNET model not found: {unet_path}")
+        # Try multiple possible paths for the model
+        possible_paths = [
+            os.path.join("./models/diffusion_models", self.model_path),
+            os.path.join(os.getcwd(), "models/diffusion_models", self.model_path),
+            os.path.join(os.path.dirname(__file__), "..", "models/diffusion_models", self.model_path),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models/diffusion_models", self.model_path)
+        ]
+        
+        unet_path = None
+        for path in possible_paths:
+            abs_path = os.path.abspath(path)
+            if os.path.exists(abs_path):
+                unet_path = abs_path
+                print(f"✅ Found UNET model at: {unet_path}")
+                break
+        
+        if unet_path is None:
+            print(f"⚠️  UNET model not found in any of these locations:")
+            for path in possible_paths:
+                abs_path = os.path.abspath(path)
+                print(f"   - {abs_path} (exists: {os.path.exists(abs_path)})")
             print("🔧 Creating mock UNet for testing...")
             
             # Create mock UNet
