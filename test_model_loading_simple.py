@@ -50,27 +50,40 @@ def test_unet_loading():
         print(f"   Type: {type(unet).__name__}")
         
         # Check if it's a real model or mock
-        if hasattr(unet, 'parameters'):
-            print(f"   Device: {next(unet.parameters()).device}")
-            param_count = sum(p.numel() for p in unet.parameters())
-            print(f"   Parameters: {param_count:,}")
-            
-            # Test forward pass
-            print("🧪 Testing forward pass...")
-            dummy_latent = torch.randn(1, 4, 64, 48, device=next(unet.parameters()).device)
-            dummy_timestep = torch.tensor([100], device=next(unet.parameters()).device)
-            
-            with torch.no_grad():
-                start_time = time.time()
-                output = unet(dummy_latent, dummy_timestep)
-                end_time = time.time()
-                
-            print(f"✅ Forward pass successful!")
-            print(f"   Input: {dummy_latent.shape} -> Output: {output.shape}")
-            print(f"   Time: {(end_time - start_time)*1000:.2f} ms")
-        else:
+        if hasattr(unet, 'patches_uuid') and unet.patches_uuid == "mock-unet-uuid":
             print("   ⚠️  Mock UNet (no model file found)")
             print("   This means the model file path check failed in UNETLoader")
+        else:
+            print("   ✅ Real UNet model loaded!")
+            
+            # For ModelPatcher, we need to access the underlying model
+            if hasattr(unet, 'model'):
+                underlying_model = unet.model
+                print(f"   Underlying model type: {type(underlying_model).__name__}")
+                
+                if hasattr(underlying_model, 'parameters'):
+                    device = next(underlying_model.parameters()).device
+                    param_count = sum(p.numel() for p in underlying_model.parameters())
+                    print(f"   Device: {device}")
+                    print(f"   Parameters: {param_count:,}")
+                    
+                    # Test forward pass
+                    print("🧪 Testing forward pass...")
+                    dummy_latent = torch.randn(1, 4, 64, 48, device=device)
+                    dummy_timestep = torch.tensor([100], device=device)
+                    
+                    with torch.no_grad():
+                        start_time = time.time()
+                        output = underlying_model(dummy_latent, dummy_timestep)
+                        end_time = time.time()
+                        
+                    print(f"✅ Forward pass successful!")
+                    print(f"   Input: {dummy_latent.shape} -> Output: {output.shape}")
+                    print(f"   Time: {(end_time - start_time)*1000:.2f} ms")
+                else:
+                    print("   ⚠️  Underlying model doesn't have parameters method")
+            else:
+                print("   ⚠️  ModelPatcher doesn't have underlying model attribute")
         
         return unet
         
@@ -215,12 +228,26 @@ def debug_unet_loader():
         unet = unet_loader.load_unet()
         
         print(f"   Returned object type: {type(unet).__name__}")
-        print(f"   Has parameters: {hasattr(unet, 'parameters')}")
         
         if hasattr(unet, 'patches_uuid'):
             print(f"   Patches UUID: {unet.patches_uuid}")
             if unet.patches_uuid == "mock-unet-uuid":
                 print("   ⚠️  This is a MOCK UNet - the real model file was not found!")
+            else:
+                print("   ✅ This is a REAL UNet model!")
+                
+                # Check ModelPatcher structure
+                if hasattr(unet, 'model'):
+                    print(f"   Underlying model: {type(unet.model).__name__}")
+                    if hasattr(unet.model, 'parameters'):
+                        param_count = sum(p.numel() for p in unet.model.parameters())
+                        print(f"   Model parameters: {param_count:,}")
+                    else:
+                        print("   ⚠️  Underlying model has no parameters method")
+                else:
+                    print("   ⚠️  ModelPatcher has no underlying model")
+        else:
+            print("   ⚠️  No patches_uuid attribute found")
         
         return unet
         
