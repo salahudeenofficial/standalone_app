@@ -17,9 +17,7 @@ echo "✅ Activating virtual environment..."
 source ./venv/bin/activate
 
 echo "🔥 Installing PyTorch with CUDA 13.0 support..."
-
-pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu121
-
+pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu130
 
 echo "📦 Installing project requirements..."
 pip install -r requirements.txt

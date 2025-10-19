@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Dict, Any, Tuple, Optional, Union
 
-os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+os.environ['PYTORCH_ALLOC_CONF'] = 'expandable_segments:True'
 
 def step_1_vae_and_latent_creation(vae_model_path: str, positive_prompt: str = "", negative_prompt: str = "",
                                   control_video_path: Optional[str] = None, reference_image_path: Optional[str] = None,
