@@ -3,7 +3,7 @@ set -e  # Exit immediately if a command exits with a non-zero status
 
 echo "🔧 Installing system dependencies..."
 
-sudo add-apt-repository ppa:deadsnakes/ppa 
+sudo add-apt-repository ppa:deadsnakes/ppa -y
 echo "📦 Updating package list..."
 sudo apt update
 
@@ -17,7 +17,9 @@ echo "✅ Activating virtual environment..."
 source ./venv/bin/activate
 
 echo "🔥 Installing PyTorch with CUDA 13.0 support..."
-pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu130
+
+pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu121
+
 
 echo "📦 Installing project requirements..."
 pip install -r requirements.txt
