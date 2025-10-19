@@ -71,10 +71,12 @@ def test_unet_loading():
                     print("🧪 Testing forward pass...")
                     dummy_latent = torch.randn(1, 4, 64, 48, device=device)
                     dummy_timestep = torch.tensor([100], device=device)
+                    dummy_context = torch.randn(1, 512, 4096, device=device)  # Add context parameter
                     
                     with torch.no_grad():
                         start_time = time.time()
-                        output = underlying_model(dummy_latent, dummy_timestep)
+                        # Call with proper parameters: (x, timestep, context, ...)
+                        output = underlying_model(dummy_latent, dummy_timestep, dummy_context)
                         end_time = time.time()
                         
                     print(f"✅ Forward pass successful!")
