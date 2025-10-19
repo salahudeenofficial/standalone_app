@@ -21,8 +21,29 @@ def test_unet_loading():
     try:
         from motion.comps import UNETLoader
         
-        print("📥 Loading UNet model...")
-        unet_loader = UNETLoader("wan_2.1_diffusion_model.safetensors", "default")
+        # Check model file existence first
+        model_filename = "wan_2.1_diffusion_model.safetensors"
+        expected_path = f"./models/diffusion_models/{model_filename}"
+        
+        print(f"🔍 Checking model file: {expected_path}")
+        print(f"   Current working directory: {os.getcwd()}")
+        print(f"   File exists: {os.path.exists(expected_path)}")
+        
+        if os.path.exists(expected_path):
+            file_size = os.path.getsize(expected_path)
+            print(f"   File size: {file_size / (1024**3):.2f} GB")
+        else:
+            print("   ❌ Model file not found!")
+            print("   📁 Checking if models directory exists...")
+            print(f"   models/ exists: {os.path.exists('./models')}")
+            print(f"   models/diffusion_models/ exists: {os.path.exists('./models/diffusion_models')}")
+            
+            if os.path.exists('./models/diffusion_models'):
+                files_in_dir = os.listdir('./models/diffusion_models')
+                print(f"   Files in models/diffusion_models/: {files_in_dir}")
+        
+        print("\n📥 Loading UNet model...")
+        unet_loader = UNETLoader(model_filename, "default")
         unet = unet_loader.load_unet()
         
         print(f"✅ UNet loaded successfully!")
@@ -49,6 +70,7 @@ def test_unet_loading():
             print(f"   Time: {(end_time - start_time)*1000:.2f} ms")
         else:
             print("   ⚠️  Mock UNet (no model file found)")
+            print("   This means the model file path check failed in UNETLoader")
         
         return unet
         
@@ -165,6 +187,49 @@ def test_pipe_functions():
         traceback.print_exc()
         return None
 
+def debug_unet_loader():
+    """Debug the UNETLoader code path step by step"""
+    print("\n" + "="*60)
+    print("🔍 DEBUGGING UNET LOADER CODE PATH")
+    print("="*60)
+    
+    try:
+        from motion.comps import UNETLoader
+        
+        model_filename = "wan_2.1_diffusion_model.safetensors"
+        print(f"📝 Creating UNETLoader with filename: {model_filename}")
+        
+        unet_loader = UNETLoader(model_filename, "default")
+        print(f"   UNETLoader created successfully")
+        print(f"   Model path: {unet_loader.model_path}")
+        print(f"   Weight dtype: {unet_loader.weight_dtype}")
+        
+        # Manually check the path construction
+        import os
+        constructed_path = os.path.join("./models/diffusion_models", unet_loader.model_path)
+        print(f"   Constructed path: {constructed_path}")
+        print(f"   Path exists: {os.path.exists(constructed_path)}")
+        
+        # Check what happens in load_unet
+        print(f"\n🔧 Calling load_unet()...")
+        unet = unet_loader.load_unet()
+        
+        print(f"   Returned object type: {type(unet).__name__}")
+        print(f"   Has parameters: {hasattr(unet, 'parameters')}")
+        
+        if hasattr(unet, 'patches_uuid'):
+            print(f"   Patches UUID: {unet.patches_uuid}")
+            if unet.patches_uuid == "mock-unet-uuid":
+                print("   ⚠️  This is a MOCK UNet - the real model file was not found!")
+        
+        return unet
+        
+    except Exception as e:
+        print(f"❌ Debug failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
+
 def main():
     """Main test function"""
     print("🚀 SIMPLE MODEL LOADING TEST")
@@ -175,6 +240,9 @@ def main():
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name()}")
         print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+    
+    # Debug the UNETLoader first
+    debug_unet_loader()
     
     # Test individual components
     print("\n🧪 TESTING INDIVIDUAL COMPONENTS")
