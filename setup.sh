@@ -2,8 +2,8 @@
 set -e  # Exit immediately if a command exits with a non-zero status
 
 echo "🔧 Installing system dependencies..."
-sudo apt install -y software-properties-common
 
+sudo add-apt-repository ppa:deadsnakes/ppa 
 echo "📦 Updating package list..."
 sudo apt update
 
